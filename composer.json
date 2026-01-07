@@ -2,7 +2,7 @@
 	"name": "antoniogweb/php2xai",
 	"description": "AI framework with a PHP frontend and a C++ runtime.",
 	"type": "library",
-	"license": "MIT",
+	"license": "GPL-3.0-only",
 	"autoload": {
 		"psr-4": {
 		"PHP2xAI\\": "src/"
