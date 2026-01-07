@@ -1,0 +1,23 @@
+PHP2xAI is an  AI framework with a PHP frontend and a C++ runtime for training and inference of custom neural networks. PHP manages datasets, computational graph configuration, and training orchestration, while the C++ runtime executes high-performance numerical computations.
+Copyright (C) 2024 - 2025 Antonio Gallo (info@laboratoriolibero.com)
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+PHP2xAI includes works distributed under the licenses listed below.
+
+nlohmann/json
+-------
+C++ library to parse JSON
+License:	License:	The MIT License (MIT)
+link: 		https://github.com/nlohmann/json
