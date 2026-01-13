@@ -2,8 +2,8 @@
 
 namespace PHP2xAI\Runtime\PHP\Datasets;
 
+use PHP2xAI\Tensor\Matrix;
 use PHP2xAI\Tensor\Vector;
-use PHP2xAI\Tensor\Scalar;
 
 class StreamFileDataset implements \IteratorAggregate
 {
@@ -21,6 +21,8 @@ class StreamFileDataset implements \IteratorAggregate
 	private array $batchOrder = [];
 
 	private int $numLines = 0;
+	private int $curBatchPos = 0;
+	private int $curInBatch = 0;
 
 	public function __construct(string $path, int $batchSize, string $delimiter = '|')
 	{
@@ -62,12 +64,12 @@ class StreamFileDataset implements \IteratorAggregate
 		return $this->path;
 	}
 	
-	public function getXPlaceholder() : ?Vector
+	public function getXPlaceholder() : ?Matrix
 	{
 		return $this->xPlaceholder;
 	}
 	
-	public function getYPlaceholder() : ?Vector
+	public function getYPlaceholder() : ?Matrix
 	{
 		return $this->yPlaceholder;
 	}
@@ -80,23 +82,24 @@ class StreamFileDataset implements \IteratorAggregate
 		];
 	}
 	
-	protected function initPlaceholders() : void
+	public function initPlaceholders(bool $train = true) : void
 	{
 		fseek($this->fh, 0, SEEK_SET);
 		$line = fgets($this->fh);
 		[$x, $y] = $this->parseLineXY($line);
 		
 		$xShape = count($x);
+		$yShape = count($y);
 		
-		$this->xPlaceholder = new Vector(array_fill(0, $xShape, 0), true, 'x');
-		
-		if (count($y) > 1)
-		{
-			$yShape = count($y);
-			$this->yPlaceholder = new Vector(array_fill(0, $yShape, 0), true, 'y');
-		}
+		if ($train)
+			$this->xPlaceholder = Matrix::zeros($this->batchSize, $xShape, 'x');
 		else
-			$this->yPlaceholder = new Scalar(0, 'y');
+			$this->xPlaceholder = Matrix::zeros(1, $xShape, 'x');
+			
+		if ($yShape > 1)
+			$this->yPlaceholder = Matrix::zeros($this->batchSize, $yShape, 'y');
+		else
+			$this->yPlaceholder = new Vector(array_fill(0, $this->batchSize, 0), true, 'y');
 	}
 	
 	/** Ricostruisce l'ordine dei batch (senza shuffle). */
@@ -112,6 +115,68 @@ class StreamFileDataset implements \IteratorAggregate
 			mt_srand($seed);
 		
 		shuffle($this->batchOrder);
+	}
+	
+	public function resetEpoch(): void
+	{
+		$this->curBatchPos = 0;
+		$this->curInBatch = 0;
+		fseek($this->fh, 0, SEEK_SET);
+	}
+
+	public function nextBatch(): bool
+	{
+		if ($this->curBatchPos >= count($this->batchOrder))
+			return false;
+
+		$this->curInBatch = 0;
+		$batchIndex = $this->batchOrder[$this->curBatchPos];
+		$offset = $this->batchOffsets[$batchIndex];
+		fseek($this->fh, $offset, SEEK_SET);
+
+		return true;
+	}
+
+	/**
+	* Pack del batch corrente in row-major: ritorna [$xPacked, $yPacked].
+	*/
+	public function pack(): array
+	{
+		$xPacked = [];
+		$yPacked = [];
+
+		while (true)
+		{
+			if ($this->curInBatch >= $this->batchSize)
+			{
+				$this->curBatchPos++;
+				break;
+			}
+
+			$line = fgets($this->fh);
+			
+			if ($line === false)
+			{
+				$this->curBatchPos++;
+				break;
+			}
+
+			$line = trim($line);
+			if ($line === '')
+				continue; // ignora righe vuote
+
+			[$x, $y] = $this->parseLineXY($line);
+			
+			foreach ($x as $val)
+				$xPacked[] = $val;
+			
+			foreach ($y as $val)
+				$yPacked[] = $val;
+			
+			$this->curInBatch++;
+		}
+
+		return [$xPacked, $yPacked];
 	}
 
 	public function numBatches(): int

@@ -16,7 +16,7 @@ class Vector extends Tensor
 	 /**
      * The 1-d sequential array that holds the values of the vector.
      *
-     * @var (Node)[]
+     * @var []
      */
     public $a;
 
@@ -231,15 +231,8 @@ class Vector extends Tensor
 		return $result;
     }
     
-    /**
-     * Cross Entropy computed directly from logits (numerically stable and no softmax graph).
-     * Derivative: dL/dz_i = (softmax_i - target_i) / n
-     */
     public function CELogitsLabelInt(Scalar $target) : Scalar
     {
-		// $labelInt = $this->a[0]->value;
-		// $classes = $this->n;
-		
 		$context = $this->initContextFrom($target);
 		$logitsId = $this->registerInContext($context, $this);
 		$targetId = $this->registerInContext($context, $target);

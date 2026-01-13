@@ -384,6 +384,7 @@ abstract class Model
 	
 	public function generateModel(StreamFileDataset $dataset) : array
 	{
+		$dataset->initPlaceholders(false);
 		$placeholders = $dataset->getPlaceholders();
 		
 		$x = $placeholders['x'] ?? null;
