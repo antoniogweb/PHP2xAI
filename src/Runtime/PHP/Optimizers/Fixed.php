@@ -27,21 +27,4 @@ class Fixed extends Optimizer
 	{
 		
 	}
-	
-	public function stepScalar()
-	{
-		if (parent::stepScalar())
-		{
-			$parametersNumber = count($this->parameters);
-			
-			for ($i=0; $i < $parametersNumber; $i++)
-			{
-				$this->parameters[$i]->value -= $this->avgGrads[$i] * $this->learningRate;
-			}
-			
-			return true;
-		}
-		
-		return false;
-	}
 }

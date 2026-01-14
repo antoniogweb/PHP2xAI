@@ -67,24 +67,24 @@ abstract class Optimizer
 	// 		$this->parameters[] = $tensor->a;
 	// }
 	
-	public function addError(float $error)
-	{
-		$this->error += $error;
-		
-		$this->errorCounter++;
-	}
+// 	public function addError(float $error)
+// 	{
+// 		$this->error += $error;
+// 		
+// 		$this->errorCounter++;
+// 	}
 	
 	public function zeroGrads(GraphRuntime $graph)
 	{
-		$this->error = 0;
-		$this->errorCounter = 0;
+		// $this->error = 0;
+		// $this->errorCounter = 0;
 		$graph->resetGrad();
 	}
 	
-	public function loadError()
-	{
-		$this->errors[] = $this->error;
-	}
+	// public function loadError()
+	// {
+	// 	$this->errors[] = $this->error;
+	// }
 	
 	public function getLastLoadedError()
 	{

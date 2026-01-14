@@ -38,10 +38,10 @@ abstract class Model
 	protected $p = [];
 	public Optimizer $optimizer;
 	
-	abstract public function forward(Tensor $x) : Tensor;
+	// abstract public function forward(Tensor $x) : Tensor;
 	
 	abstract public function output(Tensor $x) : Tensor;
-	abstract public function loss(Tensor $x, Tensor $y) : Scalar;
+	abstract public function loss(Tensor $x, Tensor $y) : Tensor;
 	
 	public function __construct(?Optimizer $optimizer = null)
 	{
@@ -105,19 +105,18 @@ abstract class Model
 		$loss = 0;
 		$count = 0;
 		
-		foreach ($dataset as $batch)
+		while ($dataset->nextBatch())
 		{
-			foreach ($batch as [$x, $y])
-			{
-				$graph->setInput($x);
-				$graph->setTarget($y);
-				
-				$graph->forward();
-				
-				$loss += $graph->getLoss();
-				
-				$count++;
-			}
+			[$x, $y] = $dataset->pack();
+			
+			$graph->setInput($x);
+			$graph->setTarget($y);
+			
+			$graph->forward();
+			
+			$loss += $graph->getError();
+			
+			$count++;
 		}
 		
 		return $loss / $count;
@@ -336,21 +335,21 @@ abstract class Model
 			
 			$dataset->train->shuffleEpoch(); // shuffle dei batch
 
-			foreach ($dataset->train as $batch)
+			$dataset->shuffleEpoch(); // shuffle dei batch
+
+			while ($dataset->train->nextBatch())
 			{
-				foreach ($batch as [$x, $y])
-				{
-					$graph->setInput($x);
-					$graph->setTarget($y);
-					
-					$graph->forward();
-					
-					$this->addError($graph->getLoss());
-					
-					$graph->backward();
-				}
+				[$x, $y] = $dataset->train->pack();
 				
-				$error = $this->getError();
+				$graph->setInput($x);
+				$graph->setTarget($y);
+				
+				$graph->forward();
+				
+				$error = $graph->getError();
+				
+				$graph->backward();
+				
 				$this->step($graph);
 				$this->zeroGrads($graph);
 			

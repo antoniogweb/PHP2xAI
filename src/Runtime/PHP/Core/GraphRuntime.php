@@ -18,8 +18,6 @@ class GraphRuntime
 	public int $targetId = 0;
 	public int $outputId = 0;
 	
-	public int $accSteps = 0;
-	
 	private array $graphDef = [];
 	
 	public function __construct(array $graphDef, ?array $weigths = null)
@@ -109,7 +107,17 @@ class GraphRuntime
 	{
 		$tensor = $this->tensors[$this->lossId];
 		
-		return $tensor->data[0];
+		return $tensor->data;
+	}
+	
+	public function getError()
+	{
+		$loss = $this->getLoss();
+		
+		if (count($loss))
+			return array_sum($loss)/count($loss);
+		else
+			throw new RuntimeException("Error, loss has zero elements");
 	}
 	
 	public function getOutput()
@@ -144,8 +152,6 @@ class GraphRuntime
 	
 	public function resetGrad(): void
 	{
-		$this->accSteps = 0;
-		
 		foreach ($this->tensors as $tensor)
 		{
 			$tensor->grad = array_fill(0, count($tensor->grad), 0.0);
@@ -219,11 +225,16 @@ class GraphRuntime
 
 		if (count($A->shape) !== 2)
 			throw new RuntimeException('matmul: left operand must be a matrix');
-
-		// shapes: A[m, n], B[n] oppure [n, p]
-		[$m, $n] = $A->shape;
+		
+		// N: hidden layer dimension
+		// D: number of elements of input tensor
+		// B: number of samples in batch
+		
+		// shapes: A[N, D] * B[D] = C[N]
 		if (count($B->shape) == 1)
 		{
+			[$m, $n] = $A->shape;
+			
 			if ($B->shape[0] !== $n)
 				throw new RuntimeException('matmul: dimension mismatch');
 
@@ -242,32 +253,35 @@ class GraphRuntime
 				$C->data[$i] = $sum;
 			}
 		}
-// 		else if (count($B->shape) == 2)
-// 		{
-// 			[$nB, $p] = $B->shape;
-// 			
-// 			if ($nB !== $n)
-// 				throw new RuntimeException('matmul: dimension mismatch');
-// 			
-// 			// A[m, n] * B[n, p] => C[m, p]
-// 			$C->shape = [$m, $p];
-// 			$C->data = array_fill(0, $m * $p, 0.0);
-// 			
-// 			for ($i = 0; $i < $m; $i++)
-// 			{
-// 				for ($j = 0; $j < $p; $j++)
-// 				{
-// 					$sum = 0.0;
-// 					
-// 					for ($k = 0; $k < $n; $k++)
-// 					{
-// 						$sum += $A->data[$i * $n + $k] * $B->data[$k * $p + $j];
-// 					}
-// 					
-// 					$C->data[$i * $p + $j] = $sum;
-// 				}
-// 			}
-// 		}
+		else if (count($B->shape) == 2) // A[B, D] * B[D, N] = C[B, N]
+		{
+			[$batch, $dim] = $A->shape;
+			[$dimB, $outDim] = $B->shape;
+			
+			if ($dim !== $dimB)
+				throw new RuntimeException('matmul: dimension mismatch');
+			
+			// A[B, D] * B[D, N] = C[B, N]
+			$C->shape = [$batch, $outDim];
+			$C->data = array_fill(0, $batch * $outDim, 0.0);
+			
+			for ($b = 0; $b < $batch; $b++)
+			{
+				$aRow = $b * $dim;
+				$cRow = $b * $outDim;
+
+				for ($d = 0; $d < $dim; $d++)
+				{
+					$aVal = $A->data[$aRow + $d];
+					$bRow = $d * $outDim;
+
+					for ($n = 0; $n < $outDim; $n++)
+					{
+						$C->data[$cRow + $n] += $aVal * $B->data[$bRow + $n];
+					}
+				}
+			}
+		}
 		else
 		{
 			// per ora puoi gestire solo matrice * vettore
@@ -281,7 +295,30 @@ class GraphRuntime
 		$B = $this->tensors[$bId];
 		$C = $this->tensors[$outId];
 
-		// shapes identiche nel tuo modello attuale
+		// broadcast support: A[B, N] + B[N] = C[B, N]
+		if (count($A->shape) === 2 && count($B->shape) === 1)
+		{
+			[$batch, $dim] = $A->shape;
+			
+			if ($B->shape[0] !== $dim)
+				throw new RuntimeException('add: dimension mismatch');
+			
+			$C->shape = [$batch, $dim];
+			$C->data  = array_fill(0, $batch * $dim, 0.0);
+			
+			for ($b = 0; $b < $batch; $b++)
+			{
+				$aRow = $b * $dim;
+				
+				for ($n = 0; $n < $dim; $n++)
+				{
+					$C->data[$aRow + $n] = $A->data[$aRow + $n] + $B->data[$n];
+				}
+			}
+			
+			return;
+		}
+
 		$size = count($A->data);
 		
 		if ($size !== count($B->data))
@@ -301,6 +338,30 @@ class GraphRuntime
 		$A = $this->tensors[$aId];
 		$B = $this->tensors[$bId];
 		$C = $this->tensors[$outId];
+
+		// broadcast support: A[B, N] - B[N] = C[B, N]
+		if (count($A->shape) === 2 && count($B->shape) === 1)
+		{
+			[$batch, $dim] = $A->shape;
+			
+			if ($B->shape[0] !== $dim)
+				throw new RuntimeException('sub: dimension mismatch');
+			
+			$C->shape = [$batch, $dim];
+			$C->data  = array_fill(0, $batch * $dim, 0.0);
+			
+			for ($b = 0; $b < $batch; $b++)
+			{
+				$aRow = $b * $dim;
+				
+				for ($n = 0; $n < $dim; $n++)
+				{
+					$C->data[$aRow + $n] = $A->data[$aRow + $n] - $B->data[$n];
+				}
+			}
+			
+			return;
+		}
 
 		$size = count($A->data);
 		
@@ -407,12 +468,11 @@ class GraphRuntime
 	{
 		$X = $this->tensors[$inpId];
 		$Y = $this->tensors[$outId];
-		$Y->shape = [];
-
 		$size = count($X->data);
 
 		if ($size === 0)
 		{
+			$Y->shape = [];
 			$Y->data = [0.0];
 			return;
 		}
@@ -420,10 +480,35 @@ class GraphRuntime
 		if (count($X->shape) === 0)
 		{
 			$val = $X->data[0];
+			$Y->shape = [];
 			$Y->data = [0.5 * $val * $val];
 			return;
 		}
 
+		if (count($X->shape) === 2)
+		{
+			[$batch, $dim] = $X->shape;
+			$Y->shape = [$batch, 1];
+			$Y->data = array_fill(0, $batch, 0.0);
+			
+			for ($b = 0; $b < $batch; $b++)
+			{
+				$rowStart = $b * $dim;
+				$sum = 0.0;
+				
+				for ($i = 0; $i < $dim; $i++)
+				{
+					$val = $X->data[$rowStart + $i];
+					$sum += $val * $val;
+				}
+				
+				$Y->data[$b] = $dim > 0 ? $sum / $dim : 0.0;
+			}
+			
+			return;
+		}
+
+		$Y->shape = [];
 		$sum = 0.0;
 		
 		for ($i = 0; $i < $size; $i++)
@@ -438,12 +523,11 @@ class GraphRuntime
 	{
 		$X = $this->tensors[$inpId];
 		$Y = $this->tensors[$outId];
-		$Y->shape = [];
-
 		$size = count($X->data);
 
 		if ($size === 0)
 		{
+			$Y->shape = [];
 			$Y->data = [0.0];
 			return;
 		}
@@ -451,10 +535,34 @@ class GraphRuntime
 		if (count($X->shape) === 0)
 		{
 			$val = $X->data[0];
+			$Y->shape = [];
 			$Y->data = [0.5 * \abs($val)];
 			return;
 		}
 
+		if (count($X->shape) === 2)
+		{
+			[$batch, $dim] = $X->shape;
+			$Y->shape = [$batch, 1];
+			$Y->data = array_fill(0, $batch, 0.0);
+			
+			for ($b = 0; $b < $batch; $b++)
+			{
+				$rowStart = $b * $dim;
+				$sum = 0.0;
+				
+				for ($i = 0; $i < $dim; $i++)
+				{
+					$sum += \abs($X->data[$rowStart + $i]);
+				}
+				
+				$Y->data[$b] = $dim > 0 ? $sum / $dim : 0.0;
+			}
+			
+			return;
+		}
+
+		$Y->shape = [];
 		$sum = 0.0;
 		
 		for ($i = 0; $i < $size; $i++)
@@ -475,6 +583,43 @@ class GraphRuntime
 		if ($size === 0)
 		{
 			$Y->data = [];
+			return;
+		}
+
+		if (count($X->shape) === 2)
+		{
+			[$batch, $dim] = $X->shape;
+			$Y->data = array_fill(0, $batch * $dim, 0.0);
+			
+			for ($b = 0; $b < $batch; $b++)
+			{
+				$rowStart = $b * $dim;
+				$max = $X->data[$rowStart];
+				
+				for ($i = 1; $i < $dim; $i++)
+				{
+					$val = $X->data[$rowStart + $i];
+					if ($val > $max)
+						$max = $val;
+				}
+				
+				$sum = 0.0;
+				$expValues = [];
+				
+				for ($i = 0; $i < $dim; $i++)
+				{
+					$expValues[$i] = \exp($X->data[$rowStart + $i] - $max);
+					$sum += $expValues[$i];
+				}
+				
+				$invSum = $sum === 0.0 ? 0.0 : 1 / $sum;
+				
+				for ($i = 0; $i < $dim; $i++)
+				{
+					$Y->data[$rowStart + $i] = $expValues[$i] * $invSum;
+				}
+			}
+			
 			return;
 		}
 
@@ -509,16 +654,74 @@ class GraphRuntime
 		$pred = $this->tensors[$predId];
 		$target = $this->tensors[$targetId];
 		$out = $this->tensors[$outId];
-		$out->shape = [];
-
 		$classes = count($pred->data);
 
 		if ($classes === 0 || $classes !== count($target->data))
 		{
+			$out->shape = [];
 			$out->data = [0.0];
 			return;
 		}
 
+		if (count($pred->shape) === 2 && count($target->shape) === 2)
+		{
+			[$batch, $dim] = $pred->shape;
+			
+			if ($target->shape[0] !== $batch || $target->shape[1] !== $dim)
+				throw new RuntimeException('CE: dimension mismatch');
+			
+			$out->shape = [$batch];
+			$out->data = array_fill(0, $batch, 0.0);
+			$eps = 1.0e-12;
+			
+			for ($b = 0; $b < $batch; $b++)
+			{
+				$rowStart = $b * $dim;
+				$activeIndex = null;
+				$isOneHot = true;
+				
+				for ($i = 0; $i < $dim; $i++)
+				{
+					$val = $target->data[$rowStart + $i];
+					
+					if ($val > 0.5)
+					{
+						if ($activeIndex !== null)
+						{
+							$isOneHot = false;
+							break;
+						}
+						
+						$activeIndex = $i;
+					}
+					else if (\abs($val) > 1.0e-9)
+					{
+						$isOneHot = false;
+						break;
+					}
+				}
+				
+				if ($isOneHot && $activeIndex !== null)
+				{
+					$prob = $pred->data[$rowStart + $activeIndex] ?? 0.0;
+					$out->data[$b] = -\log($prob + $eps);
+					continue;
+				}
+				
+				$loss = 0.0;
+				
+				for ($i = 0; $i < $dim; $i++)
+				{
+					$loss += $target->data[$rowStart + $i] * \log(($pred->data[$rowStart + $i] ?? 0.0) + $eps);
+				}
+				
+				$out->data[$b] = -$loss;
+			}
+			
+			return;
+		}
+
+		$out->shape = [];
 		$activeIndex = null;
 		$isOneHot = true;
 
@@ -548,7 +751,7 @@ class GraphRuntime
 		if ($isOneHot && $activeIndex !== null)
 		{
 			$prob = $pred->data[$activeIndex] ?? 0.0;
-			$out->data = [-\log($prob + $eps) / $classes];
+			$out->data = [-\log($prob + $eps)];
 			return;
 		}
 
@@ -559,7 +762,7 @@ class GraphRuntime
 			$loss += $target->data[$i] * \log(($pred->data[$i] ?? 0.0) + $eps);
 		}
 
-		$out->data = [-$loss / $classes];
+		$out->data = [-$loss];
 	}
 
 	private function opCeLogits(int $logitsId, int $targetId, int $outId): void
@@ -567,16 +770,72 @@ class GraphRuntime
 		$logits = $this->tensors[$logitsId];
 		$target = $this->tensors[$targetId];
 		$out = $this->tensors[$outId];
-		$out->shape = [];
-
 		$classes = count($logits->data);
 
 		if ($classes === 0 || $classes !== count($target->data))
 		{
+			$out->shape = [];
 			$out->data = [0.0];
 			return;
 		}
 
+		if (count($logits->shape) === 2 && count($target->shape) === 2)
+		{
+			[$batch, $dim] = $logits->shape;
+			
+			if ($target->shape[0] !== $batch || $target->shape[1] !== $dim)
+				throw new RuntimeException('CE logits: dimension mismatch');
+			
+			$out->shape = [$batch];
+			$out->data = array_fill(0, $batch, 0.0);
+			$eps = 1.0e-12;
+			
+			for ($b = 0; $b < $batch; $b++)
+			{
+				$rowStart = $b * $dim;
+				$max = $logits->data[$rowStart];
+				
+				for ($i = 1; $i < $dim; $i++)
+				{
+					$val = $logits->data[$rowStart + $i];
+					if ($val > $max)
+						$max = $val;
+				}
+				
+				$probs = [];
+				$sumExp = 0.0;
+				
+				for ($i = 0; $i < $dim; $i++)
+				{
+					$expVal = \exp($logits->data[$rowStart + $i] - $max);
+					$probs[$i] = $expVal;
+					$sumExp += $expVal;
+				}
+				
+				$invSum = $sumExp > 0.0 ? 1 / $sumExp : 0.0;
+				
+				for ($i = 0; $i < $dim; $i++)
+				{
+					$probs[$i] *= $invSum;
+				}
+				
+				$loss = 0.0;
+				
+				for ($i = 0; $i < $dim; $i++)
+				{
+					$t = $target->data[$rowStart + $i];
+					
+					if ($t > 0.0)
+						$loss += -$t * \log($probs[$i] + $eps);
+				}
+				
+				$out->data[$b] = $loss;
+			}
+			
+			return;
+		}
+
+		$out->shape = [];
 		$max = $logits->data[0];
 		
 		for ($i = 1; $i < $classes; $i++)
@@ -613,7 +872,7 @@ class GraphRuntime
 				$loss += -$t * \log($probs[$i] + $eps);
 		}
 		
-		$out->data = [$loss / $classes];
+		$out->data = [$loss];
 	}
 	
 	private function opCeLogitsLabelInt(int $logitsId, int $targetId, int $outId): void
@@ -621,16 +880,71 @@ class GraphRuntime
 		$logits = $this->tensors[$logitsId];
 		$target = $this->tensors[$targetId];
 		$out = $this->tensors[$outId];
-		$out->shape = [];
-
 		$classes = count($logits->data);
 
 		if ($classes === 0)
 		{
+			$out->shape = [];
 			$out->data = [0.0];
 			return;
 		}
 
+		if (count($logits->shape) === 2)
+		{
+			[$batch, $dim] = $logits->shape;
+			
+			if (count($target->shape) !== 1 || $target->shape[0] !== $batch)
+				throw new RuntimeException('CE logits label int: dimension mismatch');
+			
+			$out->shape = [$batch];
+			$out->data = array_fill(0, $batch, 0.0);
+			$eps = 1.0e-12;
+			
+			for ($b = 0; $b < $batch; $b++)
+			{
+				$rowStart = $b * $dim;
+				$labelInt = $target->data[$b];
+				$max = $logits->data[$rowStart];
+				
+				for ($i = 1; $i < $dim; $i++)
+				{
+					$val = $logits->data[$rowStart + $i];
+					if ($val > $max)
+						$max = $val;
+				}
+				
+				$probs = [];
+				$sumExp = 0.0;
+				
+				for ($i = 0; $i < $dim; $i++)
+				{
+					$expVal = \exp($logits->data[$rowStart + $i] - $max);
+					$probs[$i] = $expVal;
+					$sumExp += $expVal;
+				}
+				
+				$invSum = $sumExp > 0.0 ? 1 / $sumExp : 0.0;
+				
+				for ($i = 0; $i < $dim; $i++)
+				{
+					$probs[$i] *= $invSum;
+				}
+				
+				$loss = 0.0;
+				
+				for ($i = 0; $i < $dim; $i++)
+				{
+					if ((int)$i === (int)$labelInt)
+						$loss += -1 * \log($probs[$i] + $eps);
+				}
+				
+				$out->data[$b] = $loss;
+			}
+			
+			return;
+		}
+
+		$out->shape = [];
 		$max = $logits->data[0];
 		$labelInt = $target->data[0];
 		
@@ -666,7 +980,7 @@ class GraphRuntime
 				$loss += -1 * \log($probs[$i] + $eps);
 		}
 		
-		$out->data = [$loss / $classes];
+		$out->data = [$loss];
 	}
 	
 	public function backward(): void
@@ -738,8 +1052,6 @@ class GraphRuntime
 					throw new RuntimeException("Op not supported: {$name}");
 			}
 		}
-		
-		$this->accSteps++;
 	}
 	
 	private function backwardMatmul(int $aId, int $bId, int $outId): void
@@ -749,21 +1061,59 @@ class GraphRuntime
 		$C = $this->tensors[$outId];
 
 		// caso A[m, n] * B[n] = C[m]
-		[$m, $n] = $A->shape;
-		
-		for ($i = 0; $i < $m; $i++)
+		if (count($B->shape) == 1)
 		{
-			$gradC = $C->grad[$i];
+			[$m, $n] = $A->shape;
 			
-			for ($k = 0; $k < $n; $k++)
+			for ($i = 0; $i < $m; $i++)
 			{
-				$aIdx = $i * $n + $k;
-				// dC[i]/dA[i,k] = B[k]
-				$A->grad[$aIdx] += $gradC * $B->data[$k];
-				// dC[i]/dB[k]   = A[i,k]
-				$B->grad[$k]    += $gradC * $A->data[$aIdx];
+				$gradC = $C->grad[$i];
+				
+				for ($k = 0; $k < $n; $k++)
+				{
+					$aIdx = $i * $n + $k;
+					// dC[i]/dA[i,k] = B[k]
+					$A->grad[$aIdx] += $gradC * $B->data[$k];
+					// dC[i]/dB[k]   = A[i,k]
+					$B->grad[$k]    += $gradC * $A->data[$aIdx];
+				}
 			}
+			
+			return;
 		}
+
+		// caso A[B, D] * B[D, N] = C[B, N]
+		if (count($B->shape) == 2)
+		{
+			[$batch, $dim] = $A->shape;
+			[$dimB, $outDim] = $B->shape;
+			
+			if ($dim !== $dimB)
+				throw new RuntimeException('matmul: dimension mismatch');
+			
+			for ($b = 0; $b < $batch; $b++)
+			{
+				$aRow = $b * $dim;
+				$cRow = $b * $outDim;
+				
+				for ($d = 0; $d < $dim; $d++)
+				{
+					$aVal = $A->data[$aRow + $d];
+					$bRow = $d * $outDim;
+					
+					for ($n = 0; $n < $outDim; $n++)
+					{
+						$gradC = $C->grad[$cRow + $n];
+						$A->grad[$aRow + $d] += $gradC * $B->data[$bRow + $n];
+						$B->grad[$bRow + $n] += $aVal * $gradC;
+					}
+				}
+			}
+			
+			return;
+		}
+
+		throw new RuntimeException("matmul backward: caso non implementato");
 	}
 	
 	private function backwardAdd(int $aId, int $bId, int $outId): void
@@ -771,6 +1121,28 @@ class GraphRuntime
 		$A = $this->tensors[$aId];
 		$B = $this->tensors[$bId];
 		$C = $this->tensors[$outId];
+
+		if (count($A->shape) === 2 && count($B->shape) === 1)
+		{
+			[$batch, $dim] = $A->shape;
+			
+			if ($B->shape[0] !== $dim)
+				throw new RuntimeException('add: dimension mismatch');
+			
+			for ($b = 0; $b < $batch; $b++)
+			{
+				$aRow = $b * $dim;
+				
+				for ($n = 0; $n < $dim; $n++)
+				{
+					$grad = $C->grad[$aRow + $n];
+					$A->grad[$aRow + $n] += $grad;
+					$B->grad[$n] += $grad;
+				}
+			}
+			
+			return;
+		}
 
 		$size = count($C->data);
 		
@@ -786,6 +1158,28 @@ class GraphRuntime
 		$A = $this->tensors[$aId];
 		$B = $this->tensors[$bId];
 		$C = $this->tensors[$outId];
+
+		if (count($A->shape) === 2 && count($B->shape) === 1)
+		{
+			[$batch, $dim] = $A->shape;
+			
+			if ($B->shape[0] !== $dim)
+				throw new RuntimeException('sub: dimension mismatch');
+			
+			for ($b = 0; $b < $batch; $b++)
+			{
+				$aRow = $b * $dim;
+				
+				for ($n = 0; $n < $dim; $n++)
+				{
+					$grad = $C->grad[$aRow + $n];
+					$A->grad[$aRow + $n] += $grad;
+					$B->grad[$n] -= $grad;
+				}
+			}
+			
+			return;
+		}
 
 		$size = count($C->data);
 		
@@ -872,7 +1266,6 @@ class GraphRuntime
 	{
 		$X = $this->tensors[$inpId];
 		$Y = $this->tensors[$outId];
-		$gradOut = $Y->grad[0] ?? 0.0;
 		$size = count($X->data);
 
 		if ($size === 0)
@@ -881,10 +1274,31 @@ class GraphRuntime
 		if (count($X->shape) === 0)
 		{
 			$val = $X->data[0];
+			$gradOut = $Y->grad[0] ?? 0.0;
 			$X->grad[0] += $gradOut * $val;
 			return;
 		}
 
+		if (count($X->shape) === 2)
+		{
+			[$batch, $dim] = $X->shape;
+			
+			for ($b = 0; $b < $batch; $b++)
+			{
+				$gradOut = $Y->grad[$b] ?? 0.0;
+				$scale = $dim > 0 ? (2 / $dim) * $gradOut : 0.0;
+				$rowStart = $b * $dim;
+				
+				for ($i = 0; $i < $dim; $i++)
+				{
+					$X->grad[$rowStart + $i] += $scale * $X->data[$rowStart + $i];
+				}
+			}
+			
+			return;
+		}
+
+		$gradOut = $Y->grad[0] ?? 0.0;
 		$scale = (2 / $size) * $gradOut;
 
 		for ($i = 0; $i < $size; $i++)
@@ -897,7 +1311,6 @@ class GraphRuntime
 	{
 		$X = $this->tensors[$inpId];
 		$Y = $this->tensors[$outId];
-		$gradOut = $Y->grad[0] ?? 0.0;
 		$size = count($X->data);
 
 		if ($size === 0)
@@ -906,11 +1319,34 @@ class GraphRuntime
 		if (count($X->shape) === 0)
 		{
 			$val = $X->data[0];
+			$gradOut = $Y->grad[0] ?? 0.0;
 			$sign = $val > 0 ? 1.0 : ($val < 0 ? -1.0 : 0.0);
 			$X->grad[0] += $gradOut * 0.5 * $sign;
 			return;
 		}
 
+		if (count($X->shape) === 2)
+		{
+			[$batch, $dim] = $X->shape;
+			
+			for ($b = 0; $b < $batch; $b++)
+			{
+				$gradOut = $Y->grad[$b] ?? 0.0;
+				$scale = $dim > 0 ? (1 / $dim) * $gradOut : 0.0;
+				$rowStart = $b * $dim;
+				
+				for ($i = 0; $i < $dim; $i++)
+				{
+					$val = $X->data[$rowStart + $i];
+					$sign = $val > 0 ? 1.0 : ($val < 0 ? -1.0 : 0.0);
+					$X->grad[$rowStart + $i] += $scale * $sign;
+				}
+			}
+			
+			return;
+		}
+
+		$gradOut = $Y->grad[0] ?? 0.0;
 		$scale = ($size > 0) ? (1 / $size) * $gradOut : 0.0;
 
 		for ($i = 0; $i < $size; $i++)
@@ -926,6 +1362,34 @@ class GraphRuntime
 		$X = $this->tensors[$inpId];
 		$Y = $this->tensors[$outId];
 		$size = count($Y->data);
+
+		if (count($Y->shape) === 2)
+		{
+			[$batch, $dim] = $Y->shape;
+			
+			for ($b = 0; $b < $batch; $b++)
+			{
+				$rowStart = $b * $dim;
+				
+				for ($i = 0; $i < $dim; $i++)
+				{
+					$grad = 0.0;
+					$yi = $Y->data[$rowStart + $i];
+					
+					for ($j = 0; $j < $dim; $j++)
+					{
+						$delta = ($i === $j) ? 1.0 : 0.0;
+						$yj = $Y->data[$rowStart + $j];
+						$jac = $yj * ($delta - $yi);
+						$grad += $Y->grad[$rowStart + $j] * $jac;
+					}
+					
+					$X->grad[$rowStart + $i] += $grad;
+				}
+			}
+			
+			return;
+		}
 
 		// For each input dimension: dL/dx_i = sum_j dL/dy_j * dy_j/dx_i
 		for ($i = 0; $i < $size; $i++)
@@ -948,21 +1412,46 @@ class GraphRuntime
 		$pred = $this->tensors[$predId];
 		$target = $this->tensors[$targetId];
 		$out = $this->tensors[$outId];
-		$gradOut = $out->grad[0] ?? 0.0;
 
 		$classes = count($pred->data);
 		if ($classes === 0 || $classes !== count($target->data))
 			return;
 
+		if (count($pred->shape) === 2 && count($target->shape) === 2)
+		{
+			[$batch, $dim] = $pred->shape;
+			
+			if ($target->shape[0] !== $batch || $target->shape[1] !== $dim)
+				throw new RuntimeException('CE backward: dimension mismatch');
+			
+			$eps = 1.0e-12;
+			
+			for ($b = 0; $b < $batch; $b++)
+			{
+				$gradOut = $out->grad[$b] ?? 0.0;
+				$scale = $gradOut;
+				$rowStart = $b * $dim;
+				
+				for ($i = 0; $i < $dim; $i++)
+				{
+					$p = $pred->data[$rowStart + $i];
+					$t = $target->data[$rowStart + $i];
+					$pred->grad[$rowStart + $i] += -$scale * ($t / ($p + $eps));
+				}
+			}
+			
+			return;
+		}
+
+		$gradOut = $out->grad[0] ?? 0.0;
 		$eps = 1.0e-12;
-		$scale = $classes > 0 ? $gradOut / $classes : 0.0;
+		$scale = $gradOut;
 
 		for ($i = 0; $i < $classes; $i++)
 		{
 			$p = $pred->data[$i];
 			$t = $target->data[$i];
 			$pred->grad[$i] += -$scale * ($t / ($p + $eps));
-			$target->grad[$i] += -$scale * \log($p + $eps);
 		}
 	}
 
@@ -971,12 +1460,61 @@ class GraphRuntime
 		$logits = $this->tensors[$logitsId];
 		$target = $this->tensors[$targetId];
 		$out = $this->tensors[$outId];
-		$gradOut = $out->grad[0] ?? 0.0;
 
 		$classes = count($logits->data);
 		if ($classes === 0 || $classes !== count($target->data))
 			return;
 
+		if (count($logits->shape) === 2 && count($target->shape) === 2)
+		{
+			[$batch, $dim] = $logits->shape;
+			
+			if ($target->shape[0] !== $batch || $target->shape[1] !== $dim)
+				throw new RuntimeException('CE logits backward: dimension mismatch');
+			
+			for ($b = 0; $b < $batch; $b++)
+			{
+				$rowStart = $b * $dim;
+				$max = $logits->data[$rowStart];
+				
+				for ($i = 1; $i < $dim; $i++)
+				{
+					$val = $logits->data[$rowStart + $i];
+					if ($val > $max)
+						$max = $val;
+				}
+				
+				$probs = [];
+				$sumExp = 0.0;
+				
+				for ($i = 0; $i < $dim; $i++)
+				{
+					$expVal = \exp($logits->data[$rowStart + $i] - $max);
+					$probs[$i] = $expVal;
+					$sumExp += $expVal;
+				}
+				
+				$invSum = $sumExp > 0.0 ? 1 / $sumExp : 0.0;
+				
+				for ($i = 0; $i < $dim; $i++)
+				{
+					$probs[$i] *= $invSum;
+				}
+				
+				$gradOut = $out->grad[$b] ?? 0.0;
+				$scale = $gradOut;
+				
+				for ($i = 0; $i < $dim; $i++)
+				{
+					$t = $target->data[$rowStart + $i];
+					$logits->grad[$rowStart + $i] += $scale * ($probs[$i] - $t);
+				}
+			}
+			
+			return;
+		}
+
+		$gradOut = $out->grad[0] ?? 0.0;
 		$max = $logits->data[0];
 		
 		for ($i = 1; $i < $classes; $i++)
@@ -1002,13 +1540,12 @@ class GraphRuntime
 			$probs[$i] *= $invSum;
 		}
 
-		$scale = $classes > 0 ? $gradOut / $classes : 0.0;
+		$scale = $gradOut;
 
 		for ($i = 0; $i < $classes; $i++)
 		{
 			$t = $target->data[$i];
 			$logits->grad[$i] += $scale * ($probs[$i] - $t);
-			$target->grad[$i] += -$scale * \log($probs[$i] + 1.0e-12);
 		}
 	}
 	
@@ -1017,12 +1554,68 @@ class GraphRuntime
 		$logits = $this->tensors[$logitsId];
 		$target = $this->tensors[$targetId];
 		$out = $this->tensors[$outId];
-		$gradOut = $out->grad[0] ?? 0.0;
 
 		$classes = count($logits->data);
 		if ($classes === 0)
 			return;
 
+		if (count($logits->shape) === 2)
+		{
+			[$batch, $dim] = $logits->shape;
+			
+			if (count($target->shape) !== 1 || $target->shape[0] !== $batch)
+				throw new RuntimeException('CE logits label int backward: dimension mismatch');
+			
+			for ($b = 0; $b < $batch; $b++)
+			{
+				$rowStart = $b * $dim;
+				$labelInt = $target->data[$b];
+				$max = $logits->data[$rowStart];
+				
+				for ($i = 1; $i < $dim; $i++)
+				{
+					$val = $logits->data[$rowStart + $i];
+					if ($val > $max)
+						$max = $val;
+				}
+				
+				$probs = [];
+				$sumExp = 0.0;
+				
+				for ($i = 0; $i < $dim; $i++)
+				{
+					$expVal = \exp($logits->data[$rowStart + $i] - $max);
+					$probs[$i] = $expVal;
+					$sumExp += $expVal;
+				}
+				
+				$invSum = $sumExp > 0.0 ? 1 / $sumExp : 0.0;
+				
+				for ($i = 0; $i < $dim; $i++)
+				{
+					$probs[$i] *= $invSum;
+				}
+
+				$gradOut = $out->grad[$b] ?? 0.0;
+				$scale = $gradOut;
+
+				for ($i = 0; $i < $dim; $i++)
+				{
+					if ((int)$i === (int)$labelInt)
+					{
+						$logits->grad[$rowStart + $i] += $scale * ($probs[$i] - 1);
+					}
+					else
+					{
+						$logits->grad[$rowStart + $i] += $scale * ($probs[$i]);
+					}
+				}
+			}
+			
+			return;
+		}
+
+		$gradOut = $out->grad[0] ?? 0.0;
 		$max = $logits->data[0];
 		$labelInt = $target->data[0];
 		
@@ -1049,14 +1642,13 @@ class GraphRuntime
 			$probs[$i] *= $invSum;
 		}
 
-		$scale = $classes > 0 ? $gradOut / $classes : 0.0;
+		$scale = $gradOut;
 
 		for ($i = 0; $i < $classes; $i++)
 		{
 			if ((int)$i === (int)$labelInt)
 			{
 				$logits->grad[$i] += $scale * ($probs[$i] - 1);
-				$target->grad[0] += -$scale * \log($probs[$i] + 1.0e-12);
 			}
 			else
 				$logits->grad[$i] += $scale * ($probs[$i]);

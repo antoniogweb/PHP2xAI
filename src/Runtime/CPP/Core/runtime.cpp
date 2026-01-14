@@ -255,11 +255,11 @@ namespace PHP2xAI::Runtime::CPP
 		if (A.shape.size() != 2)
 			throw std::runtime_error("matmul: left operand must be a matrix");
 
-		const auto m = A.shape[0];
-		const auto n = A.shape[1];
-
 		if (B.shape.size() == 1)
 		{
+			const auto m = A.shape[0];
+			const auto n = A.shape[1];
+
 			if (B.shape[0] != n)
 				throw std::runtime_error("matmul: dimension mismatch");
 
@@ -276,6 +276,37 @@ namespace PHP2xAI::Runtime::CPP
 				C.data[static_cast<std::size_t>(i)] = sum;
 			}
 		}
+		}
+		else if (B.shape.size() == 2)
+		{
+			const auto batch = A.shape[0];
+			const auto dim = A.shape[1];
+			const auto dimB = B.shape[0];
+			const auto outDim = B.shape[1];
+
+			if (dim != dimB)
+				throw std::runtime_error("matmul: dimension mismatch");
+
+			C.shape = {batch, outDim};
+			C.data.assign(static_cast<std::size_t>(batch * outDim), 0.0f);
+
+			for (int b = 0; b < batch; ++b)
+			{
+				const auto aRow = b * dim;
+				const auto cRow = b * outDim;
+
+				for (int d = 0; d < dim; ++d)
+				{
+					Scalar aVal = A.data[static_cast<std::size_t>(aRow + d)];
+					const auto bRow = d * outDim;
+
+					for (int n = 0; n < outDim; ++n)
+					{
+						C.data[static_cast<std::size_t>(cRow + n)] += aVal * B.data[static_cast<std::size_t>(bRow + n)];
+					}
+				}
+			}
+		}
 		else
 		{
 			throw std::runtime_error("matmul: caso non implementato");
@@ -287,6 +318,31 @@ namespace PHP2xAI::Runtime::CPP
 		auto &A = tensors[aId];
 		auto &B = tensors[bId];
 		auto &C = tensors[outId];
+
+		if (A.shape.size() == 2 && B.shape.size() == 1)
+		{
+			const auto batch = A.shape[0];
+			const auto dim = A.shape[1];
+
+			if (B.shape[0] != dim)
+				throw std::runtime_error("add: dimension mismatch");
+
+			C.shape = {batch, dim};
+			C.data.assign(static_cast<std::size_t>(batch * dim), 0.0f);
+
+			for (int b = 0; b < batch; ++b)
+			{
+				const auto aRow = b * dim;
+
+				for (int n = 0; n < dim; ++n)
+				{
+					const auto idx = static_cast<std::size_t>(aRow + n);
+					C.data[idx] = A.data[idx] + B.data[static_cast<std::size_t>(n)];
+				}
+			}
+
+			return;
+		}
 
 		auto size = A.data.size();
 
@@ -305,6 +361,31 @@ namespace PHP2xAI::Runtime::CPP
 		auto &A = tensors[aId];
 		auto &B = tensors[bId];
 		auto &C = tensors[outId];
+
+		if (A.shape.size() == 2 && B.shape.size() == 1)
+		{
+			const auto batch = A.shape[0];
+			const auto dim = A.shape[1];
+
+			if (B.shape[0] != dim)
+				throw std::runtime_error("sub: dimension mismatch");
+
+			C.shape = {batch, dim};
+			C.data.assign(static_cast<std::size_t>(batch * dim), 0.0f);
+
+			for (int b = 0; b < batch; ++b)
+			{
+				const auto aRow = b * dim;
+
+				for (int n = 0; n < dim; ++n)
+				{
+					const auto idx = static_cast<std::size_t>(aRow + n);
+					C.data[idx] = A.data[idx] - B.data[static_cast<std::size_t>(n)];
+				}
+			}
+
+			return;
+		}
 
 		auto size = A.data.size();
 
@@ -408,12 +489,11 @@ namespace PHP2xAI::Runtime::CPP
 		auto &X = tensors[inpId];
 		auto &Y = tensors[outId];
 
-		Y.shape.clear();
-
 		auto size = X.data.size();
 
 		if (size == 0)
 		{
+			Y.shape.clear();
 			Y.data = {0.0f};
 			return;
 		}
@@ -421,10 +501,37 @@ namespace PHP2xAI::Runtime::CPP
 		if (X.shape.empty())
 		{
 			Scalar val = X.data[0];
+			Y.shape.clear();
 			Y.data = {0.5f * val * val};
 			return;
 		}
 
+		if (X.shape.size() == 2)
+		{
+			const auto batch = X.shape[0];
+			const auto dim = X.shape[1];
+
+			Y.shape = {batch, 1};
+			Y.data.assign(static_cast<std::size_t>(batch), 0.0f);
+
+			for (int b = 0; b < batch; ++b)
+			{
+				const auto rowStart = b * dim;
+				Scalar sum = 0.0f;
+
+				for (int i = 0; i < dim; ++i)
+				{
+					Scalar val = X.data[static_cast<std::size_t>(rowStart + i)];
+					sum += val * val;
+				}
+
+				Y.data[static_cast<std::size_t>(b)] = dim > 0 ? sum / static_cast<Scalar>(dim) : 0.0f;
+			}
+
+			return;
+		}
+
+		Y.shape.clear();
 		Scalar sum = 0.0f;
 		for (std::size_t i = 0; i < size; ++i)
 			sum += X.data[i] * X.data[i];
@@ -437,12 +544,11 @@ namespace PHP2xAI::Runtime::CPP
 		auto &X = tensors[inpId];
 		auto &Y = tensors[outId];
 
-		Y.shape.clear();
-
 		auto size = X.data.size();
 
 		if (size == 0)
 		{
+			Y.shape.clear();
 			Y.data = {0.0f};
 			return;
 		}
@@ -450,10 +556,34 @@ namespace PHP2xAI::Runtime::CPP
 		if (X.shape.empty())
 		{
 			Scalar val = X.data[0];
+			Y.shape.clear();
 			Y.data = {0.5f * std::fabs(val)};
 			return;
 		}
 
+		if (X.shape.size() == 2)
+		{
+			const auto batch = X.shape[0];
+			const auto dim = X.shape[1];
+
+			Y.shape = {batch, 1};
+			Y.data.assign(static_cast<std::size_t>(batch), 0.0f);
+
+			for (int b = 0; b < batch; ++b)
+			{
+				const auto rowStart = b * dim;
+				Scalar sum = 0.0f;
+
+				for (int i = 0; i < dim; ++i)
+					sum += std::fabs(X.data[static_cast<std::size_t>(rowStart + i)]);
+
+				Y.data[static_cast<std::size_t>(b)] = dim > 0 ? sum / static_cast<Scalar>(dim) : 0.0f;
+			}
+
+			return;
+		}
+
+		Y.shape.clear();
 		Scalar sum = 0.0f;
 		for (std::size_t i = 0; i < size; ++i)
 			sum += std::fabs(X.data[i]);
@@ -472,6 +602,44 @@ namespace PHP2xAI::Runtime::CPP
 		if (size == 0)
 		{
 			Y.data.clear();
+			return;
+		}
+
+		if (X.shape.size() == 2)
+		{
+			const auto batch = X.shape[0];
+			const auto dim = X.shape[1];
+			Y.data.assign(static_cast<std::size_t>(batch * dim), 0.0f);
+
+			for (int b = 0; b < batch; ++b)
+			{
+				const auto rowStart = b * dim;
+				Scalar maxVal = X.data[static_cast<std::size_t>(rowStart)];
+
+				for (int i = 1; i < dim; ++i)
+				{
+					Scalar val = X.data[static_cast<std::size_t>(rowStart + i)];
+					if (val > maxVal)
+						maxVal = val;
+				}
+
+				std::vector<Scalar> expValues(static_cast<std::size_t>(dim), 0.0f);
+				Scalar sum = 0.0f;
+
+				for (int i = 0; i < dim; ++i)
+				{
+					expValues[static_cast<std::size_t>(i)] = std::exp(X.data[static_cast<std::size_t>(rowStart + i)] - maxVal);
+					sum += expValues[static_cast<std::size_t>(i)];
+				}
+
+				Scalar invSum = sum == 0.0f ? 0.0f : 1.0f / sum;
+
+				for (int i = 0; i < dim; ++i)
+				{
+					Y.data[static_cast<std::size_t>(rowStart + i)] = expValues[static_cast<std::size_t>(i)] * invSum;
+				}
+			}
+
 			return;
 		}
 
@@ -501,16 +669,77 @@ namespace PHP2xAI::Runtime::CPP
 		auto &target = tensors[targetId];
 		auto &out = tensors[outId];
 
-		out.shape.clear();
-
 		auto classes = pred.data.size();
 
 		if (classes == 0 || classes != target.data.size())
 		{
+			out.shape.clear();
 			out.data = {0.0f};
 			return;
 		}
 
+		if (pred.shape.size() == 2 && target.shape.size() == 2)
+		{
+			const auto batch = pred.shape[0];
+			const auto dim = pred.shape[1];
+
+			if (target.shape[0] != batch || target.shape[1] != dim)
+				throw std::runtime_error("CE: dimension mismatch");
+
+			out.shape = {batch};
+			out.data.assign(static_cast<std::size_t>(batch), 0.0f);
+
+			const Scalar eps = 1.0e-12f;
+
+			for (int b = 0; b < batch; ++b)
+			{
+				const auto rowStart = b * dim;
+				int activeIndex = -1;
+				bool isOneHot = true;
+
+				for (int i = 0; i < dim; ++i)
+				{
+					Scalar val = target.data[static_cast<std::size_t>(rowStart + i)];
+
+					if (val > 0.5f)
+					{
+						if (activeIndex != -1)
+						{
+							isOneHot = false;
+							break;
+						}
+
+						activeIndex = i;
+					}
+					else if (std::fabs(val) > 1.0e-9f)
+					{
+						isOneHot = false;
+						break;
+					}
+				}
+
+				if (isOneHot && activeIndex != -1)
+				{
+					Scalar prob = pred.data[static_cast<std::size_t>(rowStart + activeIndex)];
+					out.data[static_cast<std::size_t>(b)] = -std::log(prob + eps);
+					continue;
+				}
+
+				Scalar loss = 0.0f;
+
+				for (int i = 0; i < dim; ++i)
+				{
+					const auto idx = static_cast<std::size_t>(rowStart + i);
+					loss += target.data[idx] * std::log(pred.data[idx] + eps);
+				}
+
+				out.data[static_cast<std::size_t>(b)] = -loss;
+			}
+
+			return;
+		}
+
+		out.shape.clear();
 		int activeIndex = -1;
 		bool isOneHot = true;
 
@@ -540,7 +769,7 @@ namespace PHP2xAI::Runtime::CPP
 		if (isOneHot && activeIndex != -1)
 		{
 			Scalar prob = activeIndex < static_cast<int>(pred.data.size()) ? pred.data[static_cast<std::size_t>(activeIndex)] : 0.0f;
-			out.data = {-std::log(prob + eps) / static_cast<Scalar>(classes)};
+			out.data = {-std::log(prob + eps)};
 			return;
 		}
 
@@ -549,7 +778,7 @@ namespace PHP2xAI::Runtime::CPP
 		for (std::size_t i = 0; i < classes; ++i)
 			loss += target.data[i] * std::log((pred.data[i]) + eps);
 
-		out.data = {-loss / static_cast<Scalar>(classes)};
+		out.data = {-loss};
 	}
 
 	void GraphRuntime::opCeLogits(int logitsId, int targetId, int outId)
@@ -558,16 +787,70 @@ namespace PHP2xAI::Runtime::CPP
 		auto &target = tensors[targetId];
 		auto &out = tensors[outId];
 
-		out.shape.clear();
-
 		auto classes = logits.data.size();
 
 		if (classes == 0 || classes != target.data.size())
 		{
+			out.shape.clear();
 			out.data = {0.0f};
 			return;
 		}
 
+		if (logits.shape.size() == 2 && target.shape.size() == 2)
+		{
+			const auto batch = logits.shape[0];
+			const auto dim = logits.shape[1];
+
+			if (target.shape[0] != batch || target.shape[1] != dim)
+				throw std::runtime_error("CE logits: dimension mismatch");
+
+			out.shape = {batch};
+			out.data.assign(static_cast<std::size_t>(batch), 0.0f);
+
+			const Scalar eps = 1.0e-12f;
+
+			for (int b = 0; b < batch; ++b)
+			{
+				const auto rowStart = b * dim;
+				Scalar maxVal = logits.data[static_cast<std::size_t>(rowStart)];
+
+				for (int i = 1; i < dim; ++i)
+				{
+					Scalar val = logits.data[static_cast<std::size_t>(rowStart + i)];
+					if (val > maxVal)
+						maxVal = val;
+				}
+
+				std::vector<Scalar> probs(static_cast<std::size_t>(dim), 0.0f);
+				Scalar sumExp = 0.0f;
+
+				for (int i = 0; i < dim; ++i)
+				{
+					Scalar expVal = std::exp(logits.data[static_cast<std::size_t>(rowStart + i)] - maxVal);
+					probs[static_cast<std::size_t>(i)] = expVal;
+					sumExp += expVal;
+				}
+
+				Scalar invSum = sumExp > 0.0f ? 1.0f / sumExp : 0.0f;
+				for (int i = 0; i < dim; ++i)
+					probs[static_cast<std::size_t>(i)] *= invSum;
+
+				Scalar loss = 0.0f;
+
+				for (int i = 0; i < dim; ++i)
+				{
+					Scalar t = target.data[static_cast<std::size_t>(rowStart + i)];
+					if (t > 0.0f)
+						loss += -t * std::log(probs[static_cast<std::size_t>(i)] + eps);
+				}
+
+				out.data[static_cast<std::size_t>(b)] = loss;
+			}
+
+			return;
+		}
+
+		out.shape.clear();
 		Scalar maxVal = logits.data[0];
 		for (std::size_t i = 1; i < classes; ++i)
 			if (logits.data[i] > maxVal)
@@ -596,7 +879,7 @@ namespace PHP2xAI::Runtime::CPP
 				loss += -t * std::log(probs[i] + eps);
 		}
 
-		out.data = {loss / static_cast<Scalar>(classes)};
+		out.data = {loss};
 	}
 
 	void GraphRuntime::opCeLogitsLabelInt(int logitsId, int targetId, int outId)
@@ -605,16 +888,70 @@ namespace PHP2xAI::Runtime::CPP
 		auto &target = tensors[targetId];
 		auto &out = tensors[outId];
 
-		out.shape.clear();
-
 		auto classes = logits.data.size();
 
 		if (classes == 0)
 		{
+			out.shape.clear();
 			out.data = {0.0f};
 			return;
 		}
 
+		if (logits.shape.size() == 2)
+		{
+			const auto batch = logits.shape[0];
+			const auto dim = logits.shape[1];
+
+			if (target.shape.size() != 1 || target.shape[0] != batch)
+				throw std::runtime_error("CE logits label int: dimension mismatch");
+
+			out.shape = {batch};
+			out.data.assign(static_cast<std::size_t>(batch), 0.0f);
+
+			const Scalar eps = 1.0e-12f;
+
+			for (int b = 0; b < batch; ++b)
+			{
+				const auto rowStart = b * dim;
+				Scalar labelInt = target.data[static_cast<std::size_t>(b)];
+				Scalar maxVal = logits.data[static_cast<std::size_t>(rowStart)];
+
+				for (int i = 1; i < dim; ++i)
+				{
+					Scalar val = logits.data[static_cast<std::size_t>(rowStart + i)];
+					if (val > maxVal)
+						maxVal = val;
+				}
+
+				std::vector<Scalar> probs(static_cast<std::size_t>(dim), 0.0f);
+				Scalar sumExp = 0.0f;
+
+				for (int i = 0; i < dim; ++i)
+				{
+					Scalar expVal = std::exp(logits.data[static_cast<std::size_t>(rowStart + i)] - maxVal);
+					probs[static_cast<std::size_t>(i)] = expVal;
+					sumExp += expVal;
+				}
+
+				Scalar invSum = sumExp > 0.0f ? 1.0f / sumExp : 0.0f;
+				for (int i = 0; i < dim; ++i)
+					probs[static_cast<std::size_t>(i)] *= invSum;
+
+				Scalar loss = 0.0f;
+
+				for (int i = 0; i < dim; ++i)
+				{
+					if (i == static_cast<int>(labelInt))
+						loss += -1.0f * std::log(probs[static_cast<std::size_t>(i)] + eps);
+				}
+
+				out.data[static_cast<std::size_t>(b)] = loss;
+			}
+
+			return;
+		}
+
+		out.shape.clear();
 		Scalar maxVal = logits.data[0];
 		Scalar labelInt = target.data.empty() ? 0.0f : target.data[0];
 
@@ -644,7 +981,7 @@ namespace PHP2xAI::Runtime::CPP
 				loss += -1.0f * std::log(probs[i] + eps);
 		}
 
-		out.data = {loss / static_cast<Scalar>(classes)};
+		out.data = {loss};
 	}
 
 	void GraphRuntime::backwardMatmul(int aId, int bId, int outId)
@@ -653,20 +990,59 @@ namespace PHP2xAI::Runtime::CPP
 		auto &B = tensors[bId];
 		auto &C = tensors[outId];
 
-		const auto m = A.shape[0];
-		const auto n = A.shape[1];
-
-		for (int i = 0; i < m; ++i)
+		if (B.shape.size() == 1)
 		{
-			Scalar gradC = C.grad[static_cast<std::size_t>(i)];
+			const auto m = A.shape[0];
+			const auto n = A.shape[1];
 
-			for (int k = 0; k < n; ++k)
+			for (int i = 0; i < m; ++i)
 			{
-				auto aIdx = static_cast<std::size_t>(i * n + k);
-				A.grad[aIdx] += gradC * B.data[static_cast<std::size_t>(k)];
-				B.grad[static_cast<std::size_t>(k)] += gradC * A.data[aIdx];
+				Scalar gradC = C.grad[static_cast<std::size_t>(i)];
+
+				for (int k = 0; k < n; ++k)
+				{
+					auto aIdx = static_cast<std::size_t>(i * n + k);
+					A.grad[aIdx] += gradC * B.data[static_cast<std::size_t>(k)];
+					B.grad[static_cast<std::size_t>(k)] += gradC * A.data[aIdx];
+				}
 			}
+
+			return;
 		}
+
+		if (B.shape.size() == 2)
+		{
+			const auto batch = A.shape[0];
+			const auto dim = A.shape[1];
+			const auto dimB = B.shape[0];
+			const auto outDim = B.shape[1];
+
+			if (dim != dimB)
+				throw std::runtime_error("matmul: dimension mismatch");
+
+			for (int b = 0; b < batch; ++b)
+			{
+				const auto aRow = b * dim;
+				const auto cRow = b * outDim;
+
+				for (int d = 0; d < dim; ++d)
+				{
+					Scalar aVal = A.data[static_cast<std::size_t>(aRow + d)];
+					const auto bRow = d * outDim;
+
+					for (int n = 0; n < outDim; ++n)
+					{
+						Scalar gradC = C.grad[static_cast<std::size_t>(cRow + n)];
+						A.grad[static_cast<std::size_t>(aRow + d)] += gradC * B.data[static_cast<std::size_t>(bRow + n)];
+						B.grad[static_cast<std::size_t>(bRow + n)] += aVal * gradC;
+					}
+				}
+			}
+
+			return;
+		}
+
+		throw std::runtime_error("matmul backward: caso non implementato");
 	}
 
 	void GraphRuntime::backwardAdd(int aId, int bId, int outId)
@@ -674,6 +1050,30 @@ namespace PHP2xAI::Runtime::CPP
 		auto &A = tensors[aId];
 		auto &B = tensors[bId];
 		auto &C = tensors[outId];
+
+		if (A.shape.size() == 2 && B.shape.size() == 1)
+		{
+			const auto batch = A.shape[0];
+			const auto dim = A.shape[1];
+
+			if (B.shape[0] != dim)
+				throw std::runtime_error("add: dimension mismatch");
+
+			for (int b = 0; b < batch; ++b)
+			{
+				const auto rowStart = b * dim;
+
+				for (int n = 0; n < dim; ++n)
+				{
+					const auto idx = static_cast<std::size_t>(rowStart + n);
+					Scalar grad = C.grad[idx];
+					A.grad[idx] += grad;
+					B.grad[static_cast<std::size_t>(n)] += grad;
+				}
+			}
+
+			return;
+		}
 
 		auto size = C.data.size();
 
@@ -688,6 +1088,30 @@ namespace PHP2xAI::Runtime::CPP
 		auto &A = tensors[aId];
 		auto &B = tensors[bId];
 		auto &C = tensors[outId];
+
+		if (A.shape.size() == 2 && B.shape.size() == 1)
+		{
+			const auto batch = A.shape[0];
+			const auto dim = A.shape[1];
+
+			if (B.shape[0] != dim)
+				throw std::runtime_error("sub: dimension mismatch");
+
+			for (int b = 0; b < batch; ++b)
+			{
+				const auto rowStart = b * dim;
+
+				for (int n = 0; n < dim; ++n)
+				{
+					const auto idx = static_cast<std::size_t>(rowStart + n);
+					Scalar grad = C.grad[idx];
+					A.grad[idx] += grad;
+					B.grad[static_cast<std::size_t>(n)] -= grad;
+				}
+			}
+
+			return;
+		}
 
 		auto size = C.data.size();
 
@@ -774,7 +1198,6 @@ namespace PHP2xAI::Runtime::CPP
 	{
 		auto &X = tensors[inpId];
 		auto &Y = tensors[outId];
-		Scalar gradOut = Y.grad.empty() ? 0.0f : Y.grad[0];
 		auto size = X.data.size();
 
 		if (size == 0)
@@ -783,10 +1206,33 @@ namespace PHP2xAI::Runtime::CPP
 		if (X.shape.empty())
 		{
 			Scalar val = X.data[0];
+			Scalar gradOut = Y.grad.empty() ? 0.0f : Y.grad[0];
 			X.grad[0] += gradOut * val;
 			return;
 		}
 
+		if (X.shape.size() == 2)
+		{
+			const auto batch = X.shape[0];
+			const auto dim = X.shape[1];
+
+			for (int b = 0; b < batch; ++b)
+			{
+				Scalar gradOut = (static_cast<std::size_t>(b) < Y.grad.size()) ? Y.grad[static_cast<std::size_t>(b)] : 0.0f;
+				Scalar scale = dim > 0 ? (2.0f / static_cast<Scalar>(dim)) * gradOut : 0.0f;
+				const auto rowStart = b * dim;
+
+				for (int i = 0; i < dim; ++i)
+				{
+					const auto idx = static_cast<std::size_t>(rowStart + i);
+					X.grad[idx] += scale * X.data[idx];
+				}
+			}
+
+			return;
+		}
+
+		Scalar gradOut = Y.grad.empty() ? 0.0f : Y.grad[0];
 		Scalar scale = (2.0f / static_cast<Scalar>(size)) * gradOut;
 
 		for (std::size_t i = 0; i < size; ++i)
@@ -797,7 +1243,6 @@ namespace PHP2xAI::Runtime::CPP
 	{
 		auto &X = tensors[inpId];
 		auto &Y = tensors[outId];
-		Scalar gradOut = Y.grad.empty() ? 0.0f : Y.grad[0];
 		auto size = X.data.size();
 
 		if (size == 0)
@@ -806,11 +1251,36 @@ namespace PHP2xAI::Runtime::CPP
 		if (X.shape.empty())
 		{
 			Scalar val = X.data[0];
+			Scalar gradOut = Y.grad.empty() ? 0.0f : Y.grad[0];
 			Scalar sign = val > 0.0f ? 1.0f : (val < 0.0f ? -1.0f : 0.0f);
 			X.grad[0] += gradOut * 0.5f * sign;
 			return;
 		}
 
+		if (X.shape.size() == 2)
+		{
+			const auto batch = X.shape[0];
+			const auto dim = X.shape[1];
+
+			for (int b = 0; b < batch; ++b)
+			{
+				Scalar gradOut = (static_cast<std::size_t>(b) < Y.grad.size()) ? Y.grad[static_cast<std::size_t>(b)] : 0.0f;
+				Scalar scale = dim > 0 ? (1.0f / static_cast<Scalar>(dim)) * gradOut : 0.0f;
+				const auto rowStart = b * dim;
+
+				for (int i = 0; i < dim; ++i)
+				{
+					const auto idx = static_cast<std::size_t>(rowStart + i);
+					Scalar val = X.data[idx];
+					Scalar sign = val > 0.0f ? 1.0f : (val < 0.0f ? -1.0f : 0.0f);
+					X.grad[idx] += scale * sign;
+				}
+			}
+
+			return;
+		}
+
+		Scalar gradOut = Y.grad.empty() ? 0.0f : Y.grad[0];
 		Scalar scale = size > 0 ? (1.0f / static_cast<Scalar>(size)) * gradOut : 0.0f;
 
 		for (std::size_t i = 0; i < size; ++i)
@@ -826,6 +1296,35 @@ namespace PHP2xAI::Runtime::CPP
 		auto &X = tensors[inpId];
 		auto &Y = tensors[outId];
 		auto size = Y.data.size();
+
+		if (Y.shape.size() == 2)
+		{
+			const auto batch = Y.shape[0];
+			const auto dim = Y.shape[1];
+
+			for (int b = 0; b < batch; ++b)
+			{
+				const auto rowStart = b * dim;
+
+				for (int i = 0; i < dim; ++i)
+				{
+					Scalar grad = 0.0f;
+					const auto yi = Y.data[static_cast<std::size_t>(rowStart + i)];
+
+					for (int j = 0; j < dim; ++j)
+					{
+						Scalar delta = (i == j) ? 1.0f : 0.0f;
+						const auto yj = Y.data[static_cast<std::size_t>(rowStart + j)];
+						Scalar jac = yj * (delta - yi);
+						grad += Y.grad[static_cast<std::size_t>(rowStart + j)] * jac;
+					}
+
+					X.grad[static_cast<std::size_t>(rowStart + i)] += grad;
+				}
+			}
+
+			return;
+		}
 
 		for (std::size_t i = 0; i < size; ++i)
 		{
@@ -847,21 +1346,48 @@ namespace PHP2xAI::Runtime::CPP
 		auto &pred = tensors[predId];
 		auto &target = tensors[targetId];
 		auto &out = tensors[outId];
-		Scalar gradOut = out.grad.empty() ? 0.0f : out.grad[0];
 
 		auto classes = pred.data.size();
 		if (classes == 0 || classes != target.data.size())
 			return;
 
+		if (pred.shape.size() == 2 && target.shape.size() == 2)
+		{
+			const auto batch = pred.shape[0];
+			const auto dim = pred.shape[1];
+
+			if (target.shape[0] != batch || target.shape[1] != dim)
+				throw std::runtime_error("CE backward: dimension mismatch");
+
+			const Scalar eps = 1.0e-12f;
+
+			for (int b = 0; b < batch; ++b)
+			{
+				Scalar gradOut = (static_cast<std::size_t>(b) < out.grad.size()) ? out.grad[static_cast<std::size_t>(b)] : 0.0f;
+				Scalar scale = gradOut;
+				const auto rowStart = b * dim;
+
+				for (int i = 0; i < dim; ++i)
+				{
+					const auto idx = static_cast<std::size_t>(rowStart + i);
+					Scalar p = pred.data[idx];
+					Scalar t = target.data[idx];
+					pred.grad[idx] += -scale * (t / (p + eps));
+				}
+			}
+
+			return;
+		}
+
+		Scalar gradOut = out.grad.empty() ? 0.0f : out.grad[0];
 		const Scalar eps = 1.0e-12f;
-		Scalar scale = classes > 0 ? gradOut / static_cast<Scalar>(classes) : 0.0f;
+		Scalar scale = gradOut;
 
 		for (std::size_t i = 0; i < classes; ++i)
 		{
 			Scalar p = pred.data[i];
 			Scalar t = target.data[i];
 			pred.grad[i] += -scale * (t / (p + eps));
-			target.grad[i] += -scale * std::log(p + eps);
 		}
 	}
 
@@ -870,12 +1396,59 @@ namespace PHP2xAI::Runtime::CPP
 		auto &logits = tensors[logitsId];
 		auto &target = tensors[targetId];
 		auto &out = tensors[outId];
-		Scalar gradOut = out.grad.empty() ? 0.0f : out.grad[0];
 
 		auto classes = logits.data.size();
 		if (classes == 0 || classes != target.data.size())
 			return;
 
+		if (logits.shape.size() == 2 && target.shape.size() == 2)
+		{
+			const auto batch = logits.shape[0];
+			const auto dim = logits.shape[1];
+
+			if (target.shape[0] != batch || target.shape[1] != dim)
+				throw std::runtime_error("CE logits backward: dimension mismatch");
+
+			for (int b = 0; b < batch; ++b)
+			{
+				const auto rowStart = b * dim;
+				Scalar maxVal = logits.data[static_cast<std::size_t>(rowStart)];
+
+				for (int i = 1; i < dim; ++i)
+				{
+					Scalar val = logits.data[static_cast<std::size_t>(rowStart + i)];
+					if (val > maxVal)
+						maxVal = val;
+				}
+
+				std::vector<Scalar> probs(static_cast<std::size_t>(dim), 0.0f);
+				Scalar sumExp = 0.0f;
+
+				for (int i = 0; i < dim; ++i)
+				{
+					Scalar expVal = std::exp(logits.data[static_cast<std::size_t>(rowStart + i)] - maxVal);
+					probs[static_cast<std::size_t>(i)] = expVal;
+					sumExp += expVal;
+				}
+
+				Scalar invSum = sumExp > 0.0f ? 1.0f / sumExp : 0.0f;
+				for (int i = 0; i < dim; ++i)
+					probs[static_cast<std::size_t>(i)] *= invSum;
+
+				Scalar gradOut = (static_cast<std::size_t>(b) < out.grad.size()) ? out.grad[static_cast<std::size_t>(b)] : 0.0f;
+				Scalar scale = gradOut;
+
+				for (int i = 0; i < dim; ++i)
+				{
+					Scalar t = target.data[static_cast<std::size_t>(rowStart + i)];
+					logits.grad[static_cast<std::size_t>(rowStart + i)] += scale * (probs[static_cast<std::size_t>(i)] - t);
+				}
+			}
+
+			return;
+		}
+
+		Scalar gradOut = out.grad.empty() ? 0.0f : out.grad[0];
 		Scalar maxVal = logits.data[0];
 		for (std::size_t i = 1; i < classes; ++i)
 			if (logits.data[i] > maxVal)
@@ -894,13 +1467,12 @@ namespace PHP2xAI::Runtime::CPP
 		for (std::size_t i = 0; i < classes; ++i)
 			probs[i] *= invSum;
 
-		Scalar scale = classes > 0 ? gradOut / static_cast<Scalar>(classes) : 0.0f;
+		Scalar scale = gradOut;
 
 		for (std::size_t i = 0; i < classes; ++i)
 		{
 			Scalar t = target.data[i];
 			logits.grad[i] += scale * (probs[i] - t);
-			target.grad[i] += -scale * std::log(probs[i] + 1.0e-12f);
 		}
 	}
 
@@ -909,12 +1481,62 @@ namespace PHP2xAI::Runtime::CPP
 		auto &logits = tensors[logitsId];
 		auto &target = tensors[targetId];
 		auto &out = tensors[outId];
-		Scalar gradOut = out.grad.empty() ? 0.0f : out.grad[0];
 
 		auto classes = logits.data.size();
 		if (classes == 0)
 			return;
 
+		if (logits.shape.size() == 2)
+		{
+			const auto batch = logits.shape[0];
+			const auto dim = logits.shape[1];
+
+			if (target.shape.size() != 1 || target.shape[0] != batch)
+				throw std::runtime_error("CE logits label int backward: dimension mismatch");
+
+			for (int b = 0; b < batch; ++b)
+			{
+				const auto rowStart = b * dim;
+				Scalar labelInt = target.data[static_cast<std::size_t>(b)];
+				Scalar maxVal = logits.data[static_cast<std::size_t>(rowStart)];
+
+				for (int i = 1; i < dim; ++i)
+				{
+					Scalar val = logits.data[static_cast<std::size_t>(rowStart + i)];
+					if (val > maxVal)
+						maxVal = val;
+				}
+
+				std::vector<Scalar> probs(static_cast<std::size_t>(dim), 0.0f);
+				Scalar sumExp = 0.0f;
+
+				for (int i = 0; i < dim; ++i)
+				{
+					Scalar expVal = std::exp(logits.data[static_cast<std::size_t>(rowStart + i)] - maxVal);
+					probs[static_cast<std::size_t>(i)] = expVal;
+					sumExp += expVal;
+				}
+
+				Scalar invSum = sumExp > 0.0f ? 1.0f / sumExp : 0.0f;
+				for (int i = 0; i < dim; ++i)
+					probs[static_cast<std::size_t>(i)] *= invSum;
+
+				Scalar gradOut = (static_cast<std::size_t>(b) < out.grad.size()) ? out.grad[static_cast<std::size_t>(b)] : 0.0f;
+				Scalar scale = gradOut;
+
+				for (int i = 0; i < dim; ++i)
+				{
+					if (i == static_cast<int>(labelInt))
+						logits.grad[static_cast<std::size_t>(rowStart + i)] += scale * (probs[static_cast<std::size_t>(i)] - 1.0f);
+					else
+						logits.grad[static_cast<std::size_t>(rowStart + i)] += scale * (probs[static_cast<std::size_t>(i)]);
+				}
+			}
+
+			return;
+		}
+
+		Scalar gradOut = out.grad.empty() ? 0.0f : out.grad[0];
 		Scalar maxVal = logits.data[0];
 		Scalar labelInt = target.data.empty() ? 0.0f : target.data[0];
 
@@ -935,15 +1557,13 @@ namespace PHP2xAI::Runtime::CPP
 		for (std::size_t i = 0; i < classes; ++i)
 			probs[i] *= invSum;
 
-		Scalar scale = classes > 0 ? gradOut / static_cast<Scalar>(classes) : 0.0f;
+		Scalar scale = gradOut;
 
 		for (std::size_t i = 0; i < classes; ++i)
 		{
 			if (static_cast<int>(i) == static_cast<int>(labelInt))
 			{
 				logits.grad[i] += scale * (probs[i] - 1.0f);
-				if (!target.grad.empty())
-					target.grad[0] += -scale * std::log(probs[i] + 1.0e-12f);
 			}
 			else
 				logits.grad[i] += scale * (probs[i]);

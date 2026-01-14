@@ -42,7 +42,7 @@ class Adam extends Optimizer
 	
 	public function step(GraphRuntime $graph)
 	{
-		$n = max(1, $graph->accSteps);
+		$n = 1;
 		// echo $graph->accSteps."\n";
 		$beta1PowT = pow($this->beta1, $this->stepNumber);
 		$beta2PowT = pow($this->beta2, $this->stepNumber);
