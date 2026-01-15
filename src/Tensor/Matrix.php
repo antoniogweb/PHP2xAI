@@ -207,24 +207,26 @@ class Matrix extends Tensor
     }
     
     // Mean Squared Error (MSE)
-    public function MSE() : Matrix
+    public function MSE() : Vector
     {
 		$context = $this->initContextFrom();
 		$inputId = $this->registerInContext($context, $this);
 		
-		$result = self::zeros($this->m, 1, 'MSE');
+		$result = new Vector(array_fill(0, $this->m, 0), true, 'MSE');
+		// $result = self::zeros($this->m, 1, 'MSE');
 		$context->registerOp('MSE', [$inputId], $result);
 		
 		return $result;
     }
     
     // Mean Absolute Error (MAE)
-    public function MAE() : Matrix
+    public function MAE() : Vector
     {
 		$context = $this->initContextFrom();
 		$inputId = $this->registerInContext($context, $this);
 		
-		$result = self::zeros($this->m, 1, 'MAE');
+		$result = new Vector(array_fill(0, $this->m, 0), true, 'MAE');
+		// $result = self::zeros($this->m, 1, 'MAE');
 		$context->registerOp('MAE', [$inputId], $result);
 		
 		return $result;

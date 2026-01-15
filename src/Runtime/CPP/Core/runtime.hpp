@@ -72,6 +72,7 @@ namespace PHP2xAI::Runtime::CPP
 		void opLRelu(int, int);
 		void opMse(int, int);
 		void opMae(int, int);
+		void opMean(int, int);
 		void opSoftmax(int, int);
 		void opCe(int, int, int);
 		void opCeLogits(int, int, int);
@@ -87,6 +88,7 @@ namespace PHP2xAI::Runtime::CPP
 		void backwardLRelu(int, int);
 		void backwardMse(int, int);
 		void backwardMae(int, int);
+		void backwardMean(int, int);
 		void backwardSoftmax(int, int);
 		void backwardCe(int, int, int);
 		void backwardCeLogits(int, int, int);

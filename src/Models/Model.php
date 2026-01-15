@@ -79,47 +79,15 @@ abstract class Model
 		return $this->p;
     }
     
-    public function addError(float $error)
-	{
-		$this->optimizer->addError($error);
-	}
+ //    public function addError(float $error)
+	// {
+	// 	$this->optimizer->addError($error);
+	// }
     
 	// change the parameters
 	public function step(GraphRuntime $graph)
 	{
 		return $this->optimizer->step($graph);
-	}
-	
-	public function getError()
-	{
-		return $this->optimizer->getError();
-	}
-	
-	public function zeroGrads(GraphRuntime $graph)
-	{
-		$this->optimizer->zeroGrads($graph);
-	}
-	
-	public function validationLoss(StreamFileDataset $dataset, GraphRuntime $graph)
-	{
-		$loss = 0;
-		$count = 0;
-		
-		while ($dataset->nextBatch())
-		{
-			[$x, $y] = $dataset->pack();
-			
-			$graph->setInput($x);
-			$graph->setTarget($y);
-			
-			$graph->forward();
-			
-			$loss += $graph->getError();
-			
-			$count++;
-		}
-		
-		return $loss / $count;
 	}
 	
 	public function exportGrapf(TrainValidateDataset $dataset = null)
@@ -307,6 +275,33 @@ abstract class Model
 		exit($exitCode);
 	}
 	
+	public function validationLoss(StreamFileDataset $dataset, GraphRuntime $graph)
+	{
+		$loss = 0;
+		$count = 0;
+		
+		$dataset->resetEpoch();
+		
+		while ($dataset->nextBatch())
+		{
+			[$x, $y] = $dataset->pack();
+			
+			$graph->setInput($x);
+			$graph->setTarget($y);
+			
+			$graph->forward();
+			
+			$loss += $graph->getError();
+			
+			$count++;
+		}
+		
+		if ($count > 0)
+			return $loss / $count;
+		else
+			return 0;
+	}
+	
 	public function train(TrainValidateDataset $dataset = null, int $epochsNumber = 10, string $savePath = null, int $logOnEachXBatch = 10)
 	{
 		// Save the model JSON graph
@@ -333,12 +328,14 @@ abstract class Model
 			
 			$indice = 0;
 			
+			$dataset->train->resetEpoch(); // reset batch cursor
 			$dataset->train->shuffleEpoch(); // shuffle dei batch
-
-			$dataset->shuffleEpoch(); // shuffle dei batch
-
+			
 			while ($dataset->train->nextBatch())
 			{
+				$graph->resetGrad();
+				$graph->setLossGrad(1.0);
+				
 				[$x, $y] = $dataset->train->pack();
 				
 				$graph->setInput($x);
@@ -351,8 +348,7 @@ abstract class Model
 				$graph->backward();
 				
 				$this->step($graph);
-				$this->zeroGrads($graph);
-			
+				
 				$indice++;
 				
 				if (($indice % $logOnEachXBatch) === 0)
@@ -428,6 +424,7 @@ abstract class Model
 	
 	public function generateGraph(StreamFileDataset $dataset) : array
 	{
+		$dataset->initPlaceholders();
 		$placeholders = $dataset->getPlaceholders();
 		
 		$x = $placeholders['x'] ?? null;

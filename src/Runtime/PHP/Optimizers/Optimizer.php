@@ -24,15 +24,15 @@ abstract class Optimizer
 	
 	abstract public function getConfig() : array;
 	
-	public function getErrorScalar()
-	{
-		return $this->error;
-	}
+	// public function getErrorScalar()
+	// {
+	// 	return $this->error;
+	// }
 	
-	public function getError()
-	{
-		return $this->error / $this->errorCounter;
-	}
+	// public function getError()
+	// {
+	// 	return $this->error / $this->errorCounter;
+	// }
 	
 	public function setGradClip(?float $clip) : void
 	{
@@ -74,22 +74,22 @@ abstract class Optimizer
 // 		$this->errorCounter++;
 // 	}
 	
-	public function zeroGrads(GraphRuntime $graph)
-	{
-		// $this->error = 0;
-		// $this->errorCounter = 0;
-		$graph->resetGrad();
-	}
+	// public function zeroGrads(GraphRuntime $graph)
+	// {
+	// 	// $this->error = 0;
+	// 	// $this->errorCounter = 0;
+	// 	$graph->resetGrad();
+	// }
 	
 	// public function loadError()
 	// {
 	// 	$this->errors[] = $this->error;
 	// }
 	
-	public function getLastLoadedError()
-	{
-		return $this->errors[count($this->errors)-1] ?? 0;
-	}
+	// public function getLastLoadedError()
+	// {
+	// 	return $this->errors[count($this->errors)-1] ?? 0;
+	// }
 	
 // 	// Calculate the AVG gradients
 // 	public function avgGrads() : bool

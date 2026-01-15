@@ -231,6 +231,19 @@ class Vector extends Tensor
 		return $result;
     }
     
+    // Mean among batch samples
+    public function mean() : Scalar
+    {
+		$context = $this->initContextFrom();
+		$inputId = $this->registerInContext($context, $this);
+		
+		$result = new Scalar(0.0, 'mean');
+		
+		$context->registerOp('mean', [$inputId], $result);
+		
+		return $result;
+    }
+    
     public function CELogitsLabelInt(Scalar $target) : Scalar
     {
 		$context = $this->initContextFrom($target);

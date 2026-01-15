@@ -42,7 +42,6 @@ class Adam extends Optimizer
 	
 	public function step(GraphRuntime $graph)
 	{
-		$n = 1;
 		// echo $graph->accSteps."\n";
 		$beta1PowT = pow($this->beta1, $this->stepNumber);
 		$beta2PowT = pow($this->beta2, $this->stepNumber);
@@ -55,7 +54,7 @@ class Adam extends Optimizer
 			
 			for ($i = 0; $i < $size; $i++)
 			{
-				$g = $t->grad[$i] / $n;
+				$g = $t->grad[$i];
 				
 				if ($this->gradClip !== null)
 				{

@@ -103,21 +103,28 @@ class GraphRuntime
 		file_put_contents($path, json_encode($jsonArray), LOCK_EX);
 	}
 	
-	public function getLoss()
+	public function setLossGrad($lossGrad = 1.0)
+	{
+		$tensor = $this->tensors[$this->lossId];
+		
+		$tensor->grad[0] = $lossGrad;
+	}
+	
+	public function getLoss() : array
 	{
 		$tensor = $this->tensors[$this->lossId];
 		
 		return $tensor->data;
 	}
 	
-	public function getError()
+	public function getError() : float
 	{
 		$loss = $this->getLoss();
 		
-		if (count($loss))
+		if (count($loss) > 1)
 			return array_sum($loss)/count($loss);
 		else
-			throw new RuntimeException("Error, loss has zero elements");
+			return $loss[0];
 	}
 	
 	public function getOutput()
@@ -210,6 +217,9 @@ class GraphRuntime
 					break;
 				case 'softmax_ce_logits_label_int':
 					$this->opCeLogitsLabelInt($inputs[0], $inputs[1], $outId);
+					break;
+				case 'mean':
+					$this->opMean($inputs[0], $outId);
 					break;
 				default:
 					throw new RuntimeException("Op not supported: {$name}");
@@ -488,7 +498,7 @@ class GraphRuntime
 		if (count($X->shape) === 2)
 		{
 			[$batch, $dim] = $X->shape;
-			$Y->shape = [$batch, 1];
+			$Y->shape = [$batch];
 			$Y->data = array_fill(0, $batch, 0.0);
 			
 			for ($b = 0; $b < $batch; $b++)
@@ -543,7 +553,7 @@ class GraphRuntime
 		if (count($X->shape) === 2)
 		{
 			[$batch, $dim] = $X->shape;
-			$Y->shape = [$batch, 1];
+			$Y->shape = [$batch];
 			$Y->data = array_fill(0, $batch, 0.0);
 			
 			for ($b = 0; $b < $batch; $b++)
@@ -983,6 +993,21 @@ class GraphRuntime
 		$out->data = [$loss];
 	}
 	
+	private function opMean(int $aId, int $outId): void
+	{
+		$A = $this->tensors[$aId];
+		$out = $this->tensors[$outId];
+		
+		$out->shape = [];
+		
+		if (count($A->shape) !== 1 || count($A->data) === 0)
+			throw new RuntimeException('Mean: dimension mismatch');
+		
+		$mean = array_sum($A->data)/count($A->data);
+		
+		$out->data = [$mean];
+	}
+	
 	public function backward(): void
 	{
 		// clear grads of non-parameter tensors so intermediate gradients don't snowball across samples
@@ -1048,9 +1073,33 @@ class GraphRuntime
 				case 'softmax_ce_logits_label_int':
 					$this->backwardCeLogitsLabelInt($inputs[0], $inputs[1], $outId);
 					break;
+				case 'mean':
+					$this->backwardMean($inputs[0], $outId);
+					break;
 				default:
 					throw new RuntimeException("Op not supported: {$name}");
 			}
+		}
+	}
+	
+	private function backwardMean(int $aId, int $outId): void
+	{
+		$A = $this->tensors[$aId];
+		$out = $this->tensors[$outId];
+		$size = count($A->data);
+
+		if ($size === 0)
+			return;
+
+		if (count($A->shape) !== 1)
+			throw new RuntimeException('Mean backward: dimension mismatch');
+
+		$gradOut = $out->grad[0] ?? 0.0;
+		$scale = $gradOut / $size;
+
+		for ($i = 0; $i < $size; $i++)
+		{
+			$A->grad[$i] += $scale;
 		}
 	}
 	
@@ -1282,6 +1331,9 @@ class GraphRuntime
 		if (count($X->shape) === 2)
 		{
 			[$batch, $dim] = $X->shape;
+
+			if (count($Y->shape) !== 1 || $Y->shape[0] !== $batch)
+				throw new RuntimeException('MSE backward: output shape mismatch');
 			
 			for ($b = 0; $b < $batch; $b++)
 			{
@@ -1328,6 +1380,9 @@ class GraphRuntime
 		if (count($X->shape) === 2)
 		{
 			[$batch, $dim] = $X->shape;
+
+			if (count($Y->shape) !== 1 || $Y->shape[0] !== $batch)
+				throw new RuntimeException('MAE backward: output shape mismatch');
 			
 			for ($b = 0; $b < $batch; $b++)
 			{

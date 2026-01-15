@@ -59,6 +59,8 @@ namespace PHP2xAI::Runtime::CPP
 				opMse(inputs[0], outId);
 			else if (name == "MAE")
 				opMae(inputs[0], outId);
+			else if (name == "mean")
+				opMean(inputs[0], outId);
 			else if (name == "softmax")
 				opSoftmax(inputs[0], outId);
 			else if (name == "CE")
@@ -110,6 +112,8 @@ namespace PHP2xAI::Runtime::CPP
 				backwardMse(inputs[0], outId);
 			else if (name == "MAE")
 				backwardMae(inputs[0], outId);
+			else if (name == "mean")
+				backwardMean(inputs[0], outId);
 			else if (name == "softmax")
 				backwardSoftmax(inputs[0], outId);
 			else if (name == "CE")
@@ -984,6 +988,22 @@ namespace PHP2xAI::Runtime::CPP
 		out.data = {loss};
 	}
 
+	void GraphRuntime::opMean(int aId, int outId)
+	{
+		auto &A = tensors[aId];
+		auto &out = tensors[outId];
+
+		out.shape.clear();
+
+		if (A.shape.size() != 1 || A.data.empty())
+			throw std::runtime_error("Mean: dimension mismatch");
+
+		Scalar mean = std::accumulate(A.data.begin(), A.data.end(), 0.0f)
+			/ static_cast<Scalar>(A.data.size());
+
+		out.data = {mean};
+	}
+
 	void GraphRuntime::backwardMatmul(int aId, int bId, int outId)
 	{
 		auto &A = tensors[aId];
@@ -1568,6 +1588,25 @@ namespace PHP2xAI::Runtime::CPP
 			else
 				logits.grad[i] += scale * (probs[i]);
 		}
+	}
+
+	void GraphRuntime::backwardMean(int aId, int outId)
+	{
+		auto &A = tensors[aId];
+		auto &out = tensors[outId];
+		auto size = A.data.size();
+
+		if (size == 0)
+			return;
+
+		if (A.shape.size() != 1)
+			throw std::runtime_error("Mean backward: dimension mismatch");
+
+		Scalar gradOut = out.grad.empty() ? 0.0f : out.grad[0];
+		Scalar scale = gradOut / static_cast<Scalar>(size);
+
+		for (std::size_t i = 0; i < size; ++i)
+			A.grad[i] += scale;
 	}
 
 	json GraphRuntime::loadJson(const std::string &path)
