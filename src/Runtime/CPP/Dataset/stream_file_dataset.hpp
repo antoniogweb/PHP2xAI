@@ -28,6 +28,9 @@ namespace PHP2xAI::Runtime::CPP
 
 		// Equivalente del foreach($batch as [$x,$y])
 		bool nextSampleInBatch(std::vector<float>& x, std::vector<float>& y);
+
+		// Pack del batch corrente in row-major: ritorna xPacked e yPacked
+		void pack(std::vector<float>& xPacked, std::vector<float>& yPacked);
 		
 		// Print the vector
 		static void printVec(const char* label, const std::vector<float>& v);

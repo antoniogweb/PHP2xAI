@@ -16,7 +16,6 @@ namespace PHP2xAI::Runtime::CPP::Optimizers
 
 	void Adam::step(GraphRuntime& graph)
 	{
-		const auto n = std::max(1, graph.accSteps);
 		const auto beta1PowT = std::pow(beta1_, static_cast<Scalar>(stepNumber_));
 		const auto beta2PowT = std::pow(beta2_, static_cast<Scalar>(stepNumber_));
 
@@ -35,7 +34,7 @@ namespace PHP2xAI::Runtime::CPP::Optimizers
 
 			for (std::size_t i = 0; i < size; ++i)
 			{
-				Scalar g = t.grad[i] / static_cast<Scalar>(n);
+				Scalar g = t.grad[i];
 
 				if (gradClip_)
 				{

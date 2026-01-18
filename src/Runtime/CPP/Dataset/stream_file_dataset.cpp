@@ -100,6 +100,43 @@ namespace PHP2xAI::Runtime::CPP
 		}
 	}
 
+	void StreamFileDataset::pack(std::vector<float>& xPacked, std::vector<float>& yPacked)
+	{
+		xPacked.clear();
+		yPacked.clear();
+
+		std::vector<float> x;
+		std::vector<float> y;
+
+		while (true)
+		{
+			if (curInBatch_ >= batchSize_)
+			{
+				++curBatchPos_;
+				break;
+			}
+
+			std::string line;
+			if (!std::getline(file_, line))
+			{
+				++curBatchPos_;
+				break;
+			}
+
+			if (isBlank_(line))
+			{
+				continue;
+			}
+
+			parseLineXY_(line, x, y);
+
+			xPacked.insert(xPacked.end(), x.begin(), x.end());
+			yPacked.insert(yPacked.end(), y.begin(), y.end());
+
+			++curInBatch_;
+		}
+	}
+
 	void StreamFileDataset::resetOrder_()
 	{
 		batchOrder_.resize(batchOffsets_.size());

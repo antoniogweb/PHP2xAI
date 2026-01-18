@@ -6,9 +6,15 @@
 
 int main(int argc, char** argv) {
     try {
-        // uso: ./test_ds train.txt 32
+        // uso: ./test_ds train.txt 32 [--sample]
         std::string path = (argc >= 2) ? argv[1] : "train.txt";
         std::size_t batchSize = (argc >= 3) ? static_cast<std::size_t>(std::stoul(argv[2])) : 32;
+        bool sampleMode = false;
+        for (int i = 3; i < argc; ++i) {
+            if (std::string(argv[i]) == "--sample") {
+                sampleMode = true;
+            }
+        }
 
         PHP2xAI::Runtime::CPP::StreamFileDataset ds(path, batchSize, '|', 42);
 
@@ -19,20 +25,29 @@ int main(int argc, char** argv) {
         while (ds.nextBatch()) {
             std::cout << "\n=== BATCH " << batchIdx << " ===\n";
 
-            std::vector<float> x, y;
-            std::size_t sampleIdx = 0;
+            if (sampleMode) {
+                std::vector<float> x, y;
+                std::size_t sampleIdx = 0;
 
-            while (ds.nextSampleInBatch(x, y)) {
-                std::cout << "sample " << sampleIdx << " ";
-                PHP2xAI::Runtime::CPP::StreamFileDataset::printVec("X", x);
+                while (ds.nextSampleInBatch(x, y)) {
+                    std::cout << "sample " << sampleIdx << " ";
+                    PHP2xAI::Runtime::CPP::StreamFileDataset::printVec("X", x);
+                    std::cout << " ";
+                    PHP2xAI::Runtime::CPP::StreamFileDataset::printVec("Y", y);
+                    std::cout << "\n";
+                    ++sampleIdx;
+                }
+            } else {
+                std::vector<float> xPacked, yPacked;
+                ds.pack(xPacked, yPacked);
+
+                PHP2xAI::Runtime::CPP::StreamFileDataset::printVec("X", xPacked);
                 std::cout << " ";
-				PHP2xAI::Runtime::CPP::StreamFileDataset::printVec("Y", y);
+                PHP2xAI::Runtime::CPP::StreamFileDataset::printVec("Y", yPacked);
                 std::cout << "\n";
-                ++sampleIdx;
             }
 
-            std::cout << "=== END BATCH " << batchIdx
-                      << " (samples: " << sampleIdx << ") ===\n";
+            std::cout << "=== END BATCH " << batchIdx << " ===\n";
             ++batchIdx;
         }
 

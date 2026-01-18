@@ -167,20 +167,34 @@ namespace PHP2xAI::Runtime::CPP
 			
 			while (dataset.train.nextBatch())
 			{
-				while (dataset.train.nextSampleInBatch(x, y))
-				{
-					graph.setInput(x);
-					graph.setTarget(y);
-					graph.forward();
-					
-					optimizer_->addError(graph.getLoss());
-					
-					graph.backward();
-				}
+				graph.resetGrad();
+				graph.setLossGrad(1.0f);
 				
-				const auto error = optimizer_->getError();
+				dataset.train.pack(x, y);
+				
+				graph.setInput(x);
+				graph.setTarget(y);
+				graph.forward();
+				
+				const auto error = graph.getError();
+				
+				graph.backward();
 				optimizer_->step(graph);
-				optimizer_->zeroGrads(graph);
+				
+// 				while (dataset.train.nextSampleInBatch(x, y))
+// 				{
+// 					graph.setInput(x);
+// 					graph.setTarget(y);
+// 					graph.forward();
+// 					
+// 					optimizer_->addError(graph.getError());
+// 					
+// 					graph.backward();
+// 				}
+// 				
+// 				const auto error = optimizer_->getError();
+// 				optimizer_->step(graph);
+// 				optimizer_->zeroGrads(graph);
 				
 				++indice;
 				
@@ -230,15 +244,14 @@ namespace PHP2xAI::Runtime::CPP
 
 		while (dataset.nextBatch())
 		{
-			while (dataset.nextSampleInBatch(x, y))
-			{
-				graph.setInput(x);
-				graph.setTarget(y);
-				graph.forward();
-				
-				loss += graph.getLoss();
-				++count;
-			}
+			dataset.pack(x, y);
+			
+			graph.setInput(x);
+			graph.setTarget(y);
+			graph.forward();
+			
+			loss += graph.getError();
+			++count;
 		}
 
 		return count > 0 ? loss / static_cast<Scalar>(count) : 0.0f;

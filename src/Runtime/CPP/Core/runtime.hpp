@@ -40,9 +40,9 @@ namespace PHP2xAI::Runtime::CPP
 		int inputId{};
 		int targetId{};
 		int outputId{};
-		int accSteps = 0;
 
-		Scalar getLoss() const;
+		std::vector<Scalar> getLoss() const;
+		Scalar getError() const;
 		std::vector<Scalar> getOutput() const;
 		void setInput(const std::vector<Scalar> &x);
 		void setTarget(const std::vector<Scalar> &y);
@@ -55,7 +55,9 @@ namespace PHP2xAI::Runtime::CPP
 
 		Tensor &getTensor(int id);
 		const Tensor &getTensor(int id) const;
-
+		
+		void setLossGrad(Scalar lossGrad = 1.0f);
+		
 		explicit GraphRuntime(const json &graphDef, const std::string &weightsPath = "");
 
 	private:

@@ -103,7 +103,7 @@ class GraphRuntime
 		file_put_contents($path, json_encode($jsonArray), LOCK_EX);
 	}
 	
-	public function setLossGrad($lossGrad = 1.0)
+	public function setLossGrad(float $lossGrad = 1.0)
 	{
 		$tensor = $this->tensors[$this->lossId];
 		

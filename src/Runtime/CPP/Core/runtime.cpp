@@ -125,8 +125,6 @@ namespace PHP2xAI::Runtime::CPP
 			else
 				throw std::runtime_error("Op not supported: " + name);
 		}
-
-		++accSteps;
 	}
 
 	Tensor &GraphRuntime::getTensor(int id)
@@ -145,10 +143,25 @@ namespace PHP2xAI::Runtime::CPP
 		return tensors[id];
 	}
 
-	Scalar GraphRuntime::getLoss() const
+	std::vector<Scalar> GraphRuntime::getLoss() const
 	{
 		const auto &tensor = tensors[lossId];
-		return tensor.data.empty() ? 0.0f : tensor.data[0];
+		return tensor.data;
+	}
+	
+	Scalar GraphRuntime::getError() const
+	{
+		const auto &loss = tensors[lossId];
+		
+		if (loss.data.size() > 1)
+		{
+			Scalar mean = std::accumulate(loss.data.begin(), loss.data.end(), 0.0f)
+			/ static_cast<Scalar>(loss.data.size());
+			
+			return mean;
+		}
+		else
+			return loss.data[0];
 	}
 	
 	std::vector<Scalar> GraphRuntime::getOutput() const
@@ -170,6 +183,13 @@ namespace PHP2xAI::Runtime::CPP
 		}
 		else
 			return tensor.data;
+	}
+	
+	void GraphRuntime::setLossGrad(Scalar lossGrad)
+	{
+		auto &tensor = tensors[lossId];
+		
+		tensor.grad[0] = lossGrad;
 	}
 	
 	void GraphRuntime::setInput(const std::vector<Scalar> &x)
@@ -194,8 +214,6 @@ namespace PHP2xAI::Runtime::CPP
 
 	void GraphRuntime::resetGrad()
 	{
-		accSteps = 0;
-
 		for (auto &tensor : tensors)
 		{
 			tensor.grad.assign(tensor.grad.size(), 0.0f);
@@ -279,7 +297,6 @@ namespace PHP2xAI::Runtime::CPP
 
 				C.data[static_cast<std::size_t>(i)] = sum;
 			}
-		}
 		}
 		else if (B.shape.size() == 2)
 		{
