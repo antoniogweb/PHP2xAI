@@ -51,7 +51,7 @@ abstract class Model
 		// $this->optimizer->addTensors(array_values($this->p));
 	}
 	
-	public function __set(string $name, Tensor|fTensor $value)
+	public function __set(string $name, Tensor $value)
     {
 		if ($value instanceof Tensor && $value->getName() === null)
 			$value->setName($name);
@@ -59,7 +59,7 @@ abstract class Model
         $this->p[$name] = $value;
     }
     
-    public function __get(string $name) : Tensor|fTensor
+    public function __get(string $name) : Tensor
     {
         return $this->p[$name] ?? null;
     }
@@ -490,31 +490,7 @@ abstract class Model
 			if ($tid === null || !isset($idToIndex[$tid]))
 				continue;
 			
-			$data = [];
-			
-			if ($tensor instanceof Vector)
-			{
-				foreach ($tensor->a as $node)
-				{
-					$data[] = $node;
-				}
-			}
-			else if ($tensor instanceof Matrix)
-			{
-				for ($i = 0; $i < $tensor->m; $i++)
-				{
-					for ($j = 0; $j < $tensor->n; $j++)
-					{
-						$node = $tensor->a[$i][$j];
-						$data[] = $node;
-					}
-				}
-			}
-			else if ($tensor instanceof Scalar)
-			{
-				$node = $tensor->a;
-				$data[] = $node;
-			}
+			$data = $tensor->data;
 			
 			$graph['tensors'][$idToIndex[$tid]]['data'] = $data;
 		}

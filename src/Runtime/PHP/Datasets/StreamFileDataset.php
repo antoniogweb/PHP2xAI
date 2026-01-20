@@ -2,8 +2,7 @@
 
 namespace PHP2xAI\Runtime\PHP\Datasets;
 
-use PHP2xAI\Tensor\Matrix;
-use PHP2xAI\Tensor\Vector;
+use PHP2xAI\Tensor\Tensor;
 
 class StreamFileDataset implements \IteratorAggregate
 {
@@ -64,12 +63,12 @@ class StreamFileDataset implements \IteratorAggregate
 		return $this->path;
 	}
 	
-	public function getXPlaceholder() : ?Matrix
+	public function getXPlaceholder() : ?Tensor
 	{
 		return $this->xPlaceholder;
 	}
 	
-	public function getYPlaceholder() : ?Matrix
+	public function getYPlaceholder() : ?Tensor
 	{
 		return $this->yPlaceholder;
 	}
@@ -91,15 +90,11 @@ class StreamFileDataset implements \IteratorAggregate
 		$xShape = count($x);
 		$yShape = count($y);
 		
-		if ($train)
-			$this->xPlaceholder = Matrix::zeros($this->batchSize, $xShape, 'x');
-		else
-			$this->xPlaceholder = Matrix::zeros(1, $xShape, 'x');
-			
-		if ($yShape > 1)
-			$this->yPlaceholder = Matrix::zeros($this->batchSize, $yShape, 'y');
-		else
-			$this->yPlaceholder = new Vector(array_fill(0, $this->batchSize, 0), true, 'y');
+		$xSize = $train ? [$this->batchSize, $xShape] : [1, $xShape];
+		$ySize = ($yShape > 1) ? [$this->batchSize, $yShape] : [$this->batchSize];
+		
+		$this->xPlaceholder = Tensor::zeros($xSize, 'x');
+		$this->yPlaceholder = Tensor::zeros($ySize, 'y');
 	}
 	
 	/** Ricostruisce l'ordine dei batch (senza shuffle). */
