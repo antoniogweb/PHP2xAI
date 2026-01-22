@@ -4,9 +4,6 @@ namespace PHP2xAI\Models;
 
 use PHP2xAI\Runtime\PHP\Optimizers\Optimizer;
 use PHP2xAI\Tensor\Tensor;
-use PHP2xAI\Tensor\Matrix;
-use PHP2xAI\Tensor\Vector;
-use PHP2xAI\Tensor\Scalar;
 use PHP2xAI\Runtime\PHP\Datasets\TrainValidateDataset;
 use PHP2xAI\Runtime\PHP\Datasets\StreamFileDataset;
 use PHP2xAI\Graph\GraphContext;
@@ -464,36 +461,10 @@ abstract class Model
 		$graph = $context->export();
 		
 		$lossId = $context->getTensorId($loss);
-		$lossShape = $loss->getShape();
-		
-		$idToIndex = [];
-		
-		foreach ($graph['tensors'] as $idx => $tInfo)
-		{
-			$idToIndex[$tInfo['id']] = $idx;
-		}
-		
-		$lossIdx = $idToIndex[$lossId];
+		$lossIdx = $context->getTensorIndex($loss);
 		
 		$graph['tensors'][$lossIdx]['kind'] = 'loss';
 		$graph['tensors'][$lossIdx]['name'] = $graph['tensors'][$lossIdx]['name'] ?? ($loss->getName() ?? 'loss');
-		$graph['tensors'][$lossIdx]['shape'] = $lossShape;
-		
-		// --- inject initial parameter values into graph tensors and track mapping
-		foreach ($this->p as $tensor)
-		{
-			if (!($tensor instanceof Tensor))
-				continue;
-			
-			$tid = $context->getTensorId($tensor);
-			
-			if ($tid === null || !isset($idToIndex[$tid]))
-				continue;
-			
-			$data = $tensor->data;
-			
-			$graph['tensors'][$idToIndex[$tid]]['data'] = $data;
-		}
 		
 		// --- add lossId and list of trainable
 		$graph['loss'] = $lossId;

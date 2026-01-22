@@ -62,6 +62,7 @@ class GraphContext
 			'kind' => $kind,
 			'name' => $name ?? $tensor->getName(),
 			'shape' => $shape,
+			'data'	=>	$tensor->data,
 		];
 		
 		$tensor->setContext($this);
@@ -93,6 +94,19 @@ class GraphContext
 	public function getTensorId(Tensor $tensor) : ?int
 	{
 		return $this->tensorIds[spl_object_id($tensor)] ?? null;
+	}
+	
+	public function getTensorIndex(Tensor $tensor) : ?int
+	{
+		$tensorId = $this->getTensorId($tensor);
+		
+		foreach ($this->tensors as $idx => $tInfo)
+		{
+			if ((int)$tInfo['id'] === (int)$tensorId)
+				return $idx;
+		}
+		
+		return 0;
 	}
 	
 	public function export() : array
