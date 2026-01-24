@@ -28,6 +28,8 @@ class Tensor
 	
 	public array $data = []; // tensor data in row-major
 	
+	public array $grad = []; // tensor grad in row-major
+	
 	public array $strides = [];
 	
 	/**
@@ -35,7 +37,7 @@ class Tensor
 	*
 	* @var GraphContext|null
 	*/
-	protected ?GraphContext $context = null;
+	public ?GraphContext $context = null;
 	
 	public function __construct(array $shape, array $data, ?string $name = null)
 	{
