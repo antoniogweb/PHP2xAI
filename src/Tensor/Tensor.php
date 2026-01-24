@@ -40,7 +40,62 @@ class Tensor
 		$this->name = $name;
 	}
 	
-	public static function random($size, ?string $name = null) : Tensor
+	public static function createFromData(array $multidimensionalArrayOfData, ?string $name = null) : Tensor
+	{
+		$inferShape = function ($data) use (&$inferShape) : array
+		{
+			if (!is_array($data))
+				return [];
+			
+			$len = count($data);
+			
+			if ($len === 0)
+				return [0];
+			
+			$first = reset($data);
+			$subshape = $inferShape($first);
+			
+			foreach ($data as $item)
+			{
+				if (is_array($item) !== is_array($first))
+					throw new \RuntimeException('Inconsistent tensor data: mixed scalar and array at same depth');
+				
+				if (is_array($item))
+				{
+					$itemShape = $inferShape($item);
+					
+					if ($itemShape !== $subshape)
+						throw new \RuntimeException('Inconsistent tensor data: non-rectangular shape');
+				}
+			}
+			
+			return array_merge([$len], $subshape);
+		};
+		
+		$data = array();
+		
+		$flatten = function ($input) use (&$flatten, &$data) : void
+		{
+			if (is_array($input))
+			{
+				foreach ($input as $item)
+				{
+					$flatten($item);
+				}
+				
+				return;
+			}
+			
+			$data[] = $input;
+		};
+		
+		$size = $inferShape($multidimensionalArrayOfData);
+		$flatten($multidimensionalArrayOfData);
+		
+		return new Tensor($size, $data, $name);
+	}
+	
+	public static function random(array $size, ?string $name = null) : Tensor
 	{
 		$count = array_product($size);
 		$data = array();
