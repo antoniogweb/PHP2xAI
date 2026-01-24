@@ -3,9 +3,8 @@
 namespace PHP2xAI\Tensor;
 
 /**
- * Matrix
  *
- * A zero, one or two dimensional tensor with integer and/or floating point elements.
+ * useful methods to manage Tensors data
  *
  * @category    Scientific Computing
  * @package     antoniogweb/PHP2xAI
