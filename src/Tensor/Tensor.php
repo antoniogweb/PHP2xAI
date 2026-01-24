@@ -15,6 +15,8 @@ use PHP2xAI\Graph\GraphContext;
  */
 class Tensor
 {
+	use TensorUtility;
+	
 	/**
 	* Operation name that produced this tensor (if any)
 	*
@@ -22,9 +24,11 @@ class Tensor
 	*/
 	public ?string $name = null;
 	
-	public array $size = [];
+	public array $shape = [];
 	
 	public array $data = []; // tensor data in row-major
+	
+	public array $strides = [];
 	
 	/**
 	* Graph context used for IR construction.
@@ -33,11 +37,13 @@ class Tensor
 	*/
 	protected ?GraphContext $context = null;
 	
-	public function __construct(array $size, array $data, ?string $name = null)
+	public function __construct(array $shape, array $data, ?string $name = null)
 	{
-		$this->size = $size;
+		$this->shape = $shape;
 		$this->data = $data;
 		$this->name = $name;
+		
+		$this->computeStrides();
 	}
 	
 	public static function createFromData(array $multidimensionalArrayOfData, ?string $name = null) : Tensor
@@ -89,15 +95,15 @@ class Tensor
 			$data[] = $input;
 		};
 		
-		$size = $inferShape($multidimensionalArrayOfData);
+		$shape = $inferShape($multidimensionalArrayOfData);
 		$flatten($multidimensionalArrayOfData);
 		
-		return new Tensor($size, $data, $name);
+		return new Tensor($shape, $data, $name);
 	}
 	
-	public static function random(array $size, ?string $name = null) : Tensor
+	public static function random(array $shape, ?string $name = null) : Tensor
 	{
-		$count = array_product($size);
+		$count = array_product($shape);
 		$data = array();
 		
 		$max = mt_getrandmax();
@@ -107,19 +113,19 @@ class Tensor
 			$data[$i] = mt_rand() / $max;
 		}
 		
-		return new Tensor($size, $data, $name);
+		return new Tensor($shape, $data, $name);
 	}
 	
-	public static function zeros(array $size, ?string $name = null) : Tensor
+	public static function zeros(array $shape, ?string $name = null) : Tensor
 	{
-		$data = array_fill(0, array_product($size), 0);
+		$data = array_fill(0, array_product($shape), 0);
 		
-		return new Tensor($size, $data, $name);
+		return new Tensor($shape, $data, $name);
 	}
 	
-	public static function init(array $size, float $scale = 0.05, ?string $name = null) : Tensor
+	public static function init(array $shape, float $scale = 0.05, ?string $name = null) : Tensor
 	{
-		$tensor = self::random($size, $name);
+		$tensor = self::random($shape, $name);
 		
 		for ($i = 0; $i < count($tensor->data); $i++)
 		{
@@ -137,7 +143,7 @@ class Tensor
 		$leftId = $this->registerInContext($context, $this);
 		$rightId = $this->registerInContext($context, $b);
 		
-		$result = self::zeros(array($this->size[0], $b->size[1]), 'matmul');
+		$result = self::zeros(array($this->shape[0], $b->shape[1]), 'matmul');
 		$context->registerOp('matmul', [$leftId, $rightId], $result);
 		
 		return $result;
@@ -149,7 +155,7 @@ class Tensor
 		$leftId = $this->registerInContext($context, $this);
 		$rightId = $this->registerInContext($context, $b);
 		
-		$result = self::zeros($this->size, 'add');
+		$result = self::zeros($this->shape, 'add');
 		$context->registerOp('add', [$leftId, $rightId], $result);
 		
 		return $result;
@@ -161,7 +167,7 @@ class Tensor
 		$leftId = $this->registerInContext($context, $this);
 		$rightId = $this->registerInContext($context, $b);
 		
-		$result = self::zeros($this->size, 'sub');
+		$result = self::zeros($this->shape, 'sub');
 		$context->registerOp('sub', [$leftId, $rightId], $result);
 		
 		return $result;
@@ -172,7 +178,7 @@ class Tensor
 		$context = $this->initContextFrom();
 		$inputId = $this->registerInContext($context, $this);
 		
-		$result = self::zeros($this->size, 'dropout');
+		$result = self::zeros($this->shape, 'dropout');
 		$context->registerOp('dropout', [$inputId], $result);
 		
 		return $result;
@@ -183,7 +189,7 @@ class Tensor
 		$context = $this->initContextFrom();
 		$inputId = $this->registerInContext($context, $this);
 		
-		$result = self::zeros($this->size, 'sig');
+		$result = self::zeros($this->shape, 'sig');
 		$context->registerOp('sig', [$inputId], $result);
 		
 		return $result;
@@ -194,7 +200,7 @@ class Tensor
 		$context = $this->initContextFrom();
 		$inputId = $this->registerInContext($context, $this);
 		
-		$result = self::zeros($this->size, 'ReLU');
+		$result = self::zeros($this->shape, 'ReLU');
 		$context->registerOp('ReLU', [$inputId], $result);
 		
 		return $result;
@@ -205,7 +211,7 @@ class Tensor
 		$context = $this->initContextFrom();
 		$inputId = $this->registerInContext($context, $this);
 		
-		$result = self::zeros($this->size, 'LReLU');
+		$result = self::zeros($this->shape, 'LReLU');
 		$context->registerOp('LReLU', [$inputId], $result);
 		
 		return $result;
@@ -217,15 +223,15 @@ class Tensor
 		$context = $this->initContextFrom();
 		$inputId = $this->registerInContext($context, $this);
 		
-		$result = self::zeros($this->size, 'softmax');
+		$result = self::zeros($this->shape, 'softmax');
 		$context->registerOp('softmax', [$inputId], $result);
 		
 		return $result;
     }
     
-    public function sizeReduced(int $index = 0) : array
+    public function shapeReduced(int $index = 0) : array
 	{
-		$nSize = $this->size;
+		$nSize = $this->shape;
 		array_pop($nSize);
 		
 		return $nSize;
@@ -237,7 +243,7 @@ class Tensor
 		$context = $this->initContextFrom();
 		$inputId = $this->registerInContext($context, $this);
 		
-		$result = self::zeros($this->sizeReduced(), 'MSE');
+		$result = self::zeros($this->shapeReduced(), 'MSE');
 		$context->registerOp('MSE', [$inputId], $result);
 		
 		return $result;
@@ -249,7 +255,7 @@ class Tensor
 		$context = $this->initContextFrom();
 		$inputId = $this->registerInContext($context, $this);
 		
-		$result = self::zeros($this->sizeReduced(), 'MAE');
+		$result = self::zeros($this->shapeReduced(), 'MAE');
 		$context->registerOp('MAE', [$inputId], $result);
 		
 		return $result;
@@ -262,7 +268,7 @@ class Tensor
 		$logitsId = $this->registerInContext($context, $this);
 		$targetId = $this->registerInContext($context, $target);
 		
-		$result = self::zeros($this->sizeReduced(), 'CE');
+		$result = self::zeros($this->shapeReduced(), 'CE');
 		$context->registerOp('CE', [$logitsId, $targetId], $result);
 		
 		return $result;
@@ -274,7 +280,7 @@ class Tensor
 		$logitsId = $this->registerInContext($context, $this);
 		$targetId = $this->registerInContext($context, $target);
 		
-		$result = self::zeros($this->sizeReduced(), 'CELogitsLabelInt');
+		$result = self::zeros($this->shapeReduced(), 'CELogitsLabelInt');
 		$context->registerOp('softmax_ce_logits_label_int', [$logitsId, $targetId], $result);
 		
 		return $result;
@@ -290,7 +296,7 @@ class Tensor
 		$logitsId = $this->registerInContext($context, $this);
 		$targetId = $this->registerInContext($context, $target);
 		
-		$result = self::zeros($this->sizeReduced(), 'CELogits');
+		$result = self::zeros($this->shapeReduced(), 'CELogits');
 		$context->registerOp('softmax_ce_logits', [$logitsId, $targetId], $result);
 		
 		return $result;
@@ -302,7 +308,7 @@ class Tensor
 		$context = $this->initContextFrom();
 		$inputId = $this->registerInContext($context, $this);
 		
-		$result = self::zeros($this->sizeReduced(), 'mean');
+		$result = self::zeros($this->shapeReduced(), 'mean');
 		$context->registerOp('mean', [$inputId], $result);
 		
 		return $result;
@@ -330,7 +336,7 @@ class Tensor
 	
 	public function getShape() : array
 	{
-		return $this->size;
+		return $this->shape;
 	}
 	
 	protected function initContextFrom(Tensor ...$inputs) : GraphContext
