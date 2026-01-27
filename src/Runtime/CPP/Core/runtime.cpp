@@ -82,8 +82,7 @@ namespace PHP2xAI::Runtime::CPP
 				tensor.grad.assign(tensor.grad.size(), 0.0f);
 		}
 
-		if (!tensors[lossId].grad.empty())
-			tensors[lossId].grad[0] = 1.0f;
+		setLossGrad(1.0f);
 
 		for (int i = static_cast<int>(ops.size()) - 1; i >= 0; --i)
 		{
@@ -187,9 +186,12 @@ namespace PHP2xAI::Runtime::CPP
 	
 	void GraphRuntime::setLossGrad(Scalar lossGrad)
 	{
-		auto &tensor = tensors[lossId];
+		if (lossId != 0)
+		{
+			auto &tensor = tensors[lossId];
 		
-		tensor.grad[0] = lossGrad;
+			tensor.grad.assign(tensor.data.size(), lossGrad);
+		}
 	}
 	
 	void GraphRuntime::setInput(const std::vector<Scalar> &x)
@@ -1655,6 +1657,7 @@ namespace PHP2xAI::Runtime::CPP
 			if (t.contains("data"))
 			{
 				tensor.data = t.at("data").get<std::vector<Scalar>>();
+				tensor.grad.assign(tensor.data.size(), 1.0f);
 			}
 			else
 			{

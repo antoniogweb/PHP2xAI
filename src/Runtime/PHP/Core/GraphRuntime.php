@@ -3,6 +3,7 @@
 namespace PHP2xAI\Runtime\PHP\Core;
 
 use RuntimeException;
+use PHP2xAI\Tensor\Tensor;
 
 class GraphRuntime
 {
@@ -10,7 +11,7 @@ class GraphRuntime
 	public array $tensors = [];
 	/** @var array[] */
 	public array $ops;
-	public int $lossId;
+	public int $lossId = 0;
 	/** @var int[] */
 	public array $trainable;
 	
@@ -40,7 +41,7 @@ class GraphRuntime
 			{
 				$data = array_values($t['data']);
 				$this->tensors[$id]->data = $data;
-				$this->tensors[$id]->grad = array_fill(0, count($data), 0.0);
+				$this->tensors[$id]->grad = array_fill(0, count($data), 1.0);
 			}
 			
 			if ($t["kind"] == "input")
@@ -63,7 +64,17 @@ class GraphRuntime
 		if (isset($graphDef['output']))
 			$this->outputId = $graphDef['output'];
 		
-		$this->trainable = $graphDef['trainable'];
+		if (isset($graphDef['trainable']))
+			$this->trainable = $graphDef['trainable'];
+	}
+	
+	public static function create(Tensor $tensor) : GraphRuntime
+	{
+		$context = $tensor->context;
+		
+		$graphRuntime = new GraphRuntime($context->export());
+		
+		return $graphRuntime;
 	}
 	
 	public function saveWeightsToJson(string $path)
@@ -105,9 +116,12 @@ class GraphRuntime
 	
 	public function setLossGrad(float $lossGrad = 1.0)
 	{
-		$tensor = $this->tensors[$this->lossId];
+		if ($this->lossId && isset($this->tensors[$this->lossId]))
+		{
+			$tensor = $this->tensors[$this->lossId];
 		
-		$tensor->grad[0] = $lossGrad;
+			$tensor->grad = array_fill(0, count($tensor->data), $lossGrad);
+		}
 	}
 	
 	public function getLoss() : array
@@ -1018,7 +1032,7 @@ class GraphRuntime
 		}
 
 		// grad loss = 1
-		$this->tensors[$this->lossId]->grad[0] = 1.0;
+		$this->setLossGrad(1.0);
 
 		// reverse sulle op
 		for ($i = count($this->ops) - 1; $i >= 0; $i--)

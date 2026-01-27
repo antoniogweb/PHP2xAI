@@ -72,7 +72,7 @@ trait TensorUtility
 			}, $this->shape[0], $limitForDim(0));
 			
 			$out = '['.$line.']';
-			echo $out.PHP_EOL;
+			echo $this->name." ".ucfirst($type).":\n".$out.PHP_EOL;
 			
 			return $out;
 		}
@@ -113,7 +113,7 @@ trait TensorUtility
 			$lines[] = ']';
 			
 			$out = implode(PHP_EOL, $lines);
-			echo $out.PHP_EOL;
+			echo $this->name." ".ucfirst($type).":\n".$out.PHP_EOL;
 			
 			return $out;
 		}
@@ -185,12 +185,12 @@ trait TensorUtility
 			}
 			
 			$out = implode(PHP_EOL, $lines);
-			echo $out.PHP_EOL;
+			echo $this->name." ".ucfirst($type).":\n".$out.PHP_EOL;
 			
 			return $out;
 		}
 		
-		$out = print_r($values, true);
+		$out = $this->name." ".ucfirst($type).":\n".print_r($values, true);
 		echo $out;
 		
 		return $out;
