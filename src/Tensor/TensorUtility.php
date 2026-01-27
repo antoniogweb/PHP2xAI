@@ -12,6 +12,16 @@ namespace PHP2xAI\Tensor;
  */
 trait TensorUtility
 {
+	public function printData(array $numPerDimension = [3, 3, 3]) : string
+	{
+		return $this->print('data', $numPerDimension);
+	}
+	
+	public function printGrad(array $numPerDimension = [3, 3, 3]) : string
+	{
+		return $this->print('grad', $numPerDimension);
+	}
+	
 	public function print(string $type = 'data', array $numPerDimension = [3, 3, 3]) : string
 	{
 		$values = ($type === 'grad') ? $this->grad : $this->data;

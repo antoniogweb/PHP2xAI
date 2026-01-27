@@ -20,6 +20,6 @@ class TensorRuntime
 		$this->name  = $name;
 		$size = array_product($shape) ?: 1;
 		$this->data = array_fill(0, $size, 0.0);
-		$this->grad = array_fill(0, $size, 1.0);
+		$this->grad = array_fill(0, $size, 0.0);
 	}
 }

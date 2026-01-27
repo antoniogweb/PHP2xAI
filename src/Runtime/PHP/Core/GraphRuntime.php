@@ -4,6 +4,7 @@ namespace PHP2xAI\Runtime\PHP\Core;
 
 use RuntimeException;
 use PHP2xAI\Tensor\Tensor;
+use PHP2xAI\Graph\GraphContext;
 
 class GraphRuntime
 {
@@ -20,6 +21,7 @@ class GraphRuntime
 	public int $outputId = 0;
 	
 	private array $graphDef = [];
+	private ?GraphContext $context = null;
 	
 	public function __construct(array $graphDef, ?array $weigths = null)
 	{
@@ -28,6 +30,8 @@ class GraphRuntime
 		// crea i tensori
 		foreach ($graphDef['tensors'] as $t)
 		{
+			$size = array_product($t['shape']) ?: 1;
+			
 			$id = $t['id'];
 			
 			$this->tensors[$id] = new TensorRuntime(
@@ -41,8 +45,9 @@ class GraphRuntime
 			{
 				$data = array_values($t['data']);
 				$this->tensors[$id]->data = $data;
-				$this->tensors[$id]->grad = array_fill(0, count($data), 1.0);
 			}
+			
+			$this->tensors[$id]->grad = array_fill(0, $size, 0.0);
 			
 			if ($t["kind"] == "input")
 				$this->inputId = $id;
@@ -68,13 +73,46 @@ class GraphRuntime
 			$this->trainable = $graphDef['trainable'];
 	}
 	
-	public static function create(Tensor $tensor) : GraphRuntime
+	public function setContext(GraphContext $context) : void
+	{
+		$this->context = $context;
+	}
+	
+	public static function createFromOutputTensor(Tensor $tensor) : GraphRuntime
 	{
 		$context = $tensor->context;
 		
-		$graphRuntime = new GraphRuntime($context->export());
+		$graph = $context->export();
+		
+		$lossId = $context->getTensorId($tensor);
+		
+		$graph['loss'] = $lossId;
+		
+		$graphRuntime = new GraphRuntime($graph);
+		$graphRuntime->setContext($context);
 		
 		return $graphRuntime;
+	}
+	
+	public function refreshTensorsData()
+	{
+		$contextTensors = $this->context->getTensors();
+		
+		foreach ($contextTensors as $contextTensor)
+		{
+			$tensorId = $contextTensor["id"];
+			
+			$tensor = $this->context->getTensorFromId($tensorId);
+			
+			// var_dump($tensor);
+			
+			if ($tensor && isset($this->tensors[$tensorId]))
+			{
+				$tensor->data = $this->tensors[$tensorId]->data;
+				$tensor->grad = $this->tensors[$tensorId]->grad;
+			}
+				
+		}
 	}
 	
 	public function saveWeightsToJson(string $path)

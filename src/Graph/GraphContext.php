@@ -39,6 +39,9 @@ class GraphContext
 	/** @var array<int,int> maps spl_object_id => tensor id */
 	protected array $tensorIds = [];
 	
+	/** @var array<int,int> maps tensor id => spl_object_id */
+	protected ?array $tensorIdo = null;
+	
 	/** @var array<int,\PHP2xAI\Tensor\Backward\Tensor> strong refs to tensors to prevent GC reuse */
 	protected array $tensorRefs = [];
 	
@@ -86,6 +89,11 @@ class GraphContext
 		return $opId;
 	}
 	
+	public function getTensors() : array
+	{
+		return $this->tensors;
+	}
+	
 	public function hasTensor(Tensor $tensor) : bool
 	{
 		return isset($this->tensorIds[spl_object_id($tensor)]);
@@ -94,6 +102,19 @@ class GraphContext
 	public function getTensorId(Tensor $tensor) : ?int
 	{
 		return $this->tensorIds[spl_object_id($tensor)] ?? null;
+	}
+	
+	public function getTensorFromId(int $id) : ?Tensor
+	{
+		if (!isset($this->tensorIdo))
+			$this->tensorIdo = array_flip($this->tensorIds);
+		
+		$ido = $this->tensorIdo[$id] ?? null;
+		
+		if (!isset($ido))
+			return null;
+		
+		return $this->tensorRefs[$ido] ?? null;
 	}
 	
 	public function getTensorIndex(Tensor $tensor) : ?int

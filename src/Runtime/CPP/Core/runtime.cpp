@@ -1657,7 +1657,6 @@ namespace PHP2xAI::Runtime::CPP
 			if (t.contains("data"))
 			{
 				tensor.data = t.at("data").get<std::vector<Scalar>>();
-				tensor.grad.assign(tensor.data.size(), 1.0f);
 			}
 			else
 			{

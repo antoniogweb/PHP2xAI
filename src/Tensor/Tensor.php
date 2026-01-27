@@ -44,7 +44,7 @@ class Tensor
 		$this->shape = $shape;
 		$this->data = $data;
 		$this->name = $name;
-		$this->grad = array_fill(0, count($data), 1);
+		$this->grad = array_fill(0, count($data), 0.0);
 		
 		$this->computeStrides();
 	}
