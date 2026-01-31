@@ -32,6 +32,8 @@ class Tensor
 	
 	public array $strides = [];
 	
+	public int $baseOffset = 0;
+	
 	/**
 	* Graph context used for IR construction.
 	*
@@ -46,7 +48,7 @@ class Tensor
 		$this->name = $name;
 		$this->grad = array_fill(0, count($data), 0.0);
 		
-		$this->computeStrides();
+		$this->strides = $this->computeStrides($shape);
 	}
 	
 	public static function createFromData(array $multidimensionalArrayOfData, ?string $name = null) : Tensor

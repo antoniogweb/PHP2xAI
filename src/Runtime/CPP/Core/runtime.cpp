@@ -5,6 +5,21 @@
 #include <utility>
 #include "runtime.hpp"
 
+// enum OpType { SOFTMAX, REDUCE_MEAN, TRANSPOSE, MATMUL, ... };
+// 
+// struct SoftmaxAttr { int axis; };
+// struct ReduceAttr { int axis; bool keepdims; };
+// struct TransposeAttr { std::vector<int> axes; };
+// 
+// using OpAttr = std::variant<std::monostate, SoftmaxAttr, ReduceAttr, TransposeAttr, ...>;
+// 
+// struct OpNode {
+//   OpType type;
+//   std::vector<int> inputs;
+//   std::vector<int> outputs;
+//   OpAttr attr;
+// };
+
 namespace PHP2xAI::Runtime::CPP
 {
 	GraphRuntime::GraphRuntime(const json &graphDef, const std::string &weightsPath)

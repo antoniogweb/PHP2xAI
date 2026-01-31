@@ -206,9 +206,9 @@ trait TensorUtility
 		return $out;
 	}
 	
-	public function computeStrides(): void
+	public function computeStrides(array $shape): array
 	{
-		$rank = count($this->shape);
+		$rank = count($shape);
 		$strides = array_fill(0, $rank, 0);
 
 		$acc = 1;
@@ -216,10 +216,10 @@ trait TensorUtility
 		for ($a = $rank - 1; $a >= 0; --$a)
 		{
 			$strides[$a] = $acc;
-			$acc *= $this->shape[$a];
+			$acc *= $shape[$a];
 		}
 		
-		$this->strides = $strides;
+		return $strides;
 	}
 	
 	public function offset(array $indices): int
@@ -259,4 +259,9 @@ trait TensorUtility
 		
 		$this->data[$off] = $value;
 	}
+	
+	public function isContiguous() : bool
+	{
+        return $this->strides === $this->computeStrides($this->shape) && $this->baseOffset === 0;
+    }
 }

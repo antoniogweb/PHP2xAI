@@ -73,7 +73,7 @@ class GraphContext
 		return $id;
 	}
 	
-	public function registerOp(string $op, array $inputs, Tensor $output) : int
+	public function registerOp(string $op, array $inputs, Tensor $output, array $attributes = []) : int
 	{
 		$outputId = $this->registerTensor($output, 'intermediate', $output->getName() ?? $op, $output->getShape());
 		
@@ -84,6 +84,7 @@ class GraphContext
 			'op' => $op,
 			'inputs' => $inputs,
 			'output' => $outputId,
+			'attributes'	=>	$attributes,
 		];
 		
 		return $opId;
