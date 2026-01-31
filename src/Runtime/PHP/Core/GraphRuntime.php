@@ -88,7 +88,9 @@ class GraphRuntime
 		
 		$graph['loss'] = $lossId;
 		
-		$graphRuntime = new GraphRuntime($graph);
+		$className = get_called_class();
+		
+		$graphRuntime = new $className($graph);
 		$graphRuntime->setContext($context);
 		
 		return $graphRuntime;
@@ -104,15 +106,32 @@ class GraphRuntime
 			
 			$tensor = $this->context->getTensorFromId($tensorId);
 			
-			// var_dump($tensor);
-			
 			if ($tensor && isset($this->tensors[$tensorId]))
 			{
-				$tensor->data = $this->tensors[$tensorId]->data;
-				$tensor->grad = $this->tensors[$tensorId]->grad;
+				$tensor->data = $this->getTensorData($tensorId); // $this->tensors[$tensorId]->data;
+				$tensor->grad = $this->getTensorGrad($tensorId); //$this->tensors[$tensorId]->grad;
 			}
-				
 		}
+	}
+	
+	public function getTensorSize(int $tensorId) : int
+	{
+		if (isset($this->tensors[$tensorId]))
+			return array_product($this->tensors[$tensorId]->shape) ?: 1;
+		
+		return null;
+	}
+	
+	public function getTensorData(int $tensorId) : array
+	{
+		if (isset($this->tensors[$tensorId]))
+			return $this->tensors[$tensorId]->data;
+	}
+	
+	public function getTensorGrad(int $tensorId) : array
+	{
+		if (isset($this->tensors[$tensorId]))
+			return $this->tensors[$tensorId]->grad;
 	}
 	
 	public function saveWeightsToJson(string $path)

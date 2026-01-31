@@ -28,7 +28,8 @@ namespace PHP2xAI::Runtime::CPP
 		if (graphDef_.contains("output"))
 			outputId = graphDef_.at("output").get<int>();
 
-		trainable = graphDef_.at("trainable").get<std::vector<int>>();
+		if (graphDef_.contains("trainable"))
+			trainable = graphDef_.at("trainable").get<std::vector<int>>();
 	}
 
 	void GraphRuntime::forward()
