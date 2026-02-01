@@ -1668,6 +1668,8 @@ namespace PHP2xAI::Runtime::CPP
 			tensor.kind = t.at("kind").get<std::string>();
 			tensor.name = t.value("name", "");
 			tensor.shape = t.at("shape").get<std::vector<int>>();
+			tensor.baseOffset = 0;
+			tensor.strides = tensor.computeStrides(tensor.shape);
 
 			// Initialize data/grad; if data provided, use it, otherwise fill zeros with shape product (or 1).
 			if (t.contains("data"))

@@ -20,6 +20,69 @@ namespace PHP2xAI::Runtime::CPP
 		std::vector<int> shape;
 		std::string name;
 		std::string kind;
+		int baseOffset{};
+		std::vector<int> strides;
+
+		std::vector<int> computeStrides(const std::vector<int> &shape) const
+		{
+			const int rank = static_cast<int>(shape.size());
+			std::vector<int> stridesLocal(rank, 0);
+			int acc = 1;
+
+			for (int a = rank - 1; a >= 0; --a)
+			{
+				stridesLocal[a] = acc;
+				acc *= shape[a];
+			}
+
+			return stridesLocal;
+		}
+
+		int offset(const std::vector<int> &indices) const
+		{
+			const int rank = static_cast<int>(shape.size());
+
+			if (static_cast<int>(indices.size()) != rank)
+				throw std::runtime_error("Wrong rank: expected " + std::to_string(rank) + " indices");
+
+			int off = 0;
+
+			for (int a = 0; a < rank; ++a)
+			{
+				const int i = indices[a];
+				const int d = shape[a];
+
+				if (i < 0 || i >= d)
+					throw std::runtime_error("Index out of bounds at axis " + std::to_string(a)
+						+ ": " + std::to_string(i) + " (dim=" + std::to_string(d) + ")");
+
+				off += i * strides[a];
+			}
+
+			return off;
+		}
+
+		Scalar get(const std::vector<int> &indices) const
+		{
+			const int off = offset(indices);
+			return data[static_cast<std::size_t>(off)];
+		}
+
+		void set(const std::vector<int> &indices, Scalar value)
+		{
+			const int off = offset(indices);
+			data[static_cast<std::size_t>(off)] = value;
+		}
+
+		int getRank() const
+		{
+			return static_cast<int>(shape.size());
+		}
+
+		bool isContiguous() const
+		{
+			return strides == computeStrides(shape) && baseOffset == 0;
+		}
 	};
 
 	struct Op
