@@ -243,54 +243,55 @@ class GraphRuntime
 			$name = $op['op'];
 			$inputs = $op['inputs'];
 			$outId = $op['output'];
-
+			$attributes = $op['attributes'] ?? [];
+			
 			switch ($name)
 			{
 				case 'matmul':
-					$this->opMatmul($inputs[0], $inputs[1], $outId);
+					$this->opMatmul($inputs[0], $inputs[1], $outId, $attributes);
 					break;
 				case 'add':
-					$this->opAdd($inputs[0], $inputs[1], $outId);
+					$this->opAdd($inputs[0], $inputs[1], $outId, $attributes);
 					break;
 				case 'sub':
-					$this->opSub($inputs[0], $inputs[1], $outId);
+					$this->opSub($inputs[0], $inputs[1], $outId, $attributes);
 					break;
 				case 'dot':
-					$this->opDot($inputs[0], $inputs[1], $outId);
+					$this->opDot($inputs[0], $inputs[1], $outId, $attributes);
 					break;
 				case 'dropout':
-					$this->opDropout($inputs[0], $outId);
+					$this->opDropout($inputs[0], $outId, $attributes);
 					break;
 				case 'sig':
-					$this->opSig($inputs[0], $outId);
+					$this->opSig($inputs[0], $outId, $attributes);
 					break;
 				case 'ReLU':
 				case 'relu':
-					$this->opRelu($inputs[0], $outId);
+					$this->opRelu($inputs[0], $outId, $attributes);
 					break;
 				case 'LReLU':
-					$this->opLRelu($inputs[0], $outId);
+					$this->opLRelu($inputs[0], $outId, $attributes);
 					break;
 				case 'MSE':
-					$this->opMse($inputs[0], $outId);
+					$this->opMse($inputs[0], $outId, $attributes);
 					break;
 				case 'MAE':
-					$this->opMae($inputs[0], $outId);
+					$this->opMae($inputs[0], $outId, $attributes);
 					break;
 				case 'softmax':
-					$this->opSoftmax($inputs[0], $outId);
+					$this->opSoftmax($inputs[0], $outId, $attributes);
 					break;
 				case 'CE':
-					$this->opCe($inputs[0], $inputs[1], $outId);
+					$this->opCe($inputs[0], $inputs[1], $outId, $attributes);
 					break;
 				case 'softmax_ce_logits':
-					$this->opCeLogits($inputs[0], $inputs[1], $outId);
+					$this->opCeLogits($inputs[0], $inputs[1], $outId, $attributes);
 					break;
 				case 'softmax_ce_logits_label_int':
-					$this->opCeLogitsLabelInt($inputs[0], $inputs[1], $outId);
+					$this->opCeLogitsLabelInt($inputs[0], $inputs[1], $outId, $attributes);
 					break;
 				case 'mean':
-					$this->opMean($inputs[0], $outId);
+					$this->opMean($inputs[0], $outId, $attributes);
 					break;
 				default:
 					throw new RuntimeException("Op not supported: {$name}");
@@ -370,47 +371,26 @@ class GraphRuntime
 		}
 	}
 	
-	private function opAdd(int $aId, int $bId, int $outId): void
+	private function opAdd(int $aId, int $bId, int $outId, array $attributes): void
 	{
 		$A = $this->tensors[$aId];
 		$B = $this->tensors[$bId];
 		$C = $this->tensors[$outId];
-
-		// broadcast support: A[B, N] + B[N] = C[B, N]
-		if (count($A->shape) === 2 && count($B->shape) === 1)
-		{
-			[$batch, $dim] = $A->shape;
-			
-			if ($B->shape[0] !== $dim)
-				throw new RuntimeException('add: dimension mismatch');
-			
-			$C->shape = [$batch, $dim];
-			$C->data  = array_fill(0, $batch * $dim, 0.0);
-			
-			for ($b = 0; $b < $batch; $b++)
-			{
-				$aRow = $b * $dim;
-				
-				for ($n = 0; $n < $dim; $n++)
-				{
-					$C->data[$aRow + $n] = $A->data[$aRow + $n] + $B->data[$n];
-				}
-			}
-			
-			return;
-		}
-
-		$size = count($A->data);
 		
-		if ($size !== count($B->data))
-			throw new RuntimeException('add: dimension mismatch');
-
-		$C->shape = $A->shape;
-		$C->data  = array_fill(0, $size, 0.0);
-
-		for ($i = 0; $i < $size; $i++)
+		switch ($attributes["kernel"])
 		{
-			$C->data[$i] = $A->data[$i] + $B->data[$i];
+			case "ADD_1D_LAST":
+				$this->ADD_1D_LAST($A, $B, $C);
+				break;
+			case "ADD_2D_LAST":
+				$this->ADD_2D_LAST($A, $B, $C);
+				break;
+			case "ADD_3D_LAST":
+				$this->ADD_3D_LAST($A, $B, $C);
+				break;
+			case "ADD_GENERIC_LAST":
+				$this->ADD_GENERIC_LAST($A, $B, $C);
+				break;
 		}
 	}
 
@@ -1098,54 +1078,55 @@ class GraphRuntime
 			$name   = $op['op'];
 			$inputs = $op['inputs'];
 			$outId  = $op['output'];
-
+			$attributes = $op['attributes'] ?? [];
+			
 			switch ($name)
 			{
 				case 'matmul':
-					$this->backwardMatmul($inputs[0], $inputs[1], $outId);
+					$this->backwardMatmul($inputs[0], $inputs[1], $outId, $attributes);
 					break;
 				case 'add':
-					$this->backwardAdd($inputs[0], $inputs[1], $outId);
+					$this->backwardAdd($inputs[0], $inputs[1], $outId, $attributes);
 					break;
 				case 'sub':
-					$this->backwardSub($inputs[0], $inputs[1], $outId);
+					$this->backwardSub($inputs[0], $inputs[1], $outId, $attributes);
 					break;
 				case 'dot':
-					$this->backwardDot($inputs[0], $inputs[1], $outId);
+					$this->backwardDot($inputs[0], $inputs[1], $outId, $attributes);
 					break;
 				case 'dropout':
-					$this->backwardDropout($inputs[0], $outId);
+					$this->backwardDropout($inputs[0], $outId, $attributes);
 					break;
 				case 'sig':
-					$this->backwardSig($inputs[0], $outId);
+					$this->backwardSig($inputs[0], $outId, $attributes);
 					break;
 				case 'relu':
 				case 'ReLU':
-					$this->backwardRelu($inputs[0], $outId);
+					$this->backwardRelu($inputs[0], $outId, $attributes);
 					break;
 				case 'LReLU':
-					$this->backwardLRelu($inputs[0], $outId);
+					$this->backwardLRelu($inputs[0], $outId, $attributes);
 					break;
 				case 'MSE':
-					$this->backwardMse($inputs[0], $outId);
+					$this->backwardMse($inputs[0], $outId, $attributes);
 					break;
 				case 'MAE':
-					$this->backwardMae($inputs[0], $outId);
+					$this->backwardMae($inputs[0], $outId, $attributes);
 					break;
 				case 'softmax':
-					$this->backwardSoftmax($inputs[0], $outId);
+					$this->backwardSoftmax($inputs[0], $outId, $attributes);
 					break;
 				case 'CE':
-					$this->backwardCe($inputs[0], $inputs[1], $outId);
+					$this->backwardCe($inputs[0], $inputs[1], $outId, $attributes);
 					break;
 				case 'softmax_ce_logits':
-					$this->backwardCeLogits($inputs[0], $inputs[1], $outId);
+					$this->backwardCeLogits($inputs[0], $inputs[1], $outId, $attributes);
 					break;
 				case 'softmax_ce_logits_label_int':
-					$this->backwardCeLogitsLabelInt($inputs[0], $inputs[1], $outId);
+					$this->backwardCeLogitsLabelInt($inputs[0], $inputs[1], $outId, $attributes);
 					break;
 				case 'mean':
-					$this->backwardMean($inputs[0], $outId);
+					$this->backwardMean($inputs[0], $outId, $attributes);
 					break;
 				default:
 					throw new RuntimeException("Op not supported: {$name}");
@@ -1236,40 +1217,26 @@ class GraphRuntime
 		throw new RuntimeException("matmul backward: caso non implementato");
 	}
 	
-	private function backwardAdd(int $aId, int $bId, int $outId): void
+	private function backwardAdd(int $aId, int $bId, int $outId, array $attributes): void
 	{
 		$A = $this->tensors[$aId];
 		$B = $this->tensors[$bId];
 		$C = $this->tensors[$outId];
-
-		if (count($A->shape) === 2 && count($B->shape) === 1)
-		{
-			[$batch, $dim] = $A->shape;
-			
-			if ($B->shape[0] !== $dim)
-				throw new RuntimeException('add: dimension mismatch');
-			
-			for ($b = 0; $b < $batch; $b++)
-			{
-				$aRow = $b * $dim;
-				
-				for ($n = 0; $n < $dim; $n++)
-				{
-					$grad = $C->grad[$aRow + $n];
-					$A->grad[$aRow + $n] += $grad;
-					$B->grad[$n] += $grad;
-				}
-			}
-			
-			return;
-		}
-
-		$size = count($C->data);
 		
-		for ($i = 0; $i < $size; $i++)
+		switch ($attributes["kernel"])
 		{
-			$A->grad[$i] += $C->grad[$i];
-			$B->grad[$i] += $C->grad[$i];
+			case "ADD_1D_LAST":
+				$this->BACKWARD_ADD_1D_LAST($A, $B, $C);
+				break;
+			case "ADD_2D_LAST":
+				$this->BACKWARD_ADD_2D_LAST($A, $B, $C);
+				break;
+			case "ADD_3D_LAST":
+				$this->BACKWARD_ADD_3D_LAST($A, $B, $C);
+				break;
+			case "ADD_GENERIC_LAST":
+				$this->BACKWARD_ADD_GENERIC_LAST($A, $B, $C);
+				break;
 		}
 	}
 
@@ -1779,5 +1746,385 @@ class GraphRuntime
 			else
 				$logits->grad[$i] += $scale * ($probs[$i]);
 		}
+	}
+	
+	// KERNELS ADD
+	private function ADD_1D_LAST(TensorRuntime $A, TensorRuntime $B, TensorRuntime $C)
+	{
+		$size = count($A->data);
+		
+		if ($size !== count($B->data))
+			throw new RuntimeException('add: dimension mismatch');
+
+		$C->shape = $A->shape;
+		$C->data  = array_fill(0, $size, 0.0);
+
+		for ($i = 0; $i < $size; $i++)
+		{
+			$C->data[$i] = $A->data[$i] + $B->data[$i];
+		}
+	}
+	
+	private function ADD_2D_LAST(TensorRuntime $A, TensorRuntime $B, TensorRuntime $C)
+	{
+		// broadcast support: A[B, N] + B[N] = C[B, N]
+		if (count($A->shape) === 2 && count($B->shape) === 1)
+		{
+			[$batch, $dim] = $A->shape;
+			
+			if ($B->shape[0] !== $dim)
+				throw new RuntimeException('add: dimension mismatch');
+			
+			$C->shape = [$batch, $dim];
+			$C->data  = array_fill(0, $batch * $dim, 0.0);
+			
+			for ($b = 0; $b < $batch; $b++)
+			{
+				$aRow = $b * $dim;
+				
+				for ($n = 0; $n < $dim; $n++)
+				{
+					$C->data[$aRow + $n] = $A->data[$aRow + $n] + $B->data[$n];
+				}
+			}
+		}
+	}
+	
+	private function ADD_3D_LAST(TensorRuntime $A, TensorRuntime $B, TensorRuntime $C)
+	{
+		
+	}
+	
+	private function ADD_GENERIC_LAST(TensorRuntime $A, TensorRuntime $B, TensorRuntime $C)
+	{
+		$BStrides = $this->alignStridesToRank($B->shape, $B->strides, $C->getRank());
+		
+		$this->addAlongAxisInPlace($C->data,$C->shape,$C->strides,$A->data,$A->strides,$B->data,$BStrides);
+	}
+	
+	private function BACKWARD_ADD_1D_LAST(TensorRuntime $A, TensorRuntime $B, TensorRuntime $C)
+	{
+		$size = count($C->data);
+		
+		for ($i = 0; $i < $size; $i++)
+		{
+			$A->grad[$i] += $C->grad[$i];
+			$B->grad[$i] += $C->grad[$i];
+		}
+	}
+	
+	private function BACKWARD_ADD_2D_LAST(TensorRuntime $A, TensorRuntime $B, TensorRuntime $C)
+	{
+		if (count($A->shape) === 2 && count($B->shape) === 1)
+		{
+			[$batch, $dim] = $A->shape;
+			
+			if ($B->shape[0] !== $dim)
+				throw new RuntimeException('add: dimension mismatch');
+			
+			for ($b = 0; $b < $batch; $b++)
+			{
+				$aRow = $b * $dim;
+				
+				for ($n = 0; $n < $dim; $n++)
+				{
+					$grad = $C->grad[$aRow + $n];
+					$A->grad[$aRow + $n] += $grad;
+					$B->grad[$n] += $grad;
+				}
+			}
+		}
+	}
+	
+	private function BACKWARD_ADD_3D_LAST(TensorRuntime $A, TensorRuntime $B, TensorRuntime $C)
+	{
+		
+	}
+	
+	private function BACKWARD_ADD_GENERIC_LAST(TensorRuntime $A, TensorRuntime $B, TensorRuntime $C)
+	{
+		
+	}
+	
+	/**
+	* Itera tutte le "slice" lungo un asse `axis` (es. ultimo asse per softmax)
+	* SENZA ricorsione e SENZA ricalcolare ogni volta baseOffset con una somma.
+	*
+	* Idea:
+	* - Scorri tutte le combinazioni degli indici esterni (tutte le dimensioni tranne axis).
+	* - Mantieni un "multi-indice" esterno con carry (come un contatore in base mista).
+	* - Mantieni anche `baseOffset` aggiornato INCREMENTALMENTE:
+	*      quando incrementi idx[d] di 1  => baseOffset += stride[d]
+	*      quando fai carry (vai da shape[d]-1 a 0) => baseOffset -= (shape[d]-1) * stride[d]
+	*
+	* Così eviti di fare, per ogni slice:
+	*   base = Σ idx[d] * stride[d]
+	* che in PHP costa parecchio.
+	*
+	* Parametri:
+	* - $shape   : [d0, d1, ... d{R-1}]    lunghezze per dimensione
+	* - $strides : [s0, s1, ... s{R-1}]    stride per dimensione (in ELEMENTI, non bytes)
+	* - $axis    : asse su cui "camminare" dentro ogni slice (0..R-1 oppure negativo tipo -1)
+	*
+	* Callback:
+	*   function(int $baseOffset, int $strideAxis, int $axisLen, array $idxNoAxis): void
+	*
+	* Dove:
+	* - $baseOffset = offset lineare del PRIMO elemento della slice (axis=0)
+	* - $strideAxis = quanto devi sommare all'offset per avanzare di 1 lungo axis
+	* - $axisLen = numero di elementi lungo axis
+	* - $idxNoAxis = gli indici esterni (stesso rank, ma idxNoAxis[axis] = null)
+	*
+	* Nota: questa callback è PER-SLICE, quindi è perfetta per softmax/layernorm ecc.
+	*/
+	function forEachSliceAlongAxisIncremental(
+		array $shape,
+		array $strides,
+		int $axis,
+		callable $onSlice
+	): void {
+		$rank = count($shape);
+		if ($rank === 0)
+			return;
+
+		if (count($strides) !== $rank)
+			throw new InvalidArgumentException("shape/strides rank mismatch");
+
+		// 1) Normalizza axis: -1 => ultimo asse, -2 => penultimo, ecc.
+		if ($axis < 0) $axis += $rank;
+		if ($axis < 0 || $axis >= $rank)
+			throw new InvalidArgumentException("axis out of range");
+
+		// 2) Lunghezza e stride dell'asse interno (quello che vuoi percorrere nella slice)
+		$axisLen = $shape[$axis];
+		if ($axisLen <= 0)
+			return;
+		$strideAxis = $strides[$axis];
+
+		// 3) Costruisci la lista delle dimensioni ESTERNE (tutte tranne axis).
+		//    L'ordine qui decide l'ordine con cui scorrerai le slice.
+		//    Convenzione: facciamo variare più velocemente l'ultima dimensione esterna,
+		//    così è simile a un loop annidato "classico".
+		$outerDims = [];
+		for ($d = 0; $d < $rank; $d++)
+		{
+			if ($d !== $axis) $outerDims[] = $d;
+		}
+
+		// Caso particolare: rank = 1 => c'è UNA sola slice (l'intero tensore).
+		if (count($outerDims) === 0)
+		{
+			$idxNoAxis = array_fill(0, $rank, null);
+			$onSlice(0, $strideAxis, $axisLen, $idxNoAxis);
+			return;
+		}
+
+		// 4) Multi-indice completo (rank), ma useremo solo le posizioni outerDims.
+		//    idx[axis] resta sempre 0 (non serve tenerlo aggiornato).
+		$idx = array_fill(0, $rank, 0);
+
+		// 5) Numero totale di slice = prodotto delle shape sulle dimensioni esterne.
+		$outerCount = 1;
+		foreach ($outerDims as $d)
+		{
+			$n = $shape[$d];
+			if ($n <= 0) return;
+			$outerCount *= $n;
+		}
+
+		// 6) baseOffset iniziale: con tutti gli idx esterni a 0 è 0.
+		//    Poi lo aggiorniamo incrementalmente man mano che incrementiamo idx.
+		$baseOffset = 0;
+
+		// 7) Loop su tutte le slice (tutte le combinazioni degli indici esterni)
+		for ($t = 0; $t < $outerCount; $t++)
+		{
+			// Costruiamo una vista degli indici esterni per debugging/log (opzionale).
+			// È utile per capire "dove sei" nel tensore quando vuoi fare test.
+			$idxNoAxis = $idx;
+			$idxNoAxis[$axis] = null;
+
+			// Chiama callback PER-SLICE:
+			// - baseOffset ti dice dove inizia la slice (axis=0)
+			// - strideAxis ti dice come avanzare lungo axis
+			// - axisLen quanti elementi ci sono nella slice
+			$onSlice($baseOffset, $strideAxis, $axisLen, $idxNoAxis);
+
+			// 8) Incremento con carry del contatore esterno.
+			//
+			// Immagina dei loop annidati:
+			// for idx[d0]=0..shape[d0)-1
+			//   for idx[d1]=0..shape[d1)-1
+			//     ...
+			//
+			// Qui lo facciamo a mano con carry, partendo dall'ultima outerDims
+			// (che varia più velocemente).
+			for ($k = count($outerDims) - 1; $k >= 0; $k--)
+			{
+				$d = $outerDims[$k];
+
+				// Provo ad incrementare idx[d] di 1
+				$idx[$d]++;
+
+				// Se NON ho sforato, è un incremento "semplice":
+				// - baseOffset avanza di stride[d]
+				if ($idx[$d] < $shape[$d])
+				{
+					$baseOffset += $strides[$d];
+					break; // finito: nessun carry ulteriore
+				}
+
+				// Se invece ho sforato, devo fare carry:
+				// - idx[d] torna a 0
+				// - baseOffset deve tornare indietro di (shape[d]-1)*stride[d]
+				//   perché ero passato da shape[d]-1 a shape[d], ma in realtà devo tornare a 0.
+				$idx[$d] = 0;
+				$baseOffset -= ($shape[$d] - 1) * $strides[$d];
+
+				// e continuo il for per propagare il carry alla dimensione esterna precedente
+			}
+		}
+	}
+	
+	/**
+	* Z += X + Y   (in-place su Z)
+	*
+	* Usa forEachSliceAlongAxisIncremental per:
+	* - fissare tutti gli indici esterni
+	* - ciclare lungo axis come inner loop
+	*
+	* Broadcast:
+	* - se una dimensione ha shape 1 sul tensore X o Y,
+	*   lo stride effettivo su quella dimensione deve essere 0.
+	*
+	* Parametri:
+	* - &$zData      buffer lineare di Z
+	* - $zShape
+	* - $zStrides
+	* - $xData, $xStrides
+	* - $yData, $yStrides
+	* - $axis        asse scelto come inner loop (tipicamente -1)
+	*/
+	function addAlongAxisInPlace(
+		array &$zData,
+		array $zShape,
+		array $zStrides,
+		array $xData,
+		array $xStrides,
+		array $yData,
+		array $yStrides,
+		int $axis = -1
+	): void {
+
+		$rank = count($zShape);
+		if ($rank === 0)
+			return;
+
+		// Normalizza axis
+		if ($axis < 0) $axis += $rank;
+		if ($axis < 0 || $axis >= $rank)
+			throw new InvalidArgumentException("axis out of range");
+
+		/**
+		* Usiamo l'iteratore per-slice:
+		* - lui fissa tutti gli indici esterni
+		* - e ci passa baseOffset + strideAxis
+		*/
+		$this->forEachSliceAlongAxisIncremental(
+			$zShape,
+			$zStrides,
+			$axis,
+			function (
+				int $baseZ,
+				int $strideZAxis,
+				int $axisLen,
+				array $idxNoAxis
+			) use (
+				&$zData,
+				$xData,
+				$yData,
+				$xStrides,
+				$yStrides,
+				$axis
+			) {
+				/**
+				* Per X e Y dobbiamo calcolare:
+				* - baseX
+				* - baseY
+				*
+				* usando SOLO gli indici esterni (idxNoAxis).
+				* L’asse interno (axis) lo gestiamo dopo col loop.
+				*/
+				$baseX = 0;
+				$baseY = 0;
+
+				foreach ($idxNoAxis as $d => $i)
+				{
+					if ($i === null)
+						continue; // axis
+
+					// se stride è 0 → broadcast → base non cambia
+					$baseX += $i * $xStrides[$d];
+					$baseY += $i * $yStrides[$d];
+				}
+
+				// stride effettivi lungo axis
+				$strideX = $xStrides[$axis];
+				$strideY = $yStrides[$axis];
+
+				/**
+				* Inner loop: qui succede il vero add element-wise
+				*
+				* Z[baseZ + i*sZ] =
+				*     X[baseX + i*sX] + Y[baseY + i*sY]
+				*/
+				$offZ = $baseZ;
+				$offX = $baseX;
+				$offY = $baseY;
+
+				for ($i = 0; $i < $axisLen; $i++)
+				{
+					$zData[$offZ] = $xData[$offX] + $yData[$offY];
+					
+					$offZ += $strideZAxis;
+					$offX += $strideX;
+					$offY += $strideY;
+				}
+			}
+		);
+	}
+	
+// 	Esempio:
+// 	
+// 	Z.shape = [B, T, D]
+// 
+// 	Y.shape = [D]
+// 
+// 	Allineamento a destra (stile NumPy/PyTorch):
+// 
+// 	Y aligned shape   = [1, 1, D]
+// 	Y aligned strides = [0, 0, 1]
+	private function alignStridesToRank
+	(
+		array $shape,
+		array $strides,
+		int $targetRank
+	): array {
+		$rank = count($shape);
+		if ($rank > $targetRank)
+			throw new InvalidArgumentException("rank > targetRank");
+
+		$aligned = array_fill(0, $targetRank, 0);
+
+		// allinea a destra
+		$offset = $targetRank - $rank;
+
+		for ($i = 0; $i < $rank; $i++)
+		{
+			// se shape==1 → broadcast → stride 0
+			$aligned[$offset + $i] = ($shape[$i] == 1) ? 0 : $strides[$i];
+		}
+
+		return $aligned;
 	}
 }

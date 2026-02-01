@@ -260,6 +260,11 @@ trait TensorUtility
 		$this->data[$off] = $value;
 	}
 	
+	public function getRank()
+	{
+		return count($this->shape);
+	}
+	
 	public function isContiguous() : bool
 	{
         return $this->strides === $this->computeStrides($this->shape) && $this->baseOffset === 0;

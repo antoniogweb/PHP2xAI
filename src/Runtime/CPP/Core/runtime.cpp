@@ -1723,6 +1723,9 @@ namespace PHP2xAI::Runtime::CPP
 			op.inputs = o.at("inputs").get<std::vector<int>>();
 			op.output = o.at("output").get<int>();
 			ops.push_back(std::move(op));
+			
+			if (o.contains("attributes") && o.at("attributes").contains("kernel"))
+				op.kernel = o.at("attributes").at("kernel").get<std::string>();
 		}
 	}
 }

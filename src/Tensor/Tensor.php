@@ -3,6 +3,7 @@
 namespace PHP2xAI\Tensor;
 
 use PHP2xAI\Graph\GraphContext;
+use Exception;
 
 /**
  * Matrix
@@ -160,8 +161,20 @@ class Tensor
 		$leftId = $this->registerInContext($context, $this);
 		$rightId = $this->registerInContext($context, $b);
 		
+		if ($b->getRank() !== 1)
+			throw new Exception("BIAS must have rank 1");
+		
+		if (count($this->shape) === 1)
+			$kernel = "ADD_1D_LAST";
+		else if (count($this->shape) === 2)
+			$kernel = "ADD_2D_LAST";
+		else if (count($this->shape) === 3)
+			$kernel = "ADD_3D_LAST";
+		else 
+			$kernel = "ADD_GENERIC_LAST";
+		
 		$result = self::zeros($this->shape, 'add');
-		$context->registerOp('add', [$leftId, $rightId], $result);
+		$context->registerOp('add', [$leftId, $rightId], $result, array("kernel" => $kernel));
 		
 		return $result;
     }

@@ -3,6 +3,7 @@
 namespace PHP2xAI\Runtime\PHP\Core;
 
 use PHP2xAI\Tensor\TensorUtility;
+use Exception;
 
 class TensorRuntime
 {

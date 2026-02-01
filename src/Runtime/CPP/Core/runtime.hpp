@@ -28,6 +28,7 @@ namespace PHP2xAI::Runtime::CPP
 		std::string op;
 		std::vector<int> inputs;
 		int output{};
+		std::string kernel{};
 	};
 
 	class GraphRuntime
