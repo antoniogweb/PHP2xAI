@@ -179,17 +179,17 @@ class Tensor
 		return $result;
     }
     
-    public function sub(Tensor $b) : Tensor
-    {
-		$context = $this->initContextFrom($b);
-		$leftId = $this->registerInContext($context, $this);
-		$rightId = $this->registerInContext($context, $b);
-		
-		$result = self::zeros($this->shape, 'sub');
-		$context->registerOp('sub', [$leftId, $rightId], $result);
-		
-		return $result;
-    }
+//     public function sub(Tensor $b) : Tensor
+//     {
+// 		$context = $this->initContextFrom($b);
+// 		$leftId = $this->registerInContext($context, $this);
+// 		$rightId = $this->registerInContext($context, $b);
+// 		
+// 		$result = self::zeros($this->shape, 'sub');
+// 		$context->registerOp('sub', [$leftId, $rightId], $result);
+// 		
+// 		return $result;
+//     }
     
     public function dropout(int $perc = 50) : Tensor
     {
@@ -255,29 +255,29 @@ class Tensor
 		return $nSize;
 	}
     
-    // Mean Squared Error (MSE)
-    public function MSE() : Tensor
-    {
-		$context = $this->initContextFrom();
-		$inputId = $this->registerInContext($context, $this);
-		
-		$result = self::zeros($this->shapeReduced(), 'MSE');
-		$context->registerOp('MSE', [$inputId], $result);
-		
-		return $result;
-    }
-    
-    // Mean Absolute Error (MAE)
-    public function MAE() : Tensor
-    {
-		$context = $this->initContextFrom();
-		$inputId = $this->registerInContext($context, $this);
-		
-		$result = self::zeros($this->shapeReduced(), 'MAE');
-		$context->registerOp('MAE', [$inputId], $result);
-		
-		return $result;
-    }
+//     // Mean Squared Error (MSE)
+//     public function MSE() : Tensor
+//     {
+// 		$context = $this->initContextFrom();
+// 		$inputId = $this->registerInContext($context, $this);
+// 		
+// 		$result = self::zeros($this->shapeReduced(), 'MSE');
+// 		$context->registerOp('MSE', [$inputId], $result);
+// 		
+// 		return $result;
+//     }
+//     
+//     // Mean Absolute Error (MAE)
+//     public function MAE() : Tensor
+//     {
+// 		$context = $this->initContextFrom();
+// 		$inputId = $this->registerInContext($context, $this);
+// 		
+// 		$result = self::zeros($this->shapeReduced(), 'MAE');
+// 		$context->registerOp('MAE', [$inputId], $result);
+// 		
+// 		return $result;
+//     }
     
     // Cross Entropy
     public function CE(Tensor $target) : Tensor

@@ -59,22 +59,22 @@ namespace PHP2xAI::Runtime::CPP
 				opMatmul(inputs[0], inputs[1], outId);
 			else if (name == "add")
 				opAdd(inputs[0], inputs[1], outId, op.kernel);
-			else if (name == "sub")
-				opSub(inputs[0], inputs[1], outId);
-			else if (name == "dot")
-				opDot(inputs[0], inputs[1], outId);
+			// else if (name == "sub")
+			// 	opSub(inputs[0], inputs[1], outId);
+			// else if (name == "dot")
+			// 	opDot(inputs[0], inputs[1], outId);
 			else if (name == "dropout")
 				opDropout(inputs[0], outId);
 			else if (name == "sig")
 				opSig(inputs[0], outId);
 			else if (name == "ReLU" || name == "relu")
 				opRelu(inputs[0], outId);
-			else if (name == "LReLU")
-				opLRelu(inputs[0], outId);
-			else if (name == "MSE")
-				opMse(inputs[0], outId);
-			else if (name == "MAE")
-				opMae(inputs[0], outId);
+			// else if (name == "LReLU")
+			// 	opLRelu(inputs[0], outId);
+			// else if (name == "MSE")
+			// 	opMse(inputs[0], outId);
+			// else if (name == "MAE")
+			// 	opMae(inputs[0], outId);
 			else if (name == "mean")
 				opMean(inputs[0], outId);
 			else if (name == "softmax")
@@ -111,22 +111,22 @@ namespace PHP2xAI::Runtime::CPP
 				backwardMatmul(inputs[0], inputs[1], outId);
 			else if (name == "add")
 				backwardAdd(inputs[0], inputs[1], outId, op.kernel);
-			else if (name == "sub")
-				backwardSub(inputs[0], inputs[1], outId);
-			else if (name == "dot")
-				backwardDot(inputs[0], inputs[1], outId);
+			// else if (name == "sub")
+			// 	backwardSub(inputs[0], inputs[1], outId);
+			// else if (name == "dot")
+			// 	backwardDot(inputs[0], inputs[1], outId);
 			else if (name == "dropout")
 				backwardDropout(inputs[0], outId);
 			else if (name == "sig")
 				backwardSig(inputs[0], outId);
 			else if (name == "relu" || name == "ReLU")
 				backwardRelu(inputs[0], outId);
-			else if (name == "LReLU")
-				backwardLRelu(inputs[0], outId);
-			else if (name == "MSE")
-				backwardMse(inputs[0], outId);
-			else if (name == "MAE")
-				backwardMae(inputs[0], outId);
+			// else if (name == "LReLU")
+			// 	backwardLRelu(inputs[0], outId);
+			// else if (name == "MSE")
+			// 	backwardMse(inputs[0], outId);
+			// else if (name == "MAE")
+			// 	backwardMae(inputs[0], outId);
 			else if (name == "mean")
 				backwardMean(inputs[0], outId);
 			else if (name == "softmax")
@@ -370,68 +370,68 @@ namespace PHP2xAI::Runtime::CPP
 		throw std::runtime_error("add: kernel not supported");
 	}
 
-	void GraphRuntime::opSub(int aId, int bId, int outId)
-	{
-		auto &A = tensors[aId];
-		auto &B = tensors[bId];
-		auto &C = tensors[outId];
+	// void GraphRuntime::opSub(int aId, int bId, int outId)
+	// {
+	// 	auto &A = tensors[aId];
+	// 	auto &B = tensors[bId];
+	// 	auto &C = tensors[outId];
+ // 
+	// 	if (A.shape.size() == 2 && B.shape.size() == 1)
+	// 	{
+	// 		const auto batch = A.shape[0];
+	// 		const auto dim = A.shape[1];
+ // 
+	// 		if (B.shape[0] != dim)
+	// 			throw std::runtime_error("sub: dimension mismatch");
+ // 
+	// 		C.shape = {batch, dim};
+	// 		C.data.assign(static_cast<std::size_t>(batch * dim), 0.0f);
+ // 
+	// 		for (int b = 0; b < batch; ++b)
+	// 		{
+	// 			const auto aRow = b * dim;
+ // 
+	// 			for (int n = 0; n < dim; ++n)
+	// 			{
+	// 				const auto idx = static_cast<std::size_t>(aRow + n);
+	// 				C.data[idx] = A.data[idx] - B.data[static_cast<std::size_t>(n)];
+	// 			}
+	// 		}
+ // 
+	// 		return;
+	// 	}
+ // 
+	// 	auto size = A.data.size();
+ // 
+	// 	if (size != B.data.size())
+	// 		throw std::runtime_error("sub: dimension mismatch");
+ // 
+	// 	C.shape = A.shape;
+	// 	C.data.assign(size, 0.0f);
+ // 
+	// 	for (std::size_t i = 0; i < size; ++i)
+	// 		C.data[i] = A.data[i] - B.data[i];
+	// }
 
-		if (A.shape.size() == 2 && B.shape.size() == 1)
-		{
-			const auto batch = A.shape[0];
-			const auto dim = A.shape[1];
-
-			if (B.shape[0] != dim)
-				throw std::runtime_error("sub: dimension mismatch");
-
-			C.shape = {batch, dim};
-			C.data.assign(static_cast<std::size_t>(batch * dim), 0.0f);
-
-			for (int b = 0; b < batch; ++b)
-			{
-				const auto aRow = b * dim;
-
-				for (int n = 0; n < dim; ++n)
-				{
-					const auto idx = static_cast<std::size_t>(aRow + n);
-					C.data[idx] = A.data[idx] - B.data[static_cast<std::size_t>(n)];
-				}
-			}
-
-			return;
-		}
-
-		auto size = A.data.size();
-
-		if (size != B.data.size())
-			throw std::runtime_error("sub: dimension mismatch");
-
-		C.shape = A.shape;
-		C.data.assign(size, 0.0f);
-
-		for (std::size_t i = 0; i < size; ++i)
-			C.data[i] = A.data[i] - B.data[i];
-	}
-
-	void GraphRuntime::opDot(int aId, int bId, int outId)
-	{
-		auto &A = tensors[aId];
-		auto &B = tensors[bId];
-		auto &C = tensors[outId];
-
-		auto size = A.data.size();
-
-		if (size != B.data.size())
-			throw std::runtime_error("dot: dimension mismatch");
-
-		Scalar sum = 0.0f;
-
-		for (std::size_t i = 0; i < size; ++i)
-			sum += A.data[i] * B.data[i];
-
-		C.shape.clear();
-		C.data = {sum};
-	}
+	// void GraphRuntime::opDot(int aId, int bId, int outId)
+	// {
+	// 	auto &A = tensors[aId];
+	// 	auto &B = tensors[bId];
+	// 	auto &C = tensors[outId];
+ // 
+	// 	auto size = A.data.size();
+ // 
+	// 	if (size != B.data.size())
+	// 		throw std::runtime_error("dot: dimension mismatch");
+ // 
+	// 	Scalar sum = 0.0f;
+ // 
+	// 	for (std::size_t i = 0; i < size; ++i)
+	// 		sum += A.data[i] * B.data[i];
+ // 
+	// 	C.shape.clear();
+	// 	C.data = {sum};
+	// }
 
 	void GraphRuntime::opDropout(int inpId, int outId)
 	{
@@ -481,129 +481,129 @@ namespace PHP2xAI::Runtime::CPP
 			Y.data[i] = X.data[i] > 0.0f ? X.data[i] : 0.0f;
 	}
 
-	void GraphRuntime::opLRelu(int inpId, int outId)
-	{
-		auto &X = tensors[inpId];
-		auto &Y = tensors[outId];
-		Scalar alpha = 0.01f;
+	// void GraphRuntime::opLRelu(int inpId, int outId)
+	// {
+	// 	auto &X = tensors[inpId];
+	// 	auto &Y = tensors[outId];
+	// 	Scalar alpha = 0.01f;
+ // 
+	// 	Y.shape = X.shape;
+	// 	auto size = X.data.size();
+	// 	Y.data.assign(size, 0.0f);
+ // 
+	// 	for (std::size_t i = 0; i < size; ++i)
+	// 	{
+	// 		Scalar val = X.data[i];
+	// 		Y.data[i] = val > 0.0f ? val : alpha * val;
+	// 	}
+	// }
 
-		Y.shape = X.shape;
-		auto size = X.data.size();
-		Y.data.assign(size, 0.0f);
+	// void GraphRuntime::opMse(int inpId, int outId)
+	// {
+	// 	auto &X = tensors[inpId];
+	// 	auto &Y = tensors[outId];
+ // 
+	// 	auto size = X.data.size();
+ // 
+	// 	if (size == 0)
+	// 	{
+	// 		Y.shape.clear();
+	// 		Y.data = {0.0f};
+	// 		return;
+	// 	}
+ // 
+	// 	if (X.shape.empty())
+	// 	{
+	// 		Scalar val = X.data[0];
+	// 		Y.shape.clear();
+	// 		Y.data = {0.5f * val * val};
+	// 		return;
+	// 	}
+ // 
+	// 	if (X.shape.size() == 2)
+	// 	{
+	// 		const auto batch = X.shape[0];
+	// 		const auto dim = X.shape[1];
+ // 
+	// 		Y.shape = {batch, 1};
+	// 		Y.data.assign(static_cast<std::size_t>(batch), 0.0f);
+ // 
+	// 		for (int b = 0; b < batch; ++b)
+	// 		{
+	// 			const auto rowStart = b * dim;
+	// 			Scalar sum = 0.0f;
+ // 
+	// 			for (int i = 0; i < dim; ++i)
+	// 			{
+	// 				Scalar val = X.data[static_cast<std::size_t>(rowStart + i)];
+	// 				sum += val * val;
+	// 			}
+ // 
+	// 			Y.data[static_cast<std::size_t>(b)] = dim > 0 ? sum / static_cast<Scalar>(dim) : 0.0f;
+	// 		}
+ // 
+	// 		return;
+	// 	}
+ // 
+	// 	Y.shape.clear();
+	// 	Scalar sum = 0.0f;
+	// 	for (std::size_t i = 0; i < size; ++i)
+	// 		sum += X.data[i] * X.data[i];
+ // 
+	// 	Y.data = {sum / static_cast<Scalar>(size)};
+	// }
 
-		for (std::size_t i = 0; i < size; ++i)
-		{
-			Scalar val = X.data[i];
-			Y.data[i] = val > 0.0f ? val : alpha * val;
-		}
-	}
-
-	void GraphRuntime::opMse(int inpId, int outId)
-	{
-		auto &X = tensors[inpId];
-		auto &Y = tensors[outId];
-
-		auto size = X.data.size();
-
-		if (size == 0)
-		{
-			Y.shape.clear();
-			Y.data = {0.0f};
-			return;
-		}
-
-		if (X.shape.empty())
-		{
-			Scalar val = X.data[0];
-			Y.shape.clear();
-			Y.data = {0.5f * val * val};
-			return;
-		}
-
-		if (X.shape.size() == 2)
-		{
-			const auto batch = X.shape[0];
-			const auto dim = X.shape[1];
-
-			Y.shape = {batch, 1};
-			Y.data.assign(static_cast<std::size_t>(batch), 0.0f);
-
-			for (int b = 0; b < batch; ++b)
-			{
-				const auto rowStart = b * dim;
-				Scalar sum = 0.0f;
-
-				for (int i = 0; i < dim; ++i)
-				{
-					Scalar val = X.data[static_cast<std::size_t>(rowStart + i)];
-					sum += val * val;
-				}
-
-				Y.data[static_cast<std::size_t>(b)] = dim > 0 ? sum / static_cast<Scalar>(dim) : 0.0f;
-			}
-
-			return;
-		}
-
-		Y.shape.clear();
-		Scalar sum = 0.0f;
-		for (std::size_t i = 0; i < size; ++i)
-			sum += X.data[i] * X.data[i];
-
-		Y.data = {sum / static_cast<Scalar>(size)};
-	}
-
-	void GraphRuntime::opMae(int inpId, int outId)
-	{
-		auto &X = tensors[inpId];
-		auto &Y = tensors[outId];
-
-		auto size = X.data.size();
-
-		if (size == 0)
-		{
-			Y.shape.clear();
-			Y.data = {0.0f};
-			return;
-		}
-
-		if (X.shape.empty())
-		{
-			Scalar val = X.data[0];
-			Y.shape.clear();
-			Y.data = {0.5f * std::fabs(val)};
-			return;
-		}
-
-		if (X.shape.size() == 2)
-		{
-			const auto batch = X.shape[0];
-			const auto dim = X.shape[1];
-
-			Y.shape = {batch, 1};
-			Y.data.assign(static_cast<std::size_t>(batch), 0.0f);
-
-			for (int b = 0; b < batch; ++b)
-			{
-				const auto rowStart = b * dim;
-				Scalar sum = 0.0f;
-
-				for (int i = 0; i < dim; ++i)
-					sum += std::fabs(X.data[static_cast<std::size_t>(rowStart + i)]);
-
-				Y.data[static_cast<std::size_t>(b)] = dim > 0 ? sum / static_cast<Scalar>(dim) : 0.0f;
-			}
-
-			return;
-		}
-
-		Y.shape.clear();
-		Scalar sum = 0.0f;
-		for (std::size_t i = 0; i < size; ++i)
-			sum += std::fabs(X.data[i]);
-
-		Y.data = {sum / static_cast<Scalar>(size)};
-	}
+	// void GraphRuntime::opMae(int inpId, int outId)
+	// {
+	// 	auto &X = tensors[inpId];
+	// 	auto &Y = tensors[outId];
+ // 
+	// 	auto size = X.data.size();
+ // 
+	// 	if (size == 0)
+	// 	{
+	// 		Y.shape.clear();
+	// 		Y.data = {0.0f};
+	// 		return;
+	// 	}
+ // 
+	// 	if (X.shape.empty())
+	// 	{
+	// 		Scalar val = X.data[0];
+	// 		Y.shape.clear();
+	// 		Y.data = {0.5f * std::fabs(val)};
+	// 		return;
+	// 	}
+ // 
+	// 	if (X.shape.size() == 2)
+	// 	{
+	// 		const auto batch = X.shape[0];
+	// 		const auto dim = X.shape[1];
+ // 
+	// 		Y.shape = {batch, 1};
+	// 		Y.data.assign(static_cast<std::size_t>(batch), 0.0f);
+ // 
+	// 		for (int b = 0; b < batch; ++b)
+	// 		{
+	// 			const auto rowStart = b * dim;
+	// 			Scalar sum = 0.0f;
+ // 
+	// 			for (int i = 0; i < dim; ++i)
+	// 				sum += std::fabs(X.data[static_cast<std::size_t>(rowStart + i)]);
+ // 
+	// 			Y.data[static_cast<std::size_t>(b)] = dim > 0 ? sum / static_cast<Scalar>(dim) : 0.0f;
+	// 		}
+ // 
+	// 		return;
+	// 	}
+ // 
+	// 	Y.shape.clear();
+	// 	Scalar sum = 0.0f;
+	// 	for (std::size_t i = 0; i < size; ++i)
+	// 		sum += std::fabs(X.data[i]);
+ // 
+	// 	Y.data = {sum / static_cast<Scalar>(size)};
+	// }
 
 	void GraphRuntime::opSoftmax(int inpId, int outId)
 	{
@@ -1304,60 +1304,60 @@ namespace PHP2xAI::Runtime::CPP
 			});
 	}
 	
-	void GraphRuntime::backwardSub(int aId, int bId, int outId)
-	{
-		auto &A = tensors[aId];
-		auto &B = tensors[bId];
-		auto &C = tensors[outId];
+	// void GraphRuntime::backwardSub(int aId, int bId, int outId)
+	// {
+	// 	auto &A = tensors[aId];
+	// 	auto &B = tensors[bId];
+	// 	auto &C = tensors[outId];
+ // 
+	// 	if (A.shape.size() == 2 && B.shape.size() == 1)
+	// 	{
+	// 		const auto batch = A.shape[0];
+	// 		const auto dim = A.shape[1];
+ // 
+	// 		if (B.shape[0] != dim)
+	// 			throw std::runtime_error("sub: dimension mismatch");
+ // 
+	// 		for (int b = 0; b < batch; ++b)
+	// 		{
+	// 			const auto rowStart = b * dim;
+ // 
+	// 			for (int n = 0; n < dim; ++n)
+	// 			{
+	// 				const auto idx = static_cast<std::size_t>(rowStart + n);
+	// 				Scalar grad = C.grad[idx];
+	// 				A.grad[idx] += grad;
+	// 				B.grad[static_cast<std::size_t>(n)] -= grad;
+	// 			}
+	// 		}
+ // 
+	// 		return;
+	// 	}
+ // 
+	// 	auto size = C.data.size();
+ // 
+	// 	for (std::size_t i = 0; i < size; ++i)
+	// 	{
+	// 		A.grad[i] += C.grad[i];
+	// 		B.grad[i] -= C.grad[i];
+	// 	}
+	// }
 
-		if (A.shape.size() == 2 && B.shape.size() == 1)
-		{
-			const auto batch = A.shape[0];
-			const auto dim = A.shape[1];
-
-			if (B.shape[0] != dim)
-				throw std::runtime_error("sub: dimension mismatch");
-
-			for (int b = 0; b < batch; ++b)
-			{
-				const auto rowStart = b * dim;
-
-				for (int n = 0; n < dim; ++n)
-				{
-					const auto idx = static_cast<std::size_t>(rowStart + n);
-					Scalar grad = C.grad[idx];
-					A.grad[idx] += grad;
-					B.grad[static_cast<std::size_t>(n)] -= grad;
-				}
-			}
-
-			return;
-		}
-
-		auto size = C.data.size();
-
-		for (std::size_t i = 0; i < size; ++i)
-		{
-			A.grad[i] += C.grad[i];
-			B.grad[i] -= C.grad[i];
-		}
-	}
-
-	void GraphRuntime::backwardDot(int aId, int bId, int outId)
-	{
-		auto &A = tensors[aId];
-		auto &B = tensors[bId];
-		auto &C = tensors[outId];
-
-		Scalar gradOut = C.grad.empty() ? 0.0f : C.grad[0];
-		auto size = A.data.size();
-
-		for (std::size_t i = 0; i < size; ++i)
-		{
-			A.grad[i] += gradOut * B.data[i];
-			B.grad[i] += gradOut * A.data[i];
-		}
-	}
+	// void GraphRuntime::backwardDot(int aId, int bId, int outId)
+	// {
+	// 	auto &A = tensors[aId];
+	// 	auto &B = tensors[bId];
+	// 	auto &C = tensors[outId];
+ // 
+	// 	Scalar gradOut = C.grad.empty() ? 0.0f : C.grad[0];
+	// 	auto size = A.data.size();
+ // 
+	// 	for (std::size_t i = 0; i < size; ++i)
+	// 	{
+	// 		A.grad[i] += gradOut * B.data[i];
+	// 		B.grad[i] += gradOut * A.data[i];
+	// 	}
+	// }
 
 	void GraphRuntime::backwardDropout(int inpId, int outId)
 	{
@@ -1401,116 +1401,116 @@ namespace PHP2xAI::Runtime::CPP
 		}
 	}
 
-	void GraphRuntime::backwardLRelu(int inpId, int outId)
-	{
-		auto &X = tensors[inpId];
-		auto &Y = tensors[outId];
-		Scalar alpha = 0.01f;
-		auto size = X.data.size();
+	// void GraphRuntime::backwardLRelu(int inpId, int outId)
+	// {
+	// 	auto &X = tensors[inpId];
+	// 	auto &Y = tensors[outId];
+	// 	Scalar alpha = 0.01f;
+	// 	auto size = X.data.size();
+ // 
+	// 	for (std::size_t i = 0; i < size; ++i)
+	// 	{
+	// 		Scalar local = X.data[i] > 0.0f ? 1.0f : alpha;
+	// 		X.grad[i] += Y.grad[i] * local;
+	// 	}
+	// }
 
-		for (std::size_t i = 0; i < size; ++i)
-		{
-			Scalar local = X.data[i] > 0.0f ? 1.0f : alpha;
-			X.grad[i] += Y.grad[i] * local;
-		}
-	}
+	// void GraphRuntime::backwardMse(int inpId, int outId)
+	// {
+	// 	auto &X = tensors[inpId];
+	// 	auto &Y = tensors[outId];
+	// 	auto size = X.data.size();
+ // 
+	// 	if (size == 0)
+	// 		return;
+ // 
+	// 	if (X.shape.empty())
+	// 	{
+	// 		Scalar val = X.data[0];
+	// 		Scalar gradOut = Y.grad.empty() ? 0.0f : Y.grad[0];
+	// 		X.grad[0] += gradOut * val;
+	// 		return;
+	// 	}
+ // 
+	// 	if (X.shape.size() == 2)
+	// 	{
+	// 		const auto batch = X.shape[0];
+	// 		const auto dim = X.shape[1];
+ // 
+	// 		for (int b = 0; b < batch; ++b)
+	// 		{
+	// 			Scalar gradOut = (static_cast<std::size_t>(b) < Y.grad.size()) ? Y.grad[static_cast<std::size_t>(b)] : 0.0f;
+	// 			Scalar scale = dim > 0 ? (2.0f / static_cast<Scalar>(dim)) * gradOut : 0.0f;
+	// 			const auto rowStart = b * dim;
+ // 
+	// 			for (int i = 0; i < dim; ++i)
+	// 			{
+	// 				const auto idx = static_cast<std::size_t>(rowStart + i);
+	// 				X.grad[idx] += scale * X.data[idx];
+	// 			}
+	// 		}
+ // 
+	// 		return;
+	// 	}
+ // 
+	// 	Scalar gradOut = Y.grad.empty() ? 0.0f : Y.grad[0];
+	// 	Scalar scale = (2.0f / static_cast<Scalar>(size)) * gradOut;
+ // 
+	// 	for (std::size_t i = 0; i < size; ++i)
+	// 		X.grad[i] += scale * X.data[i];
+	// }
 
-	void GraphRuntime::backwardMse(int inpId, int outId)
-	{
-		auto &X = tensors[inpId];
-		auto &Y = tensors[outId];
-		auto size = X.data.size();
-
-		if (size == 0)
-			return;
-
-		if (X.shape.empty())
-		{
-			Scalar val = X.data[0];
-			Scalar gradOut = Y.grad.empty() ? 0.0f : Y.grad[0];
-			X.grad[0] += gradOut * val;
-			return;
-		}
-
-		if (X.shape.size() == 2)
-		{
-			const auto batch = X.shape[0];
-			const auto dim = X.shape[1];
-
-			for (int b = 0; b < batch; ++b)
-			{
-				Scalar gradOut = (static_cast<std::size_t>(b) < Y.grad.size()) ? Y.grad[static_cast<std::size_t>(b)] : 0.0f;
-				Scalar scale = dim > 0 ? (2.0f / static_cast<Scalar>(dim)) * gradOut : 0.0f;
-				const auto rowStart = b * dim;
-
-				for (int i = 0; i < dim; ++i)
-				{
-					const auto idx = static_cast<std::size_t>(rowStart + i);
-					X.grad[idx] += scale * X.data[idx];
-				}
-			}
-
-			return;
-		}
-
-		Scalar gradOut = Y.grad.empty() ? 0.0f : Y.grad[0];
-		Scalar scale = (2.0f / static_cast<Scalar>(size)) * gradOut;
-
-		for (std::size_t i = 0; i < size; ++i)
-			X.grad[i] += scale * X.data[i];
-	}
-
-	void GraphRuntime::backwardMae(int inpId, int outId)
-	{
-		auto &X = tensors[inpId];
-		auto &Y = tensors[outId];
-		auto size = X.data.size();
-
-		if (size == 0)
-			return;
-
-		if (X.shape.empty())
-		{
-			Scalar val = X.data[0];
-			Scalar gradOut = Y.grad.empty() ? 0.0f : Y.grad[0];
-			Scalar sign = val > 0.0f ? 1.0f : (val < 0.0f ? -1.0f : 0.0f);
-			X.grad[0] += gradOut * 0.5f * sign;
-			return;
-		}
-
-		if (X.shape.size() == 2)
-		{
-			const auto batch = X.shape[0];
-			const auto dim = X.shape[1];
-
-			for (int b = 0; b < batch; ++b)
-			{
-				Scalar gradOut = (static_cast<std::size_t>(b) < Y.grad.size()) ? Y.grad[static_cast<std::size_t>(b)] : 0.0f;
-				Scalar scale = dim > 0 ? (1.0f / static_cast<Scalar>(dim)) * gradOut : 0.0f;
-				const auto rowStart = b * dim;
-
-				for (int i = 0; i < dim; ++i)
-				{
-					const auto idx = static_cast<std::size_t>(rowStart + i);
-					Scalar val = X.data[idx];
-					Scalar sign = val > 0.0f ? 1.0f : (val < 0.0f ? -1.0f : 0.0f);
-					X.grad[idx] += scale * sign;
-				}
-			}
-
-			return;
-		}
-
-		Scalar gradOut = Y.grad.empty() ? 0.0f : Y.grad[0];
-		Scalar scale = size > 0 ? (1.0f / static_cast<Scalar>(size)) * gradOut : 0.0f;
-
-		for (std::size_t i = 0; i < size; ++i)
-		{
-			Scalar val = X.data[i];
-			Scalar sign = val > 0.0f ? 1.0f : (val < 0.0f ? -1.0f : 0.0f);
-			X.grad[i] += scale * sign;
-		}
-	}
+	// void GraphRuntime::backwardMae(int inpId, int outId)
+	// {
+	// 	auto &X = tensors[inpId];
+	// 	auto &Y = tensors[outId];
+	// 	auto size = X.data.size();
+ // 
+	// 	if (size == 0)
+	// 		return;
+ // 
+	// 	if (X.shape.empty())
+	// 	{
+	// 		Scalar val = X.data[0];
+	// 		Scalar gradOut = Y.grad.empty() ? 0.0f : Y.grad[0];
+	// 		Scalar sign = val > 0.0f ? 1.0f : (val < 0.0f ? -1.0f : 0.0f);
+	// 		X.grad[0] += gradOut * 0.5f * sign;
+	// 		return;
+	// 	}
+ // 
+	// 	if (X.shape.size() == 2)
+	// 	{
+	// 		const auto batch = X.shape[0];
+	// 		const auto dim = X.shape[1];
+ // 
+	// 		for (int b = 0; b < batch; ++b)
+	// 		{
+	// 			Scalar gradOut = (static_cast<std::size_t>(b) < Y.grad.size()) ? Y.grad[static_cast<std::size_t>(b)] : 0.0f;
+	// 			Scalar scale = dim > 0 ? (1.0f / static_cast<Scalar>(dim)) * gradOut : 0.0f;
+	// 			const auto rowStart = b * dim;
+ // 
+	// 			for (int i = 0; i < dim; ++i)
+	// 			{
+	// 				const auto idx = static_cast<std::size_t>(rowStart + i);
+	// 				Scalar val = X.data[idx];
+	// 				Scalar sign = val > 0.0f ? 1.0f : (val < 0.0f ? -1.0f : 0.0f);
+	// 				X.grad[idx] += scale * sign;
+	// 			}
+	// 		}
+ // 
+	// 		return;
+	// 	}
+ // 
+	// 	Scalar gradOut = Y.grad.empty() ? 0.0f : Y.grad[0];
+	// 	Scalar scale = size > 0 ? (1.0f / static_cast<Scalar>(size)) * gradOut : 0.0f;
+ // 
+	// 	for (std::size_t i = 0; i < size; ++i)
+	// 	{
+	// 		Scalar val = X.data[i];
+	// 		Scalar sign = val > 0.0f ? 1.0f : (val < 0.0f ? -1.0f : 0.0f);
+	// 		X.grad[i] += scale * sign;
+	// 	}
+	// }
 
 	void GraphRuntime::backwardSoftmax(int inpId, int outId)
 	{

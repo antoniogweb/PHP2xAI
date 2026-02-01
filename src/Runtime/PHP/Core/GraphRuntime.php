@@ -253,12 +253,12 @@ class GraphRuntime
 				case 'add':
 					$this->opAdd($inputs[0], $inputs[1], $outId, $attributes);
 					break;
-				case 'sub':
-					$this->opSub($inputs[0], $inputs[1], $outId, $attributes);
-					break;
-				case 'dot':
-					$this->opDot($inputs[0], $inputs[1], $outId, $attributes);
-					break;
+				// case 'sub':
+				// 	$this->opSub($inputs[0], $inputs[1], $outId, $attributes);
+				// 	break;
+				// case 'dot':
+				// 	$this->opDot($inputs[0], $inputs[1], $outId, $attributes);
+				// 	break;
 				case 'dropout':
 					$this->opDropout($inputs[0], $outId, $attributes);
 					break;
@@ -272,12 +272,12 @@ class GraphRuntime
 				case 'LReLU':
 					$this->opLRelu($inputs[0], $outId, $attributes);
 					break;
-				case 'MSE':
-					$this->opMse($inputs[0], $outId, $attributes);
-					break;
-				case 'MAE':
-					$this->opMae($inputs[0], $outId, $attributes);
-					break;
+				// case 'MSE':
+				// 	$this->opMse($inputs[0], $outId, $attributes);
+				// 	break;
+				// case 'MAE':
+				// 	$this->opMae($inputs[0], $outId, $attributes);
+				// 	break;
 				case 'softmax':
 					$this->opSoftmax($inputs[0], $outId, $attributes);
 					break;
@@ -394,71 +394,71 @@ class GraphRuntime
 		}
 	}
 
-	private function opSub(int $aId, int $bId, int $outId): void
-	{
-		$A = $this->tensors[$aId];
-		$B = $this->tensors[$bId];
-		$C = $this->tensors[$outId];
+// 	private function opSub(int $aId, int $bId, int $outId): void
+// 	{
+// 		$A = $this->tensors[$aId];
+// 		$B = $this->tensors[$bId];
+// 		$C = $this->tensors[$outId];
+// 
+// 		// broadcast support: A[B, N] - B[N] = C[B, N]
+// 		if (count($A->shape) === 2 && count($B->shape) === 1)
+// 		{
+// 			[$batch, $dim] = $A->shape;
+// 			
+// 			if ($B->shape[0] !== $dim)
+// 				throw new RuntimeException('sub: dimension mismatch');
+// 			
+// 			$C->shape = [$batch, $dim];
+// 			$C->data  = array_fill(0, $batch * $dim, 0.0);
+// 			
+// 			for ($b = 0; $b < $batch; $b++)
+// 			{
+// 				$aRow = $b * $dim;
+// 				
+// 				for ($n = 0; $n < $dim; $n++)
+// 				{
+// 					$C->data[$aRow + $n] = $A->data[$aRow + $n] - $B->data[$n];
+// 				}
+// 			}
+// 			
+// 			return;
+// 		}
+// 
+// 		$size = count($A->data);
+// 		
+// 		if ($size !== count($B->data))
+// 			throw new RuntimeException('sub: dimension mismatch');
+// 
+// 		$C->shape = $A->shape;
+// 		$C->data  = array_fill(0, $size, 0.0);
+// 
+// 		for ($i = 0; $i < $size; $i++)
+// 		{
+// 			$C->data[$i] = $A->data[$i] - $B->data[$i];
+// 		}
+// 	}
 
-		// broadcast support: A[B, N] - B[N] = C[B, N]
-		if (count($A->shape) === 2 && count($B->shape) === 1)
-		{
-			[$batch, $dim] = $A->shape;
-			
-			if ($B->shape[0] !== $dim)
-				throw new RuntimeException('sub: dimension mismatch');
-			
-			$C->shape = [$batch, $dim];
-			$C->data  = array_fill(0, $batch * $dim, 0.0);
-			
-			for ($b = 0; $b < $batch; $b++)
-			{
-				$aRow = $b * $dim;
-				
-				for ($n = 0; $n < $dim; $n++)
-				{
-					$C->data[$aRow + $n] = $A->data[$aRow + $n] - $B->data[$n];
-				}
-			}
-			
-			return;
-		}
-
-		$size = count($A->data);
-		
-		if ($size !== count($B->data))
-			throw new RuntimeException('sub: dimension mismatch');
-
-		$C->shape = $A->shape;
-		$C->data  = array_fill(0, $size, 0.0);
-
-		for ($i = 0; $i < $size; $i++)
-		{
-			$C->data[$i] = $A->data[$i] - $B->data[$i];
-		}
-	}
-
-	private function opDot(int $aId, int $bId, int $outId): void
-	{
-		$A = $this->tensors[$aId];
-		$B = $this->tensors[$bId];
-		$C = $this->tensors[$outId];
-
-		$size = count($A->data);
-		
-		if ($size !== count($B->data))
-			throw new RuntimeException('dot: dimension mismatch');
-
-		$sum = 0.0;
-
-		for ($i = 0; $i < $size; $i++)
-		{
-			$sum += $A->data[$i] * $B->data[$i];
-		}
-
-		$C->shape = [];
-		$C->data = [$sum];
-	}
+// 	private function opDot(int $aId, int $bId, int $outId): void
+// 	{
+// 		$A = $this->tensors[$aId];
+// 		$B = $this->tensors[$bId];
+// 		$C = $this->tensors[$outId];
+// 
+// 		$size = count($A->data);
+// 		
+// 		if ($size !== count($B->data))
+// 			throw new RuntimeException('dot: dimension mismatch');
+// 
+// 		$sum = 0.0;
+// 
+// 		for ($i = 0; $i < $size; $i++)
+// 		{
+// 			$sum += $A->data[$i] * $B->data[$i];
+// 		}
+// 
+// 		$C->shape = [];
+// 		$C->data = [$sum];
+// 	}
 	
 	private function opRelu(int $inpId, int $outId): void
 	{
@@ -525,114 +525,114 @@ class GraphRuntime
 		}
 	}
 
-	private function opMse(int $inpId, int $outId): void
-	{
-		$X = $this->tensors[$inpId];
-		$Y = $this->tensors[$outId];
-		$size = count($X->data);
+// 	private function opMse(int $inpId, int $outId): void
+// 	{
+// 		$X = $this->tensors[$inpId];
+// 		$Y = $this->tensors[$outId];
+// 		$size = count($X->data);
+// 
+// 		if ($size === 0)
+// 		{
+// 			$Y->shape = [];
+// 			$Y->data = [0.0];
+// 			return;
+// 		}
+// 
+// 		if (count($X->shape) === 0)
+// 		{
+// 			$val = $X->data[0];
+// 			$Y->shape = [];
+// 			$Y->data = [0.5 * $val * $val];
+// 			return;
+// 		}
+// 
+// 		if (count($X->shape) === 2)
+// 		{
+// 			[$batch, $dim] = $X->shape;
+// 			$Y->shape = [$batch];
+// 			$Y->data = array_fill(0, $batch, 0.0);
+// 			
+// 			for ($b = 0; $b < $batch; $b++)
+// 			{
+// 				$rowStart = $b * $dim;
+// 				$sum = 0.0;
+// 				
+// 				for ($i = 0; $i < $dim; $i++)
+// 				{
+// 					$val = $X->data[$rowStart + $i];
+// 					$sum += $val * $val;
+// 				}
+// 				
+// 				$Y->data[$b] = $dim > 0 ? $sum / $dim : 0.0;
+// 			}
+// 			
+// 			return;
+// 		}
+// 
+// 		$Y->shape = [];
+// 		$sum = 0.0;
+// 		
+// 		for ($i = 0; $i < $size; $i++)
+// 		{
+// 			$sum += $X->data[$i] * $X->data[$i];
+// 		}
+// 		
+// 		$Y->data = [$sum / $size];
+// 	}
 
-		if ($size === 0)
-		{
-			$Y->shape = [];
-			$Y->data = [0.0];
-			return;
-		}
-
-		if (count($X->shape) === 0)
-		{
-			$val = $X->data[0];
-			$Y->shape = [];
-			$Y->data = [0.5 * $val * $val];
-			return;
-		}
-
-		if (count($X->shape) === 2)
-		{
-			[$batch, $dim] = $X->shape;
-			$Y->shape = [$batch];
-			$Y->data = array_fill(0, $batch, 0.0);
-			
-			for ($b = 0; $b < $batch; $b++)
-			{
-				$rowStart = $b * $dim;
-				$sum = 0.0;
-				
-				for ($i = 0; $i < $dim; $i++)
-				{
-					$val = $X->data[$rowStart + $i];
-					$sum += $val * $val;
-				}
-				
-				$Y->data[$b] = $dim > 0 ? $sum / $dim : 0.0;
-			}
-			
-			return;
-		}
-
-		$Y->shape = [];
-		$sum = 0.0;
-		
-		for ($i = 0; $i < $size; $i++)
-		{
-			$sum += $X->data[$i] * $X->data[$i];
-		}
-		
-		$Y->data = [$sum / $size];
-	}
-
-	private function opMae(int $inpId, int $outId): void
-	{
-		$X = $this->tensors[$inpId];
-		$Y = $this->tensors[$outId];
-		$size = count($X->data);
-
-		if ($size === 0)
-		{
-			$Y->shape = [];
-			$Y->data = [0.0];
-			return;
-		}
-
-		if (count($X->shape) === 0)
-		{
-			$val = $X->data[0];
-			$Y->shape = [];
-			$Y->data = [0.5 * \abs($val)];
-			return;
-		}
-
-		if (count($X->shape) === 2)
-		{
-			[$batch, $dim] = $X->shape;
-			$Y->shape = [$batch];
-			$Y->data = array_fill(0, $batch, 0.0);
-			
-			for ($b = 0; $b < $batch; $b++)
-			{
-				$rowStart = $b * $dim;
-				$sum = 0.0;
-				
-				for ($i = 0; $i < $dim; $i++)
-				{
-					$sum += \abs($X->data[$rowStart + $i]);
-				}
-				
-				$Y->data[$b] = $dim > 0 ? $sum / $dim : 0.0;
-			}
-			
-			return;
-		}
-
-		$Y->shape = [];
-		$sum = 0.0;
-		
-		for ($i = 0; $i < $size; $i++)
-		{
-			$sum += \abs($X->data[$i]);
-		}
-		
-		$Y->data = [$sum / $size];
-	}
+// 	private function opMae(int $inpId, int $outId): void
+// 	{
+// 		$X = $this->tensors[$inpId];
+// 		$Y = $this->tensors[$outId];
+// 		$size = count($X->data);
+// 
+// 		if ($size === 0)
+// 		{
+// 			$Y->shape = [];
+// 			$Y->data = [0.0];
+// 			return;
+// 		}
+// 
+// 		if (count($X->shape) === 0)
+// 		{
+// 			$val = $X->data[0];
+// 			$Y->shape = [];
+// 			$Y->data = [0.5 * \abs($val)];
+// 			return;
+// 		}
+// 
+// 		if (count($X->shape) === 2)
+// 		{
+// 			[$batch, $dim] = $X->shape;
+// 			$Y->shape = [$batch];
+// 			$Y->data = array_fill(0, $batch, 0.0);
+// 			
+// 			for ($b = 0; $b < $batch; $b++)
+// 			{
+// 				$rowStart = $b * $dim;
+// 				$sum = 0.0;
+// 				
+// 				for ($i = 0; $i < $dim; $i++)
+// 				{
+// 					$sum += \abs($X->data[$rowStart + $i]);
+// 				}
+// 				
+// 				$Y->data[$b] = $dim > 0 ? $sum / $dim : 0.0;
+// 			}
+// 			
+// 			return;
+// 		}
+// 
+// 		$Y->shape = [];
+// 		$sum = 0.0;
+// 		
+// 		for ($i = 0; $i < $size; $i++)
+// 		{
+// 			$sum += \abs($X->data[$i]);
+// 		}
+// 		
+// 		$Y->data = [$sum / $size];
+// 	}
 
 	private function opSoftmax(int $inpId, int $outId): void
 	{
@@ -1088,12 +1088,12 @@ class GraphRuntime
 				case 'add':
 					$this->backwardAdd($inputs[0], $inputs[1], $outId, $attributes);
 					break;
-				case 'sub':
-					$this->backwardSub($inputs[0], $inputs[1], $outId, $attributes);
-					break;
-				case 'dot':
-					$this->backwardDot($inputs[0], $inputs[1], $outId, $attributes);
-					break;
+				// case 'sub':
+				// 	$this->backwardSub($inputs[0], $inputs[1], $outId, $attributes);
+				// 	break;
+				// case 'dot':
+				// 	$this->backwardDot($inputs[0], $inputs[1], $outId, $attributes);
+				// 	break;
 				case 'dropout':
 					$this->backwardDropout($inputs[0], $outId, $attributes);
 					break;
@@ -1107,12 +1107,12 @@ class GraphRuntime
 				case 'LReLU':
 					$this->backwardLRelu($inputs[0], $outId, $attributes);
 					break;
-				case 'MSE':
-					$this->backwardMse($inputs[0], $outId, $attributes);
-					break;
-				case 'MAE':
-					$this->backwardMae($inputs[0], $outId, $attributes);
-					break;
+				// case 'MSE':
+				// 	$this->backwardMse($inputs[0], $outId, $attributes);
+				// 	break;
+				// case 'MAE':
+				// 	$this->backwardMae($inputs[0], $outId, $attributes);
+				// 	break;
 				case 'softmax':
 					$this->backwardSoftmax($inputs[0], $outId, $attributes);
 					break;
@@ -1240,58 +1240,58 @@ class GraphRuntime
 		}
 	}
 
-	private function backwardSub(int $aId, int $bId, int $outId): void
-	{
-		$A = $this->tensors[$aId];
-		$B = $this->tensors[$bId];
-		$C = $this->tensors[$outId];
+// 	private function backwardSub(int $aId, int $bId, int $outId): void
+// 	{
+// 		$A = $this->tensors[$aId];
+// 		$B = $this->tensors[$bId];
+// 		$C = $this->tensors[$outId];
+// 
+// 		if (count($A->shape) === 2 && count($B->shape) === 1)
+// 		{
+// 			[$batch, $dim] = $A->shape;
+// 			
+// 			if ($B->shape[0] !== $dim)
+// 				throw new RuntimeException('sub: dimension mismatch');
+// 			
+// 			for ($b = 0; $b < $batch; $b++)
+// 			{
+// 				$aRow = $b * $dim;
+// 				
+// 				for ($n = 0; $n < $dim; $n++)
+// 				{
+// 					$grad = $C->grad[$aRow + $n];
+// 					$A->grad[$aRow + $n] += $grad;
+// 					$B->grad[$n] -= $grad;
+// 				}
+// 			}
+// 			
+// 			return;
+// 		}
+// 
+// 		$size = count($C->data);
+// 		
+// 		for ($i = 0; $i < $size; $i++)
+// 		{
+// 			$A->grad[$i] += $C->grad[$i];
+// 			$B->grad[$i] -= $C->grad[$i];
+// 		}
+// 	}
 
-		if (count($A->shape) === 2 && count($B->shape) === 1)
-		{
-			[$batch, $dim] = $A->shape;
-			
-			if ($B->shape[0] !== $dim)
-				throw new RuntimeException('sub: dimension mismatch');
-			
-			for ($b = 0; $b < $batch; $b++)
-			{
-				$aRow = $b * $dim;
-				
-				for ($n = 0; $n < $dim; $n++)
-				{
-					$grad = $C->grad[$aRow + $n];
-					$A->grad[$aRow + $n] += $grad;
-					$B->grad[$n] -= $grad;
-				}
-			}
-			
-			return;
-		}
-
-		$size = count($C->data);
-		
-		for ($i = 0; $i < $size; $i++)
-		{
-			$A->grad[$i] += $C->grad[$i];
-			$B->grad[$i] -= $C->grad[$i];
-		}
-	}
-
-	private function backwardDot(int $aId, int $bId, int $outId): void
-	{
-		$A = $this->tensors[$aId];
-		$B = $this->tensors[$bId];
-		$C = $this->tensors[$outId];
-
-		$gradOut = $C->grad[0] ?? 0.0;
-		$size = count($A->data);
-
-		for ($i = 0; $i < $size; $i++)
-		{
-			$A->grad[$i] += $gradOut * $B->data[$i];
-			$B->grad[$i] += $gradOut * $A->data[$i];
-		}
-	}
+	// private function backwardDot(int $aId, int $bId, int $outId): void
+	// {
+	// 	$A = $this->tensors[$aId];
+	// 	$B = $this->tensors[$bId];
+	// 	$C = $this->tensors[$outId];
+ // 
+	// 	$gradOut = $C->grad[0] ?? 0.0;
+	// 	$size = count($A->data);
+ // 
+	// 	for ($i = 0; $i < $size; $i++)
+	// 	{
+	// 		$A->grad[$i] += $gradOut * $B->data[$i];
+	// 		$B->grad[$i] += $gradOut * $A->data[$i];
+	// 	}
+	// }
 	
 	private function backwardRelu(int $inpId, int $outId): void
     {
@@ -1349,106 +1349,106 @@ class GraphRuntime
 		}
 	}
 
-	private function backwardMse(int $inpId, int $outId): void
-	{
-		$X = $this->tensors[$inpId];
-		$Y = $this->tensors[$outId];
-		$size = count($X->data);
+// 	private function backwardMse(int $inpId, int $outId): void
+// 	{
+// 		$X = $this->tensors[$inpId];
+// 		$Y = $this->tensors[$outId];
+// 		$size = count($X->data);
+// 
+// 		if ($size === 0)
+// 			return;
+// 
+// 		if (count($X->shape) === 0)
+// 		{
+// 			$val = $X->data[0];
+// 			$gradOut = $Y->grad[0] ?? 0.0;
+// 			$X->grad[0] += $gradOut * $val;
+// 			return;
+// 		}
+// 
+// 		if (count($X->shape) === 2)
+// 		{
+// 			[$batch, $dim] = $X->shape;
+// 
+// 			if (count($Y->shape) !== 1 || $Y->shape[0] !== $batch)
+// 				throw new RuntimeException('MSE backward: output shape mismatch');
+// 			
+// 			for ($b = 0; $b < $batch; $b++)
+// 			{
+// 				$gradOut = $Y->grad[$b] ?? 0.0;
+// 				$scale = $dim > 0 ? (2 / $dim) * $gradOut : 0.0;
+// 				$rowStart = $b * $dim;
+// 				
+// 				for ($i = 0; $i < $dim; $i++)
+// 				{
+// 					$X->grad[$rowStart + $i] += $scale * $X->data[$rowStart + $i];
+// 				}
+// 			}
+// 			
+// 			return;
+// 		}
+// 
+// 		$gradOut = $Y->grad[0] ?? 0.0;
+// 		$scale = (2 / $size) * $gradOut;
+// 
+// 		for ($i = 0; $i < $size; $i++)
+// 		{
+// 			$X->grad[$i] += $scale * $X->data[$i];
+// 		}
+// 	}
 
-		if ($size === 0)
-			return;
-
-		if (count($X->shape) === 0)
-		{
-			$val = $X->data[0];
-			$gradOut = $Y->grad[0] ?? 0.0;
-			$X->grad[0] += $gradOut * $val;
-			return;
-		}
-
-		if (count($X->shape) === 2)
-		{
-			[$batch, $dim] = $X->shape;
-
-			if (count($Y->shape) !== 1 || $Y->shape[0] !== $batch)
-				throw new RuntimeException('MSE backward: output shape mismatch');
-			
-			for ($b = 0; $b < $batch; $b++)
-			{
-				$gradOut = $Y->grad[$b] ?? 0.0;
-				$scale = $dim > 0 ? (2 / $dim) * $gradOut : 0.0;
-				$rowStart = $b * $dim;
-				
-				for ($i = 0; $i < $dim; $i++)
-				{
-					$X->grad[$rowStart + $i] += $scale * $X->data[$rowStart + $i];
-				}
-			}
-			
-			return;
-		}
-
-		$gradOut = $Y->grad[0] ?? 0.0;
-		$scale = (2 / $size) * $gradOut;
-
-		for ($i = 0; $i < $size; $i++)
-		{
-			$X->grad[$i] += $scale * $X->data[$i];
-		}
-	}
-
-	private function backwardMae(int $inpId, int $outId): void
-	{
-		$X = $this->tensors[$inpId];
-		$Y = $this->tensors[$outId];
-		$size = count($X->data);
-
-		if ($size === 0)
-			return;
-
-		if (count($X->shape) === 0)
-		{
-			$val = $X->data[0];
-			$gradOut = $Y->grad[0] ?? 0.0;
-			$sign = $val > 0 ? 1.0 : ($val < 0 ? -1.0 : 0.0);
-			$X->grad[0] += $gradOut * 0.5 * $sign;
-			return;
-		}
-
-		if (count($X->shape) === 2)
-		{
-			[$batch, $dim] = $X->shape;
-
-			if (count($Y->shape) !== 1 || $Y->shape[0] !== $batch)
-				throw new RuntimeException('MAE backward: output shape mismatch');
-			
-			for ($b = 0; $b < $batch; $b++)
-			{
-				$gradOut = $Y->grad[$b] ?? 0.0;
-				$scale = $dim > 0 ? (1 / $dim) * $gradOut : 0.0;
-				$rowStart = $b * $dim;
-				
-				for ($i = 0; $i < $dim; $i++)
-				{
-					$val = $X->data[$rowStart + $i];
-					$sign = $val > 0 ? 1.0 : ($val < 0 ? -1.0 : 0.0);
-					$X->grad[$rowStart + $i] += $scale * $sign;
-				}
-			}
-			
-			return;
-		}
-
-		$gradOut = $Y->grad[0] ?? 0.0;
-		$scale = ($size > 0) ? (1 / $size) * $gradOut : 0.0;
-
-		for ($i = 0; $i < $size; $i++)
-		{
-			$val = $X->data[$i];
-			$sign = $val > 0 ? 1.0 : ($val < 0 ? -1.0 : 0.0);
-			$X->grad[$i] += $scale * $sign;
-		}
-	}
+// 	private function backwardMae(int $inpId, int $outId): void
+// 	{
+// 		$X = $this->tensors[$inpId];
+// 		$Y = $this->tensors[$outId];
+// 		$size = count($X->data);
+// 
+// 		if ($size === 0)
+// 			return;
+// 
+// 		if (count($X->shape) === 0)
+// 		{
+// 			$val = $X->data[0];
+// 			$gradOut = $Y->grad[0] ?? 0.0;
+// 			$sign = $val > 0 ? 1.0 : ($val < 0 ? -1.0 : 0.0);
+// 			$X->grad[0] += $gradOut * 0.5 * $sign;
+// 			return;
+// 		}
+// 
+// 		if (count($X->shape) === 2)
+// 		{
+// 			[$batch, $dim] = $X->shape;
+// 
+// 			if (count($Y->shape) !== 1 || $Y->shape[0] !== $batch)
+// 				throw new RuntimeException('MAE backward: output shape mismatch');
+// 			
+// 			for ($b = 0; $b < $batch; $b++)
+// 			{
+// 				$gradOut = $Y->grad[$b] ?? 0.0;
+// 				$scale = $dim > 0 ? (1 / $dim) * $gradOut : 0.0;
+// 				$rowStart = $b * $dim;
+// 				
+// 				for ($i = 0; $i < $dim; $i++)
+// 				{
+// 					$val = $X->data[$rowStart + $i];
+// 					$sign = $val > 0 ? 1.0 : ($val < 0 ? -1.0 : 0.0);
+// 					$X->grad[$rowStart + $i] += $scale * $sign;
+// 				}
+// 			}
+// 			
+// 			return;
+// 		}
+// 
+// 		$gradOut = $Y->grad[0] ?? 0.0;
+// 		$scale = ($size > 0) ? (1 / $size) * $gradOut : 0.0;
+// 
+// 		for ($i = 0; $i < $size; $i++)
+// 		{
+// 			$val = $X->data[$i];
+// 			$sign = $val > 0 ? 1.0 : ($val < 0 ? -1.0 : 0.0);
+// 			$X->grad[$i] += $scale * $sign;
+// 		}
+// 	}
 
 	private function backwardSoftmax(int $inpId, int $outId): void
 	{
