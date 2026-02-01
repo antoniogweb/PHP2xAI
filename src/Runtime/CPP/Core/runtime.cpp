@@ -359,57 +359,15 @@ namespace PHP2xAI::Runtime::CPP
 		auto &C = tensors[outId];
 
 		if (kernel == "ADD_1D_LAST")
-		{
-			if (A.data.size() != B.data.size())
-				throw std::runtime_error("add: dimension mismatch");
+			return ADD_1D_LAST(A, B, C);
+		if (kernel == "ADD_2D_LAST")
+			return ADD_2D_LAST(A, B, C);
+		if (kernel == "ADD_3D_LAST")
+			return ADD_3D_LAST(A, B, C);
+		if (kernel == "ADD_GENERIC_LAST")
+			return ADD_GENERIC_LAST(A, B, C);
 
-			C.shape = A.shape;
-			C.data.assign(A.data.size(), 0.0f);
-
-			for (std::size_t i = 0; i < A.data.size(); ++i)
-				C.data[i] = A.data[i] + B.data[i];
-
-			return;
-		}
-
-		if (kernel == "ADD_2D_LAST" && (A.shape.size() != 2 || B.shape.size() != 1))
-			throw std::runtime_error("add: dimension mismatch");
-
-		if (A.shape.size() == 2 && B.shape.size() == 1)
-		{
-			const auto batch = A.shape[0];
-			const auto dim = A.shape[1];
-
-			if (B.shape[0] != dim)
-				throw std::runtime_error("add: dimension mismatch");
-
-			C.shape = {batch, dim};
-			C.data.assign(static_cast<std::size_t>(batch * dim), 0.0f);
-
-			for (int b = 0; b < batch; ++b)
-			{
-				const auto aRow = b * dim;
-
-				for (int n = 0; n < dim; ++n)
-				{
-					const auto idx = static_cast<std::size_t>(aRow + n);
-					C.data[idx] = A.data[idx] + B.data[static_cast<std::size_t>(n)];
-				}
-			}
-
-			return;
-		}
-
-		auto size = A.data.size();
-
-		if (size != B.data.size())
-			throw std::runtime_error("add: dimension mismatch");
-
-		C.shape = A.shape;
-		C.data.assign(size, 0.0f);
-
-		for (std::size_t i = 0; i < size; ++i)
-			C.data[i] = A.data[i] + B.data[i];
+		throw std::runtime_error("add: kernel not supported");
 	}
 
 	void GraphRuntime::opSub(int aId, int bId, int outId)
@@ -1124,52 +1082,228 @@ namespace PHP2xAI::Runtime::CPP
 		auto &C = tensors[outId];
 
 		if (kernel == "ADD_1D_LAST")
-		{
-			auto size = C.data.size();
-			for (std::size_t i = 0; i < size; ++i)
-			{
-				A.grad[i] += C.grad[i];
-				B.grad[i] += C.grad[i];
-			}
+			return BACKWARD_ADD_1D_LAST(A, B, C);
+		if (kernel == "ADD_2D_LAST")
+			return BACKWARD_ADD_2D_LAST(A, B, C);
+		if (kernel == "ADD_3D_LAST")
+			return BACKWARD_ADD_3D_LAST(A, B, C);
+		if (kernel == "ADD_GENERIC_LAST")
+			return BACKWARD_ADD_GENERIC_LAST(A, B, C);
 
-			return;
-		}
+		throw std::runtime_error("add backward: kernel not supported");
+	}
 
-		if (kernel == "ADD_2D_LAST" && (A.shape.size() != 2 || B.shape.size() != 1))
+	void GraphRuntime::ADD_1D_LAST(Tensor &A, Tensor &B, Tensor &C)
+	{
+		auto size = A.data.size();
+		if (size != B.data.size())
 			throw std::runtime_error("add: dimension mismatch");
 
+		C.shape = A.shape;
+		C.data.assign(size, 0.0f);
+
+		for (std::size_t i = 0; i < size; ++i)
+			C.data[i] = A.data[i] + B.data[i];
+	}
+
+	void GraphRuntime::ADD_2D_LAST(Tensor &A, Tensor &B, Tensor &C)
+	{
 		if (A.shape.size() == 2 && B.shape.size() == 1)
 		{
-			const auto batch = A.shape[0];
-			const auto dim = A.shape[1];
+			const int batch = A.shape[0];
+			const int dim = A.shape[1];
 
 			if (B.shape[0] != dim)
 				throw std::runtime_error("add: dimension mismatch");
 
+			C.shape = {batch, dim};
+			C.data.assign(static_cast<std::size_t>(batch * dim), 0.0f);
+
 			for (int b = 0; b < batch; ++b)
 			{
-				const auto rowStart = b * dim;
+				const int aRow = b * dim;
 
 				for (int n = 0; n < dim; ++n)
 				{
-					const auto idx = static_cast<std::size_t>(rowStart + n);
-					Scalar grad = C.grad[idx];
-					A.grad[idx] += grad;
-					B.grad[static_cast<std::size_t>(n)] += grad;
+					const std::size_t idx = static_cast<std::size_t>(aRow + n);
+					C.data[idx] = A.data[idx] + B.data[static_cast<std::size_t>(n)];
 				}
 			}
-
-			return;
 		}
+	}
 
+	void GraphRuntime::ADD_3D_LAST(Tensor &A, Tensor &B, Tensor &C)
+	{
+		if (A.shape.size() == 3 && B.shape.size() == 1)
+		{
+			const int batch = A.shape[0];
+			const int time = A.shape[1];
+			const int dim = A.shape[2];
+
+			if (B.shape[0] != dim)
+				throw std::runtime_error("add: dimension mismatch");
+
+			C.shape = {batch, time, dim};
+			C.data.assign(static_cast<std::size_t>(batch * time * dim), 0.0f);
+
+			for (int b = 0; b < batch; ++b)
+			{
+				const int batchOffset = b * time * dim;
+
+				for (int t = 0; t < time; ++t)
+				{
+					const int rowOffset = batchOffset + t * dim;
+
+					for (int n = 0; n < dim; ++n)
+					{
+						const std::size_t idx = static_cast<std::size_t>(rowOffset + n);
+						C.data[idx] = A.data[idx] + B.data[static_cast<std::size_t>(n)];
+					}
+				}
+			}
+		}
+	}
+
+	void GraphRuntime::ADD_GENERIC_LAST(Tensor &A, Tensor &B, Tensor &C)
+	{
+		const int rank = A.getRank();
+		if (rank < 1 || B.shape.size() != 1)
+			throw std::runtime_error("add: dimension mismatch");
+
+		const int lastDim = A.shape[static_cast<std::size_t>(rank - 1)];
+		if (B.shape[0] != lastDim)
+			throw std::runtime_error("add: dimension mismatch");
+
+		C.shape = A.shape;
+		const auto size = std::accumulate(
+			A.shape.begin(),
+			A.shape.end(),
+			1,
+			std::multiplies<int>());
+		C.data.assign(static_cast<std::size_t>(size == 0 ? 1 : size), 0.0f);
+
+		auto bStrides = alignStridesToRank(B.shape, B.strides, C.getRank());
+		addAlongAxisInPlace(C.data, C.shape, C.strides, A.data, A.strides, B.data, bStrides);
+	}
+
+	void GraphRuntime::BACKWARD_ADD_1D_LAST(Tensor &A, Tensor &B, Tensor &C)
+	{
 		auto size = C.data.size();
-
 		for (std::size_t i = 0; i < size; ++i)
 		{
 			A.grad[i] += C.grad[i];
 			B.grad[i] += C.grad[i];
 		}
 	}
+
+	void GraphRuntime::BACKWARD_ADD_2D_LAST(Tensor &A, Tensor &B, Tensor &C)
+	{
+		if (A.shape.size() == 2 && B.shape.size() == 1)
+		{
+			const int batch = A.shape[0];
+			const int dim = A.shape[1];
+
+			if (B.shape[0] != dim)
+				throw std::runtime_error("add: dimension mismatch");
+
+			for (int b = 0; b < batch; ++b)
+			{
+				const int rowStart = b * dim;
+
+				for (int n = 0; n < dim; ++n)
+				{
+					const std::size_t idx = static_cast<std::size_t>(rowStart + n);
+					Scalar grad = C.grad[idx];
+					A.grad[idx] += grad;
+					B.grad[static_cast<std::size_t>(n)] += grad;
+				}
+			}
+		}
+	}
+
+	void GraphRuntime::BACKWARD_ADD_3D_LAST(Tensor &A, Tensor &B, Tensor &C)
+	{
+		if (A.shape.size() == 3 && B.shape.size() == 1)
+		{
+			const int batch = A.shape[0];
+			const int time = A.shape[1];
+			const int dim = A.shape[2];
+
+			if (B.shape[0] != dim)
+				throw std::runtime_error("add: dimension mismatch");
+
+			for (int b = 0; b < batch; ++b)
+			{
+				const int batchOffset = b * time * dim;
+
+				for (int t = 0; t < time; ++t)
+				{
+					const int rowOffset = batchOffset + t * dim;
+
+					for (int n = 0; n < dim; ++n)
+					{
+						const std::size_t idx = static_cast<std::size_t>(rowOffset + n);
+						Scalar grad = C.grad[idx];
+						A.grad[idx] += grad;
+						B.grad[static_cast<std::size_t>(n)] += grad;
+					}
+				}
+			}
+		}
+	}
+
+	void GraphRuntime::BACKWARD_ADD_GENERIC_LAST(Tensor &A, Tensor &B, Tensor &C)
+	{
+		const int rank = C.getRank();
+		if (rank < 1 || B.shape.size() != 1)
+			throw std::runtime_error("add: dimension mismatch");
+
+		const int lastDim = C.shape[static_cast<std::size_t>(rank - 1)];
+		if (B.shape[0] != lastDim)
+			throw std::runtime_error("add: dimension mismatch");
+
+		auto bStrides = alignStridesToRank(B.shape, B.strides, rank);
+		const int axis = rank - 1;
+
+		forEachSliceAlongAxisIncremental(
+			C.shape,
+			C.strides,
+			axis,
+			[&](int baseC, int strideCAxis, int axisLen, const std::vector<int> &idxNoAxis)
+			{
+				int baseA = 0;
+				int baseB = 0;
+
+				for (int d = 0; d < rank; ++d)
+				{
+					const int i = idxNoAxis[static_cast<std::size_t>(d)];
+					if (i < 0)
+						continue;
+
+					baseA += i * A.strides[static_cast<std::size_t>(d)];
+					baseB += i * bStrides[static_cast<std::size_t>(d)];
+				}
+
+				const int strideA = A.strides[static_cast<std::size_t>(axis)];
+				const int strideB = bStrides[static_cast<std::size_t>(axis)];
+
+				int offC = baseC;
+				int offA = baseA;
+				int offB = baseB;
+
+				for (int i = 0; i < axisLen; ++i)
+				{
+					Scalar grad = C.grad[static_cast<std::size_t>(offC)];
+					A.grad[static_cast<std::size_t>(offA)] += grad;
+					B.grad[static_cast<std::size_t>(offB)] += grad;
+
+					offC += strideCAxis;
+					offA += strideA;
+					offB += strideB;
+				}
+			});
+	}
+	
 	void GraphRuntime::backwardSub(int aId, int bId, int outId)
 	{
 		auto &A = tensors[aId];

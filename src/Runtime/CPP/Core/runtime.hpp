@@ -161,6 +161,15 @@ namespace PHP2xAI::Runtime::CPP
 		void backwardCeLogits(int, int, int);
 		void backwardCeLogitsLabelInt(int, int, int);
 
+		void ADD_1D_LAST(Tensor &A, Tensor &B, Tensor &C);
+		void ADD_2D_LAST(Tensor &A, Tensor &B, Tensor &C);
+		void ADD_3D_LAST(Tensor &A, Tensor &B, Tensor &C);
+		void ADD_GENERIC_LAST(Tensor &A, Tensor &B, Tensor &C);
+		void BACKWARD_ADD_1D_LAST(Tensor &A, Tensor &B, Tensor &C);
+		void BACKWARD_ADD_2D_LAST(Tensor &A, Tensor &B, Tensor &C);
+		void BACKWARD_ADD_3D_LAST(Tensor &A, Tensor &B, Tensor &C);
+		void BACKWARD_ADD_GENERIC_LAST(Tensor &A, Tensor &B, Tensor &C);
+
 		static json loadJson(const std::string &path);
 		void loadTensors(const json &graphDef, const json *weightsDef);
 		void loadOps(const json &graphDef);
