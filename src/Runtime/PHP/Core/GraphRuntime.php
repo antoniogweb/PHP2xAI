@@ -1792,11 +1792,47 @@ class GraphRuntime
 	
 	private function ADD_3D_LAST(TensorRuntime $A, TensorRuntime $B, TensorRuntime $C)
 	{
-		
+		// broadcast support: A[B, T, N] + B[N] = C[B, T, N]
+		if (count($A->shape) === 3 && count($B->shape) === 1)
+		{
+			[$batch, $time, $dim] = $A->shape;
+			
+			if ($B->shape[0] !== $dim)
+				throw new RuntimeException('add: dimension mismatch');
+			
+			$C->shape = [$batch, $time, $dim];
+			$C->data = array_fill(0, $batch * $time * $dim, 0.0);
+			
+			for ($b = 0; $b < $batch; $b++)
+			{
+				$batchOffset = $b * $time * $dim;
+				
+				for ($t = 0; $t < $time; $t++)
+				{
+					$rowOffset = $batchOffset + $t * $dim;
+					
+					for ($n = 0; $n < $dim; $n++)
+					{
+						$C->data[$rowOffset + $n] = $A->data[$rowOffset + $n] + $B->data[$n];
+					}
+				}
+			}
+		}
 	}
 	
 	private function ADD_GENERIC_LAST(TensorRuntime $A, TensorRuntime $B, TensorRuntime $C)
 	{
+		$rank = $A->getRank();
+		if ($rank < 1 || count($B->shape) !== 1)
+			throw new RuntimeException('add: dimension mismatch');
+		
+		$lastDim = $A->shape[$rank - 1];
+		if ($B->shape[0] !== $lastDim)
+			throw new RuntimeException('add: dimension mismatch');
+		
+		$C->shape = $A->shape;
+		$C->data = array_fill(0, array_product($A->shape) ?: 1, 0.0);
+		
 		$BStrides = $this->alignStridesToRank($B->shape, $B->strides, $C->getRank());
 		
 		$this->addAlongAxisInPlace($C->data,$C->shape,$C->strides,$A->data,$A->strides,$B->data,$BStrides);
@@ -1838,12 +1874,92 @@ class GraphRuntime
 	
 	private function BACKWARD_ADD_3D_LAST(TensorRuntime $A, TensorRuntime $B, TensorRuntime $C)
 	{
-		
+		if (count($A->shape) === 3 && count($B->shape) === 1)
+		{
+			[$batch, $time, $dim] = $A->shape;
+			
+			if ($B->shape[0] !== $dim)
+				throw new RuntimeException('add: dimension mismatch');
+			
+			for ($b = 0; $b < $batch; $b++)
+			{
+				$batchOffset = $b * $time * $dim;
+				
+				for ($t = 0; $t < $time; $t++)
+				{
+					$rowOffset = $batchOffset + $t * $dim;
+					
+					for ($n = 0; $n < $dim; $n++)
+					{
+						$grad = $C->grad[$rowOffset + $n];
+						$A->grad[$rowOffset + $n] += $grad;
+						$B->grad[$n] += $grad;
+					}
+				}
+			}
+		}
 	}
 	
 	private function BACKWARD_ADD_GENERIC_LAST(TensorRuntime $A, TensorRuntime $B, TensorRuntime $C)
 	{
+		$rank = $C->getRank();
+		if ($rank < 1 || count($B->shape) !== 1)
+			throw new RuntimeException('add: dimension mismatch');
 		
+		$lastDim = $C->shape[$rank - 1];
+		if ($B->shape[0] !== $lastDim)
+			throw new RuntimeException('add: dimension mismatch');
+		
+		$BStrides = $this->alignStridesToRank($B->shape, $B->strides, $rank);
+		$axis = $rank - 1;
+		
+		$this->forEachSliceAlongAxisIncremental(
+			$C->shape,
+			$C->strides,
+			$axis,
+			function (
+				int $baseC,
+				int $strideCAxis,
+				int $axisLen,
+				array $idxNoAxis
+			) use (
+				$A,
+				$B,
+				$C,
+				$BStrides,
+				$axis
+			) {
+				$baseA = 0;
+				$baseB = 0;
+				
+				foreach ($idxNoAxis as $d => $i)
+				{
+					if ($i === null)
+						continue;
+					
+					$baseA += $i * $A->strides[$d];
+					$baseB += $i * $BStrides[$d];
+				}
+				
+				$strideA = $A->strides[$axis];
+				$strideB = $BStrides[$axis];
+				
+				$offC = $baseC;
+				$offA = $baseA;
+				$offB = $baseB;
+				
+				for ($i = 0; $i < $axisLen; $i++)
+				{
+					$grad = $C->grad[$offC];
+					$A->grad[$offA] += $grad;
+					$B->grad[$offB] += $grad;
+					
+					$offC += $strideCAxis;
+					$offA += $strideA;
+					$offB += $strideB;
+				}
+			}
+		);
 	}
 	
 	/**
@@ -1877,7 +1993,7 @@ class GraphRuntime
 	*
 	* Nota: questa callback è PER-SLICE, quindi è perfetta per softmax/layernorm ecc.
 	*/
-	function forEachSliceAlongAxisIncremental(
+	private function forEachSliceAlongAxisIncremental(
 		array $shape,
 		array $strides,
 		int $axis,
@@ -2005,7 +2121,7 @@ class GraphRuntime
 	* - $yData, $yStrides
 	* - $axis        asse scelto come inner loop (tipicamente -1)
 	*/
-	function addAlongAxisInPlace(
+	private function addAlongAxisInPlace(
 		array &$zData,
 		array $zShape,
 		array $zStrides,
