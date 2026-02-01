@@ -702,7 +702,42 @@ class GraphRuntime
 	
 	private function SOFTMAX_3D_LAST($X, $Y)
 	{
+		[$batch, $time, $dim] = $X->shape;
+		$Y->data = array_fill(0, $batch * $time * $dim, 0.0);
 		
+		for ($b = 0; $b < $batch; $b++)
+		{
+			$batchOffset = $b * $time * $dim;
+			
+			for ($t = 0; $t < $time; $t++)
+			{
+				$rowStart = $batchOffset + $t * $dim;
+				$max = $X->data[$rowStart];
+				
+				for ($i = 1; $i < $dim; $i++)
+				{
+					$val = $X->data[$rowStart + $i];
+					if ($val > $max)
+						$max = $val;
+				}
+				
+				$sum = 0.0;
+				$expValues = [];
+				
+				for ($i = 0; $i < $dim; $i++)
+				{
+					$expValues[$i] = \exp($X->data[$rowStart + $i] - $max);
+					$sum += $expValues[$i];
+				}
+				
+				$invSum = $sum === 0.0 ? 0.0 : 1 / $sum;
+				
+				for ($i = 0; $i < $dim; $i++)
+				{
+					$Y->data[$rowStart + $i] = $expValues[$i] * $invSum;
+				}
+			}
+		}
 	}
 	
 	private function SOFTMAX_GENERIC_AXIS($X, $Y, $axis)
@@ -1486,26 +1521,36 @@ class GraphRuntime
 // 		}
 // 	}
 	
-	public function BACKWORD_SOFTMAX_1D_LAST($X, $Y)
+	private function BACKWORD_SOFTMAX_1D_LAST($X, $Y)
 	{
 		$size = count($Y->data);
-		// For each input dimension: dL/dx_i = sum_j dL/dy_j * dy_j/dx_i
+		
+		/**
+		 * Backward softmax ottimizzato O(n):
+		 *
+		 *   dL/dx_i = y_i * (dL/dy_i - sum_j(dL/dy_j * y_j))
+		 *
+		 * Nota: stessa derivazione spiegata nel caso GENERIC_AXIS.
+		 *
+		 * Dove:
+		 * - y_i è l'output softmax
+		 * - dL/dy_i è il gradiente in ingresso
+		 *
+		 * Questo evita il doppio loop O(n^2) del Jacobian esplicito.
+		 */
+		$dot = 0.0;
 		for ($i = 0; $i < $size; $i++)
 		{
-			$grad = 0.0;
-
-			for ($j = 0; $j < $size; $j++)
-			{
-				$delta = ($i === $j) ? 1.0 : 0.0;
-				$jac = $Y->data[$j] * ($delta - $Y->data[$i]);
-				$grad += $Y->grad[$j] * $jac;
-			}
-
-			$X->grad[$i] += $grad;
+			$dot += $Y->grad[$i] * $Y->data[$i];
+		}
+		
+		for ($i = 0; $i < $size; $i++)
+		{
+			$X->grad[$i] += $Y->data[$i] * ($Y->grad[$i] - $dot);
 		}
 	}
 	
-	public function BACKWORD_SOFTMAX_2D_LAST($X, $Y)
+	private function BACKWORD_SOFTMAX_2D_LAST($X, $Y)
 	{
 		if (count($Y->shape) === 2)
 		{
@@ -1515,26 +1560,146 @@ class GraphRuntime
 			{
 				$rowStart = $b * $dim;
 				
+				/**
+				 * Backward softmax per riga (batch, dim) in O(dim):
+				 *
+				 * 1) dot = sum_j (dL/dy_j * y_j)
+				 * 2) dL/dx_i = y_i * (dL/dy_i - dot)
+				 *
+				 * Nota: stessa derivazione spiegata nel caso GENERIC_AXIS.
+				 *
+				 * Tutto riferito alla riga corrente.
+				 */
+				$dot = 0.0;
 				for ($i = 0; $i < $dim; $i++)
 				{
-					$grad = 0.0;
-					$yi = $Y->data[$rowStart + $i];
-					
-					for ($j = 0; $j < $dim; $j++)
-					{
-						$delta = ($i === $j) ? 1.0 : 0.0;
-						$yj = $Y->data[$rowStart + $j];
-						$jac = $yj * ($delta - $yi);
-						$grad += $Y->grad[$rowStart + $j] * $jac;
-					}
-					
-					$X->grad[$rowStart + $i] += $grad;
+					$dot += $Y->grad[$rowStart + $i] * $Y->data[$rowStart + $i];
+				}
+				
+				for ($i = 0; $i < $dim; $i++)
+				{
+					$X->grad[$rowStart + $i] += $Y->data[$rowStart + $i]
+						* ($Y->grad[$rowStart + $i] - $dot);
 				}
 			}
 		}
 	}
 	
-	private function backwardSoftmax(int $inpId, int $outId): void
+	private function BACKWORD_SOFTMAX_3D_LAST($X, $Y)
+	{
+		if (count($Y->shape) === 3)
+		{
+			[$batch, $time, $dim] = $Y->shape;
+			
+			for ($b = 0; $b < $batch; $b++)
+			{
+				$batchOffset = $b * $time * $dim;
+				
+				for ($t = 0; $t < $time; $t++)
+				{
+					$rowStart = $batchOffset + $t * $dim;
+					
+					/**
+					 * Backward softmax per slice [b, t, :]:
+					 *
+					 * 1) dot = sum_j (dL/dy_j * y_j)
+					 * 2) dL/dx_i = y_i * (dL/dy_i - dot)
+					 *
+					 * Nota: stessa derivazione spiegata nel caso GENERIC_AXIS.
+					 *
+					 * Tutto sulla dimensione finale (dim).
+					 */
+					$dot = 0.0;
+					for ($i = 0; $i < $dim; $i++)
+					{
+						$dot += $Y->grad[$rowStart + $i] * $Y->data[$rowStart + $i];
+					}
+					
+					for ($i = 0; $i < $dim; $i++)
+					{
+						$X->grad[$rowStart + $i] += $Y->data[$rowStart + $i]
+							* ($Y->grad[$rowStart + $i] - $dot);
+					}
+				}
+			}
+		}
+	}
+	
+	private function BACKWORD_SOFTMAX_GENERIC_AXIS($X, $Y, $axis)
+	{
+		$rank = count($Y->shape);
+		if ($rank === 0)
+			return;
+		
+		// Normalizza axis solo per ricavare axisLen in modo sicuro.
+		$axisNorm = $axis < 0 ? $axis + $rank : $axis;
+		if ($axisNorm < 0 || $axisNorm >= $rank)
+			throw new InvalidArgumentException("axis out of range");
+		
+		$axisLen = $Y->shape[$axisNorm];
+		if ($axisLen <= 0)
+			return;
+		
+		// Buffer temporanei per una slice:
+		// - tmpY: softmax output lungo axis
+		// - tmpGrad: grad dL/dY lungo axis
+		// Usati per evitare accessi ripetuti al buffer con stride.
+		$tmpY = array_fill(0, $axisLen, 0.0);
+		$tmpGrad = array_fill(0, $axisLen, 0.0);
+		
+		$this->forEachSliceAlongAxisIncremental(
+			$Y->shape,
+			$Y->strides,
+			$axis,
+			function(int $base, int $strideAxis, int $axisLen, array $idxNoAxis) use ($X, $Y, &$tmpY, &$tmpGrad)
+			{
+				/**
+				 * Backward softmax ottimizzato O(n) per slice:
+				 *
+				 *   dL/dx_i = y_i * (dL/dy_i - sum_j(dL/dy_j * y_j))
+				 *
+				 * Derivazione:
+				 *   dy_j/dx_i = y_j * (delta_ij - y_i)
+				 *   dL/dx_i = sum_j dL/dy_j * dy_j/dx_i
+				 *           = y_i * (dL/dy_i - sum_j dL/dy_j * y_j)
+				 *
+				 * Calcoliamo prima:
+				 *   dot = sum_j (dL/dy_j * y_j)
+				 * e poi per ogni i:
+				 *   dL/dx_i = y_i * (dL/dy_i - dot)
+				 */
+				
+				// 1) Carica slice Y e gradY in buffer temporanei
+				$off = $base;
+				$tmpY[0] = $Y->data[$off];
+				$tmpGrad[0] = $Y->grad[$off];
+				
+				for ($i = 1; $i < $axisLen; $i++)
+				{
+					$off += $strideAxis;
+					$tmpY[$i] = $Y->data[$off];
+					$tmpGrad[$i] = $Y->grad[$off];
+				}
+				
+				// 2) dot = sum_j (dL/dy_j * y_j)
+				$dot = 0.0;
+				for ($i = 0; $i < $axisLen; $i++)
+				{
+					$dot += $tmpGrad[$i] * $tmpY[$i];
+				}
+				
+				// 3) Scrivi dL/dx_i nel tensore X
+				$off = $base;
+				for ($i = 0; $i < $axisLen; $i++)
+				{
+					$X->grad[$off] += $tmpY[$i] * ($tmpGrad[$i] - $dot);
+					$off += $strideAxis;
+				}
+			}
+		);
+	}
+	
+	private function backwardSoftmax(int $inpId, int $outId, array $attributes): void
 	{
 		$X = $this->tensors[$inpId];
 		$Y = $this->tensors[$outId];
