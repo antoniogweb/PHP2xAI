@@ -131,14 +131,14 @@ namespace PHP2xAI::Runtime::CPP
 
 		void opMatmul(int, int, int);
 		void opAdd(int aId, int bId, int outId, const std::string &kernel);
-		void opSub(int, int, int);
-		void opDot(int, int, int);
+		// void opSub(int, int, int);
+		// void opDot(int, int, int);
 		void opDropout(int, int);
 		void opSig(int, int);
 		void opRelu(int, int);
-		void opLRelu(int, int);
-		void opMse(int, int);
-		void opMae(int, int);
+		// void opLRelu(int, int);
+		// void opMse(int, int);
+		// void opMae(int, int);
 		void opMean(int, int);
 		void opSoftmax(int, int);
 		void opCe(int, int, int);
@@ -147,14 +147,14 @@ namespace PHP2xAI::Runtime::CPP
 
 		void backwardMatmul(int, int, int);
 		void backwardAdd(int, int, int, const std::string &kernel);
-		void backwardSub(int, int, int);
-		void backwardDot(int, int, int);
+		// void backwardSub(int, int, int);
+		// void backwardDot(int, int, int);
 		void backwardDropout(int, int);
 		void backwardSig(int, int);
 		void backwardRelu(int, int);
-		void backwardLRelu(int, int);
-		void backwardMse(int, int);
-		void backwardMae(int, int);
+		// void backwardLRelu(int, int);
+		// void backwardMse(int, int);
+		// void backwardMae(int, int);
 		void backwardMean(int, int);
 		void backwardSoftmax(int, int);
 		void backwardCe(int, int, int);

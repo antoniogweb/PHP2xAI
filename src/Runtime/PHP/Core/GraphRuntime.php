@@ -377,7 +377,9 @@ class GraphRuntime
 		$B = $this->tensors[$bId];
 		$C = $this->tensors[$outId];
 		
-		switch ($attributes["kernel"])
+		$kernel = $attributes["kernel"] ?? "ADD_GENERIC_LAST";
+		
+		switch ($kernel)
 		{
 			case "ADD_1D_LAST":
 				$this->ADD_1D_LAST($A, $B, $C);
@@ -633,57 +635,10 @@ class GraphRuntime
 // 		
 // 		$Y->data = [$sum / $size];
 // 	}
-
-	private function opSoftmax(int $inpId, int $outId): void
+	
+	private function SOFTMAX_1D_LAST($X, $Y)
 	{
-		$X = $this->tensors[$inpId];
-		$Y = $this->tensors[$outId];
-		$Y->shape = $X->shape;
 		$size = count($X->data);
-
-		if ($size === 0)
-		{
-			$Y->data = [];
-			return;
-		}
-
-		if (count($X->shape) === 2)
-		{
-			[$batch, $dim] = $X->shape;
-			$Y->data = array_fill(0, $batch * $dim, 0.0);
-			
-			for ($b = 0; $b < $batch; $b++)
-			{
-				$rowStart = $b * $dim;
-				$max = $X->data[$rowStart];
-				
-				for ($i = 1; $i < $dim; $i++)
-				{
-					$val = $X->data[$rowStart + $i];
-					if ($val > $max)
-						$max = $val;
-				}
-				
-				$sum = 0.0;
-				$expValues = [];
-				
-				for ($i = 0; $i < $dim; $i++)
-				{
-					$expValues[$i] = \exp($X->data[$rowStart + $i] - $max);
-					$sum += $expValues[$i];
-				}
-				
-				$invSum = $sum === 0.0 ? 0.0 : 1 / $sum;
-				
-				for ($i = 0; $i < $dim; $i++)
-				{
-					$Y->data[$rowStart + $i] = $expValues[$i] * $invSum;
-				}
-			}
-			
-			return;
-		}
-
 		$max = $X->data[0];
 		
 		for ($i = 1; $i < $size; $i++)
@@ -707,6 +662,87 @@ class GraphRuntime
 		for ($i = 0; $i < $size; $i++)
 		{
 			$Y->data[$i] = $expValues[$i] * $invSum;
+		}
+	}
+	
+	private function SOFTMAX_2D_LAST($X, $Y)
+	{
+		[$batch, $dim] = $X->shape;
+		$Y->data = array_fill(0, $batch * $dim, 0.0);
+		
+		for ($b = 0; $b < $batch; $b++)
+		{
+			$rowStart = $b * $dim;
+			$max = $X->data[$rowStart];
+			
+			for ($i = 1; $i < $dim; $i++)
+			{
+				$val = $X->data[$rowStart + $i];
+				if ($val > $max)
+					$max = $val;
+			}
+			
+			$sum = 0.0;
+			$expValues = [];
+			
+			for ($i = 0; $i < $dim; $i++)
+			{
+				$expValues[$i] = \exp($X->data[$rowStart + $i] - $max);
+				$sum += $expValues[$i];
+			}
+			
+			$invSum = $sum === 0.0 ? 0.0 : 1 / $sum;
+			
+			for ($i = 0; $i < $dim; $i++)
+			{
+				$Y->data[$rowStart + $i] = $expValues[$i] * $invSum;
+			}
+		}
+	}
+	
+	private function SOFTMAX_3D_LAST($X, $Y)
+	{
+		
+	}
+	
+	private function SOFTMAX_GENERIC_AXIS($X, $Y, $axis)
+	{
+		$Y->shape = $X->shape;
+		$Y->data = $X->data;
+		
+		$this->softmaxAlongAxisInPlace($Y->data, $Y->shape, $X->strides, $axis);
+	}
+	
+	private function opSoftmax(int $inpId, int $outId, array $attributes): void
+	{
+		$X = $this->tensors[$inpId];
+		$Y = $this->tensors[$outId];
+		$Y->shape = $X->shape;
+		$size = count($X->data);
+		
+		if ($size === 0)
+		{
+			$Y->data = [];
+			return;
+		}
+		
+		$kernel = $attributes["kernel"] ?? "SOFTMAX_GENERIC_AXIS";
+		$axis = $attributes["axes"][0] ?? -1;
+		
+		switch ($kernel)
+		{
+			case "SOFTMAX_1D_LAST":
+				$this->SOFTMAX_1D_LAST($X, $Y);
+				break;
+			case "SOFTMAX_2D_LAST":
+				$this->SOFTMAX_2D_LAST($X, $Y);
+				break;
+			case "SOFTMAX_3D_LAST":
+				$this->SOFTMAX_3D_LAST($X, $Y);
+				break;
+			case "SOFTMAX_GENERIC_AXIS":
+				$this->SOFTMAX_GENERIC_AXIS($X, $Y, $axis);
+				break;
 		}
 	}
 
@@ -1449,13 +1485,28 @@ class GraphRuntime
 // 			$X->grad[$i] += $scale * $sign;
 // 		}
 // 	}
-
-	private function backwardSoftmax(int $inpId, int $outId): void
+	
+	public function BACKWORD_SOFTMAX_1D_LAST($X, $Y)
 	{
-		$X = $this->tensors[$inpId];
-		$Y = $this->tensors[$outId];
 		$size = count($Y->data);
+		// For each input dimension: dL/dx_i = sum_j dL/dy_j * dy_j/dx_i
+		for ($i = 0; $i < $size; $i++)
+		{
+			$grad = 0.0;
 
+			for ($j = 0; $j < $size; $j++)
+			{
+				$delta = ($i === $j) ? 1.0 : 0.0;
+				$jac = $Y->data[$j] * ($delta - $Y->data[$i]);
+				$grad += $Y->grad[$j] * $jac;
+			}
+
+			$X->grad[$i] += $grad;
+		}
+	}
+	
+	public function BACKWORD_SOFTMAX_2D_LAST($X, $Y)
+	{
 		if (count($Y->shape) === 2)
 		{
 			[$batch, $dim] = $Y->shape;
@@ -1480,23 +1531,32 @@ class GraphRuntime
 					$X->grad[$rowStart + $i] += $grad;
 				}
 			}
-			
-			return;
 		}
-
-		// For each input dimension: dL/dx_i = sum_j dL/dy_j * dy_j/dx_i
-		for ($i = 0; $i < $size; $i++)
+	}
+	
+	private function backwardSoftmax(int $inpId, int $outId): void
+	{
+		$X = $this->tensors[$inpId];
+		$Y = $this->tensors[$outId];
+		$size = count($Y->data);
+		
+		$kernel = $attributes["kernel"] ?? "SOFTMAX_GENERIC_AXIS";
+		$axis = $attributes["axes"][0] ?? -1;
+		
+		switch ($kernel)
 		{
-			$grad = 0.0;
-
-			for ($j = 0; $j < $size; $j++)
-			{
-				$delta = ($i === $j) ? 1.0 : 0.0;
-				$jac = $Y->data[$j] * ($delta - $Y->data[$i]);
-				$grad += $Y->grad[$j] * $jac;
-			}
-
-			$X->grad[$i] += $grad;
+			case "SOFTMAX_1D_LAST":
+				$this->BACKWORD_SOFTMAX_1D_LAST($X, $Y);
+				break;
+			case "SOFTMAX_2D_LAST":
+				$this->BACKWORD_SOFTMAX_2D_LAST($X, $Y);
+				break;
+			case "SOFTMAX_3D_LAST":
+				$this->BACKWORD_SOFTMAX_3D_LAST($X, $Y);
+				break;
+			case "SOFTMAX_GENERIC_AXIS":
+				$this->BACKWORD_SOFTMAX_GENERIC_AXIS($X, $Y, $axis);
+				break;
 		}
 	}
 
@@ -2205,6 +2265,75 @@ class GraphRuntime
 					$offZ += $strideZAxis;
 					$offX += $strideX;
 					$offY += $strideY;
+				}
+			}
+		);
+	}
+	
+	/**
+	* Softmax IN-PLACE lungo un asse generico (default: ultimo asse).
+	*
+	* - $data è il buffer lineare (row-major o qualunque: la navigazione la fanno gli strides).
+	* - Funziona anche con tensori non contigui (strideAxis può essere >1).
+	*
+	* Nota prestazioni in PHP:
+	* - softmax fa exp() tante volte: quello domina il costo.
+	* - però questa struttura minimizza overhead di iterazione sugli indici.
+	*/
+	private function softmaxAlongAxisInPlace(array &$data, array $shape, array $strides, int $axis = -1): void
+	{
+		$rank = count($shape);
+		if ($rank === 0) return;
+
+		// Normalizza axis qui solo per sapere axisLen e strideAxis per il tmp
+		$axisNorm = $axis < 0 ? $axis + $rank : $axis;
+		if ($axisNorm < 0 || $axisNorm >= $rank)
+			throw new InvalidArgumentException("axis out of range");
+
+		$axisLen = $shape[$axisNorm];
+		if ($axisLen <= 0) return;
+
+		// Buffer temporaneo per una slice (evita riletture dal buffer e semplifica la logica)
+		$tmp = array_fill(0, $axisLen, 0.0);
+
+		$this->forEachSliceAlongAxisIncremental(
+			$shape,
+			$strides,
+			$axis,
+			function(int $base, int $strideAxis, int $axisLen, array $idxNoAxis) use (&$data, &$tmp)
+			{
+				// 1) Leggi la slice in tmp + trova max per stabilità numerica
+				$off = $base;
+				$m = (float)$data[$off];
+				$tmp[0] = $m;
+
+				for ($i = 1; $i < $axisLen; $i++)
+				{
+					$off += $strideAxis;
+					$v = (float)$data[$off];
+					$tmp[$i] = $v;
+					if ($v > $m) $m = $v;
+				}
+
+				// 2) Calcola exp(v - max) e somma
+				$sum = 0.0;
+				for ($i = 0; $i < $axisLen; $i++)
+				{
+					$e = exp($tmp[$i] - $m);
+					$tmp[$i] = $e;
+					$sum += $e;
+				}
+
+				// 3) Normalizza e scrivi in-place nella stessa slice
+				$inv = ($sum != 0.0) ? (1.0 / $sum) : 0.0;
+
+				$off = $base;
+				$data[$off] = $tmp[0] * $inv;
+				
+				for ($i = 1; $i < $axisLen; $i++)
+				{
+					$off += $strideAxis;
+					$data[$off] = $tmp[$i] * $inv;
 				}
 			}
 		);

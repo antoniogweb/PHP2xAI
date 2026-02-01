@@ -236,13 +236,27 @@ class Tensor
     }
     
     // Softmax activation
-    public function softmax() : Tensor
+    public function softmax(int $axis = -1) : Tensor
     {
 		$context = $this->initContextFrom();
 		$inputId = $this->registerInContext($context, $this);
 		
+		if (count($this->shape) === 1)
+			$kernel = "SOFTMAX_1D_LAST";
+		else if (count($this->shape) === 2 && $axis === -1)
+			$kernel = "SOFTMAX_2D_LAST";
+		else if (count($this->shape) === 3 && $axis === -1)
+			$kernel = "SOFTMAX_3D_LAST";
+		else
+			$kernel = "SOFTMAX_GENERIC_AXIS";
+		
+		$attributes = array(
+			"kernel"	=>	$kernel,
+			"axes"		=>	array($axis),
+		);
+		
 		$result = self::zeros($this->shape, 'softmax');
-		$context->registerOp('softmax', [$inputId], $result);
+		$context->registerOp('softmax', [$inputId], $result, $attributes);
 		
 		return $result;
     }

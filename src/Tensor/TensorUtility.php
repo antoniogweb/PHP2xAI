@@ -265,6 +265,11 @@ trait TensorUtility
 		return count($this->shape);
 	}
 	
+	public function getSize()
+	{
+		return array_product($this->shape) ?: 1;
+	}
+	
 	public function isContiguous() : bool
 	{
         return $this->strides === $this->computeStrides($this->shape) && $this->baseOffset === 0;
