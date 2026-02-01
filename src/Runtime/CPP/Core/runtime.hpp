@@ -140,7 +140,7 @@ namespace PHP2xAI::Runtime::CPP
 		// void opMse(int, int);
 		// void opMae(int, int);
 		void opMean(int, int);
-		void opSoftmax(int, int);
+		void opSoftmax(int, int, const std::string &kernel, const std::vector<int> &axes);
 		void opCe(int, int, int);
 		void opCeLogits(int, int, int);
 		void opCeLogitsLabelInt(int, int, int);
@@ -156,7 +156,7 @@ namespace PHP2xAI::Runtime::CPP
 		// void backwardMse(int, int);
 		// void backwardMae(int, int);
 		void backwardMean(int, int);
-		void backwardSoftmax(int, int);
+		void backwardSoftmax(int, int, const std::string &kernel, const std::vector<int> &axes);
 		void backwardCe(int, int, int);
 		void backwardCeLogits(int, int, int);
 		void backwardCeLogitsLabelInt(int, int, int);
@@ -169,6 +169,21 @@ namespace PHP2xAI::Runtime::CPP
 		void BACKWARD_ADD_2D_LAST(Tensor &A, Tensor &B, Tensor &C);
 		void BACKWARD_ADD_3D_LAST(Tensor &A, Tensor &B, Tensor &C);
 		void BACKWARD_ADD_GENERIC_LAST(Tensor &A, Tensor &B, Tensor &C);
+
+		void SOFTMAX_1D_LAST(Tensor &X, Tensor &Y);
+		void SOFTMAX_2D_LAST(Tensor &X, Tensor &Y);
+		void SOFTMAX_3D_LAST(Tensor &X, Tensor &Y);
+		void SOFTMAX_GENERIC_AXIS(Tensor &X, Tensor &Y, int axis);
+		void BACKWORD_SOFTMAX_1D_LAST(Tensor &X, Tensor &Y);
+		void BACKWORD_SOFTMAX_2D_LAST(Tensor &X, Tensor &Y);
+		void BACKWORD_SOFTMAX_3D_LAST(Tensor &X, Tensor &Y);
+		void BACKWORD_SOFTMAX_GENERIC_AXIS(Tensor &X, Tensor &Y, int axis);
+
+		void softmaxAlongAxisInPlace(
+			std::vector<Scalar> &data,
+			const std::vector<int> &shape,
+			const std::vector<int> &strides,
+			int axis = -1) const;
 
 		static json loadJson(const std::string &path);
 		void loadTensors(const json &graphDef, const json *weightsDef);

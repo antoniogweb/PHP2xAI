@@ -78,7 +78,7 @@ namespace PHP2xAI::Runtime::CPP
 			else if (name == "mean")
 				opMean(inputs[0], outId);
 			else if (name == "softmax")
-				opSoftmax(inputs[0], outId);
+				opSoftmax(inputs[0], outId, op.kernel, op.axes);
 			else if (name == "CE")
 				opCe(inputs[0], inputs[1], outId);
 			else if (name == "softmax_ce_logits")
@@ -130,7 +130,7 @@ namespace PHP2xAI::Runtime::CPP
 			else if (name == "mean")
 				backwardMean(inputs[0], outId);
 			else if (name == "softmax")
-				backwardSoftmax(inputs[0], outId);
+				backwardSoftmax(inputs[0], outId, op.kernel, op.axes);
 			else if (name == "CE")
 				backwardCe(inputs[0], inputs[1], outId);
 			else if (name == "softmax_ce_logits")
@@ -605,7 +605,7 @@ namespace PHP2xAI::Runtime::CPP
 	// 	Y.data = {sum / static_cast<Scalar>(size)};
 	// }
 
-	void GraphRuntime::opSoftmax(int inpId, int outId)
+	void GraphRuntime::opSoftmax(int inpId, int outId, const std::string &kernel, const std::vector<int> &axes)
 	{
 		auto &X = tensors[inpId];
 		auto &Y = tensors[outId];
@@ -619,15 +619,94 @@ namespace PHP2xAI::Runtime::CPP
 			return;
 		}
 
-		if (X.shape.size() == 2)
-		{
-			const auto batch = X.shape[0];
-			const auto dim = X.shape[1];
-			Y.data.assign(static_cast<std::size_t>(batch * dim), 0.0f);
+		const std::string kernelName = kernel.empty() ? "SOFTMAX_GENERIC_AXIS" : kernel;
+		const int axis = axes.empty() ? -1 : axes[0];
 
-			for (int b = 0; b < batch; ++b)
+		if (kernelName == "SOFTMAX_1D_LAST")
+			return SOFTMAX_1D_LAST(X, Y);
+		if (kernelName == "SOFTMAX_2D_LAST")
+			return SOFTMAX_2D_LAST(X, Y);
+		if (kernelName == "SOFTMAX_3D_LAST")
+			return SOFTMAX_3D_LAST(X, Y);
+		if (kernelName == "SOFTMAX_GENERIC_AXIS")
+			return SOFTMAX_GENERIC_AXIS(X, Y, axis);
+
+		throw std::runtime_error("softmax: kernel not supported");
+	}
+
+	void GraphRuntime::SOFTMAX_1D_LAST(Tensor &X, Tensor &Y)
+	{
+		auto size = X.data.size();
+		Scalar maxVal = X.data[0];
+		for (std::size_t i = 1; i < size; ++i)
+			if (X.data[i] > maxVal)
+				maxVal = X.data[i];
+
+		std::vector<Scalar> expValues(size, 0.0f);
+		Scalar sum = 0.0f;
+		for (std::size_t i = 0; i < size; ++i)
+		{
+			expValues[i] = std::exp(X.data[i] - maxVal);
+			sum += expValues[i];
+		}
+
+		Scalar invSum = sum == 0.0f ? 0.0f : 1.0f / sum;
+		Y.data.assign(size, 0.0f);
+
+		for (std::size_t i = 0; i < size; ++i)
+			Y.data[i] = expValues[i] * invSum;
+	}
+
+	void GraphRuntime::SOFTMAX_2D_LAST(Tensor &X, Tensor &Y)
+	{
+		const int batch = X.shape[0];
+		const int dim = X.shape[1];
+		Y.data.assign(static_cast<std::size_t>(batch * dim), 0.0f);
+
+		for (int b = 0; b < batch; ++b)
+		{
+			const int rowStart = b * dim;
+			Scalar maxVal = X.data[static_cast<std::size_t>(rowStart)];
+
+			for (int i = 1; i < dim; ++i)
 			{
-				const auto rowStart = b * dim;
+				Scalar val = X.data[static_cast<std::size_t>(rowStart + i)];
+				if (val > maxVal)
+					maxVal = val;
+			}
+
+			std::vector<Scalar> expValues(static_cast<std::size_t>(dim), 0.0f);
+			Scalar sum = 0.0f;
+
+			for (int i = 0; i < dim; ++i)
+			{
+				expValues[static_cast<std::size_t>(i)] = std::exp(X.data[static_cast<std::size_t>(rowStart + i)] - maxVal);
+				sum += expValues[static_cast<std::size_t>(i)];
+			}
+
+			Scalar invSum = sum == 0.0f ? 0.0f : 1.0f / sum;
+
+			for (int i = 0; i < dim; ++i)
+			{
+				Y.data[static_cast<std::size_t>(rowStart + i)] = expValues[static_cast<std::size_t>(i)] * invSum;
+			}
+		}
+	}
+
+	void GraphRuntime::SOFTMAX_3D_LAST(Tensor &X, Tensor &Y)
+	{
+		const int batch = X.shape[0];
+		const int time = X.shape[1];
+		const int dim = X.shape[2];
+		Y.data.assign(static_cast<std::size_t>(batch * time * dim), 0.0f);
+
+		for (int b = 0; b < batch; ++b)
+		{
+			const int batchOffset = b * time * dim;
+
+			for (int t = 0; t < time; ++t)
+			{
+				const int rowStart = batchOffset + t * dim;
 				Scalar maxVal = X.data[static_cast<std::size_t>(rowStart)];
 
 				for (int i = 1; i < dim; ++i)
@@ -653,28 +732,14 @@ namespace PHP2xAI::Runtime::CPP
 					Y.data[static_cast<std::size_t>(rowStart + i)] = expValues[static_cast<std::size_t>(i)] * invSum;
 				}
 			}
-
-			return;
 		}
+	}
 
-		Scalar maxVal = X.data[0];
-		for (std::size_t i = 1; i < size; ++i)
-			if (X.data[i] > maxVal)
-				maxVal = X.data[i];
-
-		std::vector<Scalar> expValues(size, 0.0f);
-		Scalar sum = 0.0f;
-		for (std::size_t i = 0; i < size; ++i)
-		{
-			expValues[i] = std::exp(X.data[i] - maxVal);
-			sum += expValues[i];
-		}
-
-		Scalar invSum = sum == 0.0f ? 0.0f : 1.0f / sum;
-		Y.data.assign(size, 0.0f);
-
-		for (std::size_t i = 0; i < size; ++i)
-			Y.data[i] = expValues[i] * invSum;
+	void GraphRuntime::SOFTMAX_GENERIC_AXIS(Tensor &X, Tensor &Y, int axis)
+	{
+		Y.shape = X.shape;
+		Y.data = X.data;
+		softmaxAlongAxisInPlace(Y.data, Y.shape, X.strides, axis);
 	}
 
 	void GraphRuntime::opCe(int predId, int targetId, int outId)
@@ -1512,54 +1577,141 @@ namespace PHP2xAI::Runtime::CPP
 	// 	}
 	// }
 
-	void GraphRuntime::backwardSoftmax(int inpId, int outId)
+	void GraphRuntime::backwardSoftmax(int inpId, int outId, const std::string &kernel, const std::vector<int> &axes)
 	{
 		auto &X = tensors[inpId];
 		auto &Y = tensors[outId];
-		auto size = Y.data.size();
+		const std::string kernelName = kernel.empty() ? "SOFTMAX_GENERIC_AXIS" : kernel;
+		const int axis = axes.empty() ? -1 : axes[0];
 
+		if (kernelName == "SOFTMAX_1D_LAST")
+			return BACKWORD_SOFTMAX_1D_LAST(X, Y);
+		if (kernelName == "SOFTMAX_2D_LAST")
+			return BACKWORD_SOFTMAX_2D_LAST(X, Y);
+		if (kernelName == "SOFTMAX_3D_LAST")
+			return BACKWORD_SOFTMAX_3D_LAST(X, Y);
+		if (kernelName == "SOFTMAX_GENERIC_AXIS")
+			return BACKWORD_SOFTMAX_GENERIC_AXIS(X, Y, axis);
+
+		throw std::runtime_error("softmax backward: kernel not supported");
+	}
+
+	void GraphRuntime::BACKWORD_SOFTMAX_1D_LAST(Tensor &X, Tensor &Y)
+	{
+		const auto size = Y.data.size();
+		Scalar dot = 0.0f;
+		for (std::size_t i = 0; i < size; ++i)
+			dot += Y.grad[i] * Y.data[i];
+
+		for (std::size_t i = 0; i < size; ++i)
+			X.grad[i] += Y.data[i] * (Y.grad[i] - dot);
+	}
+
+	void GraphRuntime::BACKWORD_SOFTMAX_2D_LAST(Tensor &X, Tensor &Y)
+	{
 		if (Y.shape.size() == 2)
 		{
-			const auto batch = Y.shape[0];
-			const auto dim = Y.shape[1];
+			const int batch = Y.shape[0];
+			const int dim = Y.shape[1];
 
 			for (int b = 0; b < batch; ++b)
 			{
-				const auto rowStart = b * dim;
+				const int rowStart = b * dim;
+				Scalar dot = 0.0f;
+
+				for (int i = 0; i < dim; ++i)
+					dot += Y.grad[static_cast<std::size_t>(rowStart + i)]
+						* Y.data[static_cast<std::size_t>(rowStart + i)];
 
 				for (int i = 0; i < dim; ++i)
 				{
-					Scalar grad = 0.0f;
-					const auto yi = Y.data[static_cast<std::size_t>(rowStart + i)];
-
-					for (int j = 0; j < dim; ++j)
-					{
-						Scalar delta = (i == j) ? 1.0f : 0.0f;
-						const auto yj = Y.data[static_cast<std::size_t>(rowStart + j)];
-						Scalar jac = yj * (delta - yi);
-						grad += Y.grad[static_cast<std::size_t>(rowStart + j)] * jac;
-					}
-
-					X.grad[static_cast<std::size_t>(rowStart + i)] += grad;
+					const std::size_t idx = static_cast<std::size_t>(rowStart + i);
+					X.grad[idx] += Y.data[idx] * (Y.grad[idx] - dot);
 				}
 			}
-
-			return;
 		}
+	}
 
-		for (std::size_t i = 0; i < size; ++i)
+	void GraphRuntime::BACKWORD_SOFTMAX_3D_LAST(Tensor &X, Tensor &Y)
+	{
+		if (Y.shape.size() == 3)
 		{
-			Scalar grad = 0.0f;
+			const int batch = Y.shape[0];
+			const int time = Y.shape[1];
+			const int dim = Y.shape[2];
 
-			for (std::size_t j = 0; j < size; ++j)
+			for (int b = 0; b < batch; ++b)
 			{
-				Scalar delta = (i == j) ? 1.0f : 0.0f;
-				Scalar jac = Y.data[j] * (delta - Y.data[i]);
-				grad += Y.grad[j] * jac;
-			}
+				const int batchOffset = b * time * dim;
 
-			X.grad[i] += grad;
+				for (int t = 0; t < time; ++t)
+				{
+					const int rowStart = batchOffset + t * dim;
+					Scalar dot = 0.0f;
+
+					for (int i = 0; i < dim; ++i)
+					{
+						const std::size_t idx = static_cast<std::size_t>(rowStart + i);
+						dot += Y.grad[idx] * Y.data[idx];
+					}
+
+					for (int i = 0; i < dim; ++i)
+					{
+						const std::size_t idx = static_cast<std::size_t>(rowStart + i);
+						X.grad[idx] += Y.data[idx] * (Y.grad[idx] - dot);
+					}
+				}
+			}
 		}
+	}
+
+	void GraphRuntime::BACKWORD_SOFTMAX_GENERIC_AXIS(Tensor &X, Tensor &Y, int axis)
+	{
+		const int rank = static_cast<int>(Y.shape.size());
+		if (rank == 0)
+			return;
+
+		int axisNorm = axis < 0 ? axis + rank : axis;
+		if (axisNorm < 0 || axisNorm >= rank)
+			throw std::invalid_argument("axis out of range");
+
+		const int axisLen = Y.shape[static_cast<std::size_t>(axisNorm)];
+		if (axisLen <= 0)
+			return;
+
+		std::vector<Scalar> tmpY(static_cast<std::size_t>(axisLen), 0.0f);
+		std::vector<Scalar> tmpGrad(static_cast<std::size_t>(axisLen), 0.0f);
+
+		forEachSliceAlongAxisIncremental(
+			Y.shape,
+			Y.strides,
+			axis,
+			[&](int base, int strideAxis, int axisLenInner, const std::vector<int> &idxNoAxis)
+			{
+				(void)idxNoAxis;
+				int off = base;
+				tmpY[0] = Y.data[static_cast<std::size_t>(off)];
+				tmpGrad[0] = Y.grad[static_cast<std::size_t>(off)];
+
+				for (int i = 1; i < axisLenInner; ++i)
+				{
+					off += strideAxis;
+					tmpY[static_cast<std::size_t>(i)] = Y.data[static_cast<std::size_t>(off)];
+					tmpGrad[static_cast<std::size_t>(i)] = Y.grad[static_cast<std::size_t>(off)];
+				}
+
+				Scalar dot = 0.0f;
+				for (int i = 0; i < axisLenInner; ++i)
+					dot += tmpGrad[static_cast<std::size_t>(i)] * tmpY[static_cast<std::size_t>(i)];
+
+				off = base;
+				for (int i = 0; i < axisLenInner; ++i)
+				{
+					X.grad[static_cast<std::size_t>(off)] +=
+						tmpY[static_cast<std::size_t>(i)] * (tmpGrad[static_cast<std::size_t>(i)] - dot);
+					off += strideAxis;
+				}
+			});
 	}
 
 	void GraphRuntime::backwardCe(int predId, int targetId, int outId)
@@ -1966,6 +2118,66 @@ namespace PHP2xAI::Runtime::CPP
 					offZ += strideZAxis;
 					offX += strideX;
 					offY += strideY;
+				}
+			});
+	}
+
+	void GraphRuntime::softmaxAlongAxisInPlace(
+		std::vector<Scalar> &data,
+		const std::vector<int> &shape,
+		const std::vector<int> &strides,
+		int axis) const
+	{
+		const int rank = static_cast<int>(shape.size());
+		if (rank == 0)
+			return;
+
+		int axisNorm = axis < 0 ? axis + rank : axis;
+		if (axisNorm < 0 || axisNorm >= rank)
+			throw std::invalid_argument("axis out of range");
+
+		const int axisLen = shape[static_cast<std::size_t>(axisNorm)];
+		if (axisLen <= 0)
+			return;
+
+		std::vector<Scalar> tmp(static_cast<std::size_t>(axisLen), 0.0f);
+
+		forEachSliceAlongAxisIncremental(
+			shape,
+			strides,
+			axis,
+			[&](int base, int strideAxis, int axisLenInner, const std::vector<int> &idxNoAxis)
+			{
+				(void)idxNoAxis;
+				int off = base;
+				Scalar maxVal = data[static_cast<std::size_t>(off)];
+				tmp[0] = maxVal;
+
+				for (int i = 1; i < axisLenInner; ++i)
+				{
+					off += strideAxis;
+					const Scalar v = data[static_cast<std::size_t>(off)];
+					tmp[static_cast<std::size_t>(i)] = v;
+					if (v > maxVal)
+						maxVal = v;
+				}
+
+				Scalar sum = 0.0f;
+				for (int i = 0; i < axisLenInner; ++i)
+				{
+					const Scalar e = std::exp(tmp[static_cast<std::size_t>(i)] - maxVal);
+					tmp[static_cast<std::size_t>(i)] = e;
+					sum += e;
+				}
+
+				const Scalar invSum = sum != 0.0f ? (1.0f / sum) : 0.0f;
+
+				off = base;
+				data[static_cast<std::size_t>(off)] = tmp[0] * invSum;
+				for (int i = 1; i < axisLenInner; ++i)
+				{
+					off += strideAxis;
+					data[static_cast<std::size_t>(off)] = tmp[static_cast<std::size_t>(i)] * invSum;
 				}
 			});
 	}
