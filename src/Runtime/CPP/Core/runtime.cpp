@@ -58,7 +58,7 @@ namespace PHP2xAI::Runtime::CPP
 			if (name == "matmul")
 				opMatmul(inputs[0], inputs[1], outId);
 			else if (name == "add")
-				opAdd(inputs[0], inputs[1], outId);
+				opAdd(inputs[0], inputs[1], outId, op.kernel);
 			else if (name == "sub")
 				opSub(inputs[0], inputs[1], outId);
 			else if (name == "dot")
@@ -110,7 +110,7 @@ namespace PHP2xAI::Runtime::CPP
 			if (name == "matmul")
 				backwardMatmul(inputs[0], inputs[1], outId);
 			else if (name == "add")
-				backwardAdd(inputs[0], inputs[1], outId);
+				backwardAdd(inputs[0], inputs[1], outId, op.kernel);
 			else if (name == "sub")
 				backwardSub(inputs[0], inputs[1], outId);
 			else if (name == "dot")
@@ -352,11 +352,28 @@ namespace PHP2xAI::Runtime::CPP
 		}
 	}
 
-	void GraphRuntime::opAdd(int aId, int bId, int outId)
+	void GraphRuntime::opAdd(int aId, int bId, int outId, const std::string &kernel)
 	{
 		auto &A = tensors[aId];
 		auto &B = tensors[bId];
 		auto &C = tensors[outId];
+
+		if (kernel == "ADD_1D_LAST")
+		{
+			if (A.data.size() != B.data.size())
+				throw std::runtime_error("add: dimension mismatch");
+
+			C.shape = A.shape;
+			C.data.assign(A.data.size(), 0.0f);
+
+			for (std::size_t i = 0; i < A.data.size(); ++i)
+				C.data[i] = A.data[i] + B.data[i];
+
+			return;
+		}
+
+		if (kernel == "ADD_2D_LAST" && (A.shape.size() != 2 || B.shape.size() != 1))
+			throw std::runtime_error("add: dimension mismatch");
 
 		if (A.shape.size() == 2 && B.shape.size() == 1)
 		{
@@ -1100,11 +1117,26 @@ namespace PHP2xAI::Runtime::CPP
 		throw std::runtime_error("matmul backward: caso non implementato");
 	}
 
-	void GraphRuntime::backwardAdd(int aId, int bId, int outId)
+	void GraphRuntime::backwardAdd(int aId, int bId, int outId, const std::string &kernel)
 	{
 		auto &A = tensors[aId];
 		auto &B = tensors[bId];
 		auto &C = tensors[outId];
+
+		if (kernel == "ADD_1D_LAST")
+		{
+			auto size = C.data.size();
+			for (std::size_t i = 0; i < size; ++i)
+			{
+				A.grad[i] += C.grad[i];
+				B.grad[i] += C.grad[i];
+			}
+
+			return;
+		}
+
+		if (kernel == "ADD_2D_LAST" && (A.shape.size() != 2 || B.shape.size() != 1))
+			throw std::runtime_error("add: dimension mismatch");
 
 		if (A.shape.size() == 2 && B.shape.size() == 1)
 		{
@@ -1644,6 +1676,166 @@ namespace PHP2xAI::Runtime::CPP
 			A.grad[i] += scale;
 	}
 
+	std::vector<int> GraphRuntime::alignStridesToRank(
+		const std::vector<int> &shape,
+		const std::vector<int> &strides,
+		int targetRank) const
+	{
+		const int rank = static_cast<int>(shape.size());
+		if (rank > targetRank)
+			throw std::invalid_argument("rank > targetRank");
+
+		std::vector<int> aligned(static_cast<std::size_t>(targetRank), 0);
+		const int offset = targetRank - rank;
+
+		for (int i = 0; i < rank; ++i)
+		{
+			aligned[static_cast<std::size_t>(offset + i)] = (shape[static_cast<std::size_t>(i)] == 1)
+				? 0
+				: strides[static_cast<std::size_t>(i)];
+		}
+
+		return aligned;
+	}
+
+	template <class Callback>
+	void GraphRuntime::forEachSliceAlongAxisIncremental(
+		const std::vector<int> &shape,
+		const std::vector<int> &strides,
+		int axis,
+		Callback onSlice) const
+	{
+		const int rank = static_cast<int>(shape.size());
+		if (rank == 0)
+			return;
+
+		if (static_cast<int>(strides.size()) != rank)
+			throw std::invalid_argument("shape/strides rank mismatch");
+
+		if (axis < 0)
+			axis += rank;
+		if (axis < 0 || axis >= rank)
+			throw std::invalid_argument("axis out of range");
+
+		const int axisLen = shape[static_cast<std::size_t>(axis)];
+		if (axisLen <= 0)
+			return;
+		const int strideAxis = strides[static_cast<std::size_t>(axis)];
+
+		std::vector<int> outerDims;
+		outerDims.reserve(static_cast<std::size_t>(rank - 1));
+		for (int d = 0; d < rank; ++d)
+		{
+			if (d != axis)
+				outerDims.push_back(d);
+		}
+
+		if (outerDims.empty())
+		{
+			std::vector<int> idxNoAxis(static_cast<std::size_t>(rank), 0);
+			idxNoAxis[static_cast<std::size_t>(axis)] = -1;
+			onSlice(0, strideAxis, axisLen, idxNoAxis);
+			return;
+		}
+
+		std::vector<int> idx(static_cast<std::size_t>(rank), 0);
+
+		long long outerCount = 1;
+		for (int d : outerDims)
+		{
+			const int n = shape[static_cast<std::size_t>(d)];
+			if (n <= 0)
+				return;
+			outerCount *= n;
+		}
+
+		int baseOffset = 0;
+
+		for (long long t = 0; t < outerCount; ++t)
+		{
+			std::vector<int> idxNoAxis = idx;
+			idxNoAxis[static_cast<std::size_t>(axis)] = -1;
+
+			onSlice(baseOffset, strideAxis, axisLen, idxNoAxis);
+
+			for (int k = static_cast<int>(outerDims.size()) - 1; k >= 0; --k)
+			{
+				const int d = outerDims[static_cast<std::size_t>(k)];
+				idx[static_cast<std::size_t>(d)]++;
+
+				if (idx[static_cast<std::size_t>(d)] < shape[static_cast<std::size_t>(d)])
+				{
+					baseOffset += strides[static_cast<std::size_t>(d)];
+					break;
+				}
+
+				idx[static_cast<std::size_t>(d)] = 0;
+				baseOffset -= (shape[static_cast<std::size_t>(d)] - 1) * strides[static_cast<std::size_t>(d)];
+			}
+		}
+	}
+
+	void GraphRuntime::addAlongAxisInPlace(
+		std::vector<Scalar> &zData,
+		const std::vector<int> &zShape,
+		const std::vector<int> &zStrides,
+		const std::vector<Scalar> &xData,
+		const std::vector<int> &xStrides,
+		const std::vector<Scalar> &yData,
+		const std::vector<int> &yStrides,
+		int axis) const
+	{
+		const int rank = static_cast<int>(zShape.size());
+		if (rank == 0)
+			return;
+
+		if (axis < 0)
+			axis += rank;
+		if (axis < 0 || axis >= rank)
+			throw std::invalid_argument("axis out of range");
+
+		this->forEachSliceAlongAxisIncremental(
+			zShape,
+			zStrides,
+			axis,
+			[&](
+				int baseZ,
+				int strideZAxis,
+				int axisLen,
+				const std::vector<int> &idxNoAxis)
+			{
+				int baseX = 0;
+				int baseY = 0;
+
+				for (int d = 0; d < rank; ++d)
+				{
+					const int i = idxNoAxis[static_cast<std::size_t>(d)];
+					if (i < 0)
+						continue;
+
+					baseX += i * xStrides[static_cast<std::size_t>(d)];
+					baseY += i * yStrides[static_cast<std::size_t>(d)];
+				}
+
+				const int strideX = xStrides[static_cast<std::size_t>(axis)];
+				const int strideY = yStrides[static_cast<std::size_t>(axis)];
+
+				int offZ = baseZ;
+				int offX = baseX;
+				int offY = baseY;
+
+				for (int i = 0; i < axisLen; ++i)
+				{
+					zData[static_cast<std::size_t>(offZ)] =
+						xData[static_cast<std::size_t>(offX)] + yData[static_cast<std::size_t>(offY)];
+
+					offZ += strideZAxis;
+					offX += strideX;
+					offY += strideY;
+				}
+			});
+	}
+
 	json GraphRuntime::loadJson(const std::string &path)
 	{
 		std::ifstream file(path);
@@ -1724,10 +1916,16 @@ namespace PHP2xAI::Runtime::CPP
 			op.op = o.at("op").get<std::string>();
 			op.inputs = o.at("inputs").get<std::vector<int>>();
 			op.output = o.at("output").get<int>();
+			if (o.contains("attributes"))
+			{
+				const auto &attrs = o.at("attributes");
+				if (attrs.contains("kernel"))
+					op.kernel = attrs.at("kernel").get<std::string>();
+				if (attrs.contains("axes"))
+					op.axes = attrs.at("axes").get<std::vector<int>>();
+			}
+
 			ops.push_back(std::move(op));
-			
-			if (o.contains("attributes") && o.at("attributes").contains("kernel"))
-				op.kernel = o.at("attributes").at("kernel").get<std::string>();
 		}
 	}
 }

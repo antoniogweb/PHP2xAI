@@ -92,6 +92,7 @@ namespace PHP2xAI::Runtime::CPP
 		std::vector<int> inputs;
 		int output{};
 		std::string kernel{};
+		std::vector<int> axes;
 	};
 
 	class GraphRuntime
@@ -129,7 +130,7 @@ namespace PHP2xAI::Runtime::CPP
 		json graphDef_;
 
 		void opMatmul(int, int, int);
-		void opAdd(int aId, int bId, int outId);
+		void opAdd(int aId, int bId, int outId, const std::string &kernel);
 		void opSub(int, int, int);
 		void opDot(int, int, int);
 		void opDropout(int, int);
@@ -145,7 +146,7 @@ namespace PHP2xAI::Runtime::CPP
 		void opCeLogitsLabelInt(int, int, int);
 
 		void backwardMatmul(int, int, int);
-		void backwardAdd(int, int, int);
+		void backwardAdd(int, int, int, const std::string &kernel);
 		void backwardSub(int, int, int);
 		void backwardDot(int, int, int);
 		void backwardDropout(int, int);
@@ -163,5 +164,27 @@ namespace PHP2xAI::Runtime::CPP
 		static json loadJson(const std::string &path);
 		void loadTensors(const json &graphDef, const json *weightsDef);
 		void loadOps(const json &graphDef);
+
+		std::vector<int> alignStridesToRank(
+			const std::vector<int> &shape,
+			const std::vector<int> &strides,
+			int targetRank) const;
+
+		template <class Callback>
+		void forEachSliceAlongAxisIncremental(
+			const std::vector<int> &shape,
+			const std::vector<int> &strides,
+			int axis,
+			Callback onSlice) const;
+
+		void addAlongAxisInPlace(
+			std::vector<Scalar> &zData,
+			const std::vector<int> &zShape,
+			const std::vector<int> &zStrides,
+			const std::vector<Scalar> &xData,
+			const std::vector<int> &xStrides,
+			const std::vector<Scalar> &yData,
+			const std::vector<int> &yStrides,
+			int axis = -1) const;
 	};
 }
