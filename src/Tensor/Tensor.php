@@ -224,16 +224,16 @@ class Tensor
 		return $result;
     }
     
-    public function LReLU(float $alfa = 0.01) : Tensor
-    {
-		$context = $this->initContextFrom();
-		$inputId = $this->registerInContext($context, $this);
-		
-		$result = self::zeros($this->shape, 'LReLU');
-		$context->registerOp('LReLU', [$inputId], $result);
-		
-		return $result;
-    }
+//     public function LReLU(float $alfa = 0.01) : Tensor
+//     {
+// 		$context = $this->initContextFrom();
+// 		$inputId = $this->registerInContext($context, $this);
+// 		
+// 		$result = self::zeros($this->shape, 'LReLU');
+// 		$context->registerOp('LReLU', [$inputId], $result);
+// 		
+// 		return $result;
+//     }
     
     // Softmax activation
     public function softmax(int $axis = -1) : Tensor
