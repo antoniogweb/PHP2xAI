@@ -76,7 +76,7 @@ namespace PHP2xAI::Runtime::CPP
 			// else if (name == "MAE")
 			// 	opMae(inputs[0], outId);
 			else if (name == "mean")
-				opMean(inputs[0], outId);
+				opMean(inputs[0], outId, op.kernel, op.axes);
 			else if (name == "softmax")
 				opSoftmax(inputs[0], outId, op.kernel, op.axes);
 			else if (name == "CE")
@@ -128,7 +128,7 @@ namespace PHP2xAI::Runtime::CPP
 			// else if (name == "MAE")
 			// 	backwardMae(inputs[0], outId);
 			else if (name == "mean")
-				backwardMean(inputs[0], outId);
+				backwardMean(inputs[0], outId, op.kernel, op.axes);
 			else if (name == "softmax")
 				backwardSoftmax(inputs[0], outId, op.kernel, op.axes);
 			else if (name == "CE")
@@ -1063,11 +1063,28 @@ namespace PHP2xAI::Runtime::CPP
 		out.data = {loss};
 	}
 
-	void GraphRuntime::opMean(int aId, int outId)
+	void GraphRuntime::opMean(int aId, int outId, const std::string &kernel, const std::vector<int> &axes)
 	{
 		auto &A = tensors[aId];
 		auto &out = tensors[outId];
 
+		const std::string selectedKernel = kernel.empty() ? "MEAN_GENERIC_AXIS" : kernel;
+		const int axis = !axes.empty() ? axes[0] : 0;
+
+		if (selectedKernel == "MEAN_1D_FIRST")
+			MEAN_1D_FIRST(A, out);
+		else if (selectedKernel == "MEAN_2D_FIRST")
+			MEAN_2D_FIRST(A, out);
+		else if (selectedKernel == "MEAN_3D_FIRST")
+			MEAN_3D_FIRST(A, out);
+		else if (selectedKernel == "MEAN_GENERIC_AXIS")
+			MEAN_GENERIC_AXIS(A, out, axis);
+		else
+			throw std::runtime_error("Mean: kernel not supported");
+	}
+
+	void GraphRuntime::MEAN_1D_FIRST(Tensor &A, Tensor &out)
+	{
 		out.shape.clear();
 
 		if (A.shape.size() != 1 || A.data.empty())
@@ -1077,6 +1094,223 @@ namespace PHP2xAI::Runtime::CPP
 			/ static_cast<Scalar>(A.data.size());
 
 		out.data = {mean};
+	}
+
+	void GraphRuntime::MEAN_2D_FIRST(Tensor &A, Tensor &out)
+	{
+		if (A.shape.size() != 2 || A.data.empty())
+			throw std::runtime_error("Mean: dimension mismatch");
+
+		const int batch = A.shape[0];
+		const int dim = A.shape[1];
+
+		out.shape = {dim};
+		out.data.assign(static_cast<std::size_t>(dim), 0.0f);
+
+		for (int b = 0; b < batch; ++b)
+		{
+			const int rowStart = b * dim;
+			for (int i = 0; i < dim; ++i)
+			{
+				out.data[static_cast<std::size_t>(i)] += A.data[static_cast<std::size_t>(rowStart + i)];
+			}
+		}
+
+		const Scalar invBatch = batch > 0 ? (1.0f / static_cast<Scalar>(batch)) : 0.0f;
+		for (int i = 0; i < dim; ++i)
+			out.data[static_cast<std::size_t>(i)] *= invBatch;
+	}
+
+	void GraphRuntime::MEAN_3D_FIRST(Tensor &A, Tensor &out)
+	{
+		if (A.shape.size() != 3 || A.data.empty())
+			throw std::runtime_error("Mean: dimension mismatch");
+
+		const int batch = A.shape[0];
+		const int time = A.shape[1];
+		const int dim = A.shape[2];
+
+		out.shape = {time, dim};
+		out.data.assign(static_cast<std::size_t>(time * dim), 0.0f);
+
+		for (int b = 0; b < batch; ++b)
+		{
+			const int batchOffset = b * time * dim;
+			for (int t = 0; t < time; ++t)
+			{
+				const int rowOffset = batchOffset + t * dim;
+				const int outRow = t * dim;
+				for (int i = 0; i < dim; ++i)
+				{
+					out.data[static_cast<std::size_t>(outRow + i)]
+						+= A.data[static_cast<std::size_t>(rowOffset + i)];
+				}
+			}
+		}
+
+		const Scalar invBatch = batch > 0 ? (1.0f / static_cast<Scalar>(batch)) : 0.0f;
+		for (int i = 0; i < time * dim; ++i)
+			out.data[static_cast<std::size_t>(i)] *= invBatch;
+	}
+
+	void GraphRuntime::MEAN_GENERIC_AXIS(Tensor &A, Tensor &out, int axis)
+	{
+		const int rank = static_cast<int>(A.shape.size());
+
+		if (rank == 0)
+		{
+			out.shape.clear();
+			out.data = A.data;
+			return;
+		}
+
+		if (axis < 0)
+			axis += rank;
+		if (axis < 0 || axis >= rank)
+			throw std::invalid_argument("axis out of range");
+
+		const int axisLen = A.shape[static_cast<std::size_t>(axis)];
+		if (axisLen <= 0)
+		{
+			out.shape = A.shape;
+			out.shape.erase(out.shape.begin() + axis);
+			out.data.clear();
+			return;
+		}
+
+		out.shape = A.shape;
+		out.shape.erase(out.shape.begin() + axis);
+
+		long long outCount = 1;
+		for (int n : out.shape)
+			outCount *= n;
+
+		out.data.assign(static_cast<std::size_t>(outCount), 0.0f);
+		out.strides = out.computeStrides(out.shape);
+
+		const Scalar invAxisLen = 1.0f / static_cast<Scalar>(axisLen);
+		std::size_t outPos = 0;
+
+		forEachSliceAlongAxisIncremental(
+			A.shape,
+			A.strides,
+			axis,
+			[&](int base, int strideAxis, int axisLenInner, const std::vector<int> &idxNoAxis)
+			{
+				(void)idxNoAxis;
+				Scalar sum = 0.0f;
+				int off = base;
+				for (int i = 0; i < axisLenInner; ++i)
+				{
+					sum += A.data[static_cast<std::size_t>(off)];
+					off += strideAxis;
+				}
+
+				out.data[outPos++] = sum * invAxisLen;
+			});
+	}
+
+	void GraphRuntime::BACKWARD_MEAN_1D_FIRST(Tensor &A, Tensor &out)
+	{
+		if (A.shape.size() != 1)
+			throw std::runtime_error("Mean backward: dimension mismatch");
+
+		const std::size_t size = A.data.size();
+		if (size == 0)
+			return;
+
+		const Scalar gradOut = out.grad.empty() ? 0.0f : out.grad[0];
+		const Scalar scale = gradOut / static_cast<Scalar>(size);
+
+		for (std::size_t i = 0; i < size; ++i)
+			A.grad[i] += scale;
+	}
+
+	void GraphRuntime::BACKWARD_MEAN_2D_FIRST(Tensor &A, Tensor &out)
+	{
+		if (A.shape.size() != 2)
+			throw std::runtime_error("Mean backward: dimension mismatch");
+
+		const int batch = A.shape[0];
+		const int dim = A.shape[1];
+		const Scalar invBatch = batch > 0 ? (1.0f / static_cast<Scalar>(batch)) : 0.0f;
+
+		for (int b = 0; b < batch; ++b)
+		{
+			const int rowStart = b * dim;
+			for (int i = 0; i < dim; ++i)
+			{
+				const Scalar gradOut = out.grad.empty() ? 0.0f : out.grad[static_cast<std::size_t>(i)];
+				A.grad[static_cast<std::size_t>(rowStart + i)] += gradOut * invBatch;
+			}
+		}
+	}
+
+	void GraphRuntime::BACKWARD_MEAN_3D_FIRST(Tensor &A, Tensor &out)
+	{
+		if (A.shape.size() != 3)
+			throw std::runtime_error("Mean backward: dimension mismatch");
+
+		const int batch = A.shape[0];
+		const int time = A.shape[1];
+		const int dim = A.shape[2];
+		const Scalar invBatch = batch > 0 ? (1.0f / static_cast<Scalar>(batch)) : 0.0f;
+
+		for (int b = 0; b < batch; ++b)
+		{
+			const int batchOffset = b * time * dim;
+			for (int t = 0; t < time; ++t)
+			{
+				const int rowOffset = batchOffset + t * dim;
+				const int outRow = t * dim;
+				for (int i = 0; i < dim; ++i)
+				{
+					const Scalar gradOut = out.grad.empty() ? 0.0f : out.grad[static_cast<std::size_t>(outRow + i)];
+					A.grad[static_cast<std::size_t>(rowOffset + i)] += gradOut * invBatch;
+				}
+			}
+		}
+	}
+
+	void GraphRuntime::BACKWARD_MEAN_GENERIC_AXIS(Tensor &A, Tensor &out, int axis)
+	{
+		const int rank = static_cast<int>(A.shape.size());
+
+		if (rank == 0)
+		{
+			A.grad[0] += out.grad.empty() ? 0.0f : out.grad[0];
+			return;
+		}
+
+		if (axis < 0)
+			axis += rank;
+		if (axis < 0 || axis >= rank)
+			throw std::invalid_argument("axis out of range");
+
+		const int axisLen = A.shape[static_cast<std::size_t>(axis)];
+		if (axisLen <= 0)
+			return;
+
+		const Scalar invAxisLen = 1.0f / static_cast<Scalar>(axisLen);
+		std::size_t outPos = 0;
+
+		forEachSliceAlongAxisIncremental(
+			A.shape,
+			A.strides,
+			axis,
+			[&](int base, int strideAxis, int axisLenInner, const std::vector<int> &idxNoAxis)
+			{
+				(void)idxNoAxis;
+				const Scalar gradOut = out.grad.empty() ? 0.0f : out.grad[outPos++];
+				const Scalar scale = gradOut * invAxisLen;
+
+				int off = base;
+				for (int i = 0; i < axisLenInner; ++i)
+				{
+					A.grad[static_cast<std::size_t>(off)] += scale;
+					off += strideAxis;
+				}
+			});
 	}
 
 	void GraphRuntime::backwardMatmul(int aId, int bId, int outId)
@@ -1943,23 +2177,24 @@ namespace PHP2xAI::Runtime::CPP
 		}
 	}
 
-	void GraphRuntime::backwardMean(int aId, int outId)
+	void GraphRuntime::backwardMean(int aId, int outId, const std::string &kernel, const std::vector<int> &axes)
 	{
 		auto &A = tensors[aId];
 		auto &out = tensors[outId];
-		auto size = A.data.size();
 
-		if (size == 0)
-			return;
+		const std::string selectedKernel = kernel.empty() ? "MEAN_GENERIC_AXIS" : kernel;
+		const int axis = !axes.empty() ? axes[0] : 0;
 
-		if (A.shape.size() != 1)
-			throw std::runtime_error("Mean backward: dimension mismatch");
-
-		Scalar gradOut = out.grad.empty() ? 0.0f : out.grad[0];
-		Scalar scale = gradOut / static_cast<Scalar>(size);
-
-		for (std::size_t i = 0; i < size; ++i)
-			A.grad[i] += scale;
+		if (selectedKernel == "MEAN_1D_FIRST")
+			BACKWARD_MEAN_1D_FIRST(A, out);
+		else if (selectedKernel == "MEAN_2D_FIRST")
+			BACKWARD_MEAN_2D_FIRST(A, out);
+		else if (selectedKernel == "MEAN_3D_FIRST")
+			BACKWARD_MEAN_3D_FIRST(A, out);
+		else if (selectedKernel == "MEAN_GENERIC_AXIS")
+			BACKWARD_MEAN_GENERIC_AXIS(A, out, axis);
+		else
+			throw std::runtime_error("Mean backward: kernel not supported");
 	}
 
 	std::vector<int> GraphRuntime::alignStridesToRank(

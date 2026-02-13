@@ -139,7 +139,7 @@ namespace PHP2xAI::Runtime::CPP
 		// void opLRelu(int, int);
 		// void opMse(int, int);
 		// void opMae(int, int);
-		void opMean(int, int);
+		void opMean(int, int, const std::string &kernel, const std::vector<int> &axes);
 		void opSoftmax(int, int, const std::string &kernel, const std::vector<int> &axes);
 		void opCe(int, int, int);
 		void opCeLogits(int, int, int);
@@ -155,7 +155,7 @@ namespace PHP2xAI::Runtime::CPP
 		// void backwardLRelu(int, int);
 		// void backwardMse(int, int);
 		// void backwardMae(int, int);
-		void backwardMean(int, int);
+		void backwardMean(int, int, const std::string &kernel, const std::vector<int> &axes);
 		void backwardSoftmax(int, int, const std::string &kernel, const std::vector<int> &axes);
 		void backwardCe(int, int, int);
 		void backwardCeLogits(int, int, int);
@@ -178,6 +178,15 @@ namespace PHP2xAI::Runtime::CPP
 		void BACKWORD_SOFTMAX_2D_LAST(Tensor &X, Tensor &Y);
 		void BACKWORD_SOFTMAX_3D_LAST(Tensor &X, Tensor &Y);
 		void BACKWORD_SOFTMAX_GENERIC_AXIS(Tensor &X, Tensor &Y, int axis);
+		
+		void MEAN_1D_FIRST(Tensor &A, Tensor &out);
+		void MEAN_2D_FIRST(Tensor &A, Tensor &out);
+		void MEAN_3D_FIRST(Tensor &A, Tensor &out);
+		void MEAN_GENERIC_AXIS(Tensor &A, Tensor &out, int axis);
+		void BACKWARD_MEAN_1D_FIRST(Tensor &A, Tensor &out);
+		void BACKWARD_MEAN_2D_FIRST(Tensor &A, Tensor &out);
+		void BACKWARD_MEAN_3D_FIRST(Tensor &A, Tensor &out);
+		void BACKWARD_MEAN_GENERIC_AXIS(Tensor &A, Tensor &out, int axis);
 
 		void softmaxAlongAxisInPlace(
 			std::vector<Scalar> &data,
