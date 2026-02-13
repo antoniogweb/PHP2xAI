@@ -264,7 +264,7 @@ class Tensor
     public function shapeReduced(int $index = 0) : array
 	{
 		$nSize = $this->shape;
-		array_pop($nSize);
+		array_splice($nSize, $index, 1);
 		
 		return $nSize;
 	}
@@ -300,7 +300,7 @@ class Tensor
 		$logitsId = $this->registerInContext($context, $this);
 		$targetId = $this->registerInContext($context, $target);
 		
-		$result = self::zeros($this->shapeReduced(), 'CE');
+		$result = self::zeros($this->shapeReduced(-1), 'CE');
 		$context->registerOp('CE', [$logitsId, $targetId], $result);
 		
 		return $result;
@@ -312,7 +312,7 @@ class Tensor
 		$logitsId = $this->registerInContext($context, $this);
 		$targetId = $this->registerInContext($context, $target);
 		
-		$result = self::zeros($this->shapeReduced(), 'CELogitsLabelInt');
+		$result = self::zeros($this->shapeReduced(-1), 'CELogitsLabelInt');
 		$context->registerOp('softmax_ce_logits_label_int', [$logitsId, $targetId], $result);
 		
 		return $result;
@@ -328,20 +328,34 @@ class Tensor
 		$logitsId = $this->registerInContext($context, $this);
 		$targetId = $this->registerInContext($context, $target);
 		
-		$result = self::zeros($this->shapeReduced(), 'CELogits');
+		$result = self::zeros($this->shapeReduced(-1), 'CELogits');
 		$context->registerOp('softmax_ce_logits', [$logitsId, $targetId], $result);
 		
 		return $result;
     }
 	
 	// Mean among batch samples
-    public function mean() : Tensor
+    public function mean(int $axis = 0) : Tensor
     {
 		$context = $this->initContextFrom();
 		$inputId = $this->registerInContext($context, $this);
 		
-		$result = self::zeros($this->shapeReduced(), 'mean');
-		$context->registerOp('mean', [$inputId], $result);
+		if (count($this->shape) === 1 && $axis === 0)
+			$kernel = "MEAN_1D_FIRST";
+		else if (count($this->shape) === 2 && $axis === 0)
+			$kernel = "MEAN_2D_FIRST";
+		else if (count($this->shape) === 3 && $axis === 0)
+			$kernel = "MEAN_3D_FIRST";
+		else
+			$kernel = "MEAN_GENERIC_AXIS";
+		
+		$attributes = array(
+			"kernel"	=>	$kernel,
+			"axes"		=>	array($axis),
+		);
+		
+		$result = self::zeros($this->shapeReduced($axis), 'mean');
+		$context->registerOp('mean', [$inputId], $result, $attributes);
 		
 		return $result;
     }

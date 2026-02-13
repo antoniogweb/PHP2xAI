@@ -1003,19 +1003,29 @@ class GraphRuntime
 		$out->data = [$loss];
 	}
 	
-	private function opMean(int $aId, int $outId): void
+	private function opMean(int $aId, int $outId, array $attributes): void
 	{
 		$A = $this->tensors[$aId];
 		$out = $this->tensors[$outId];
 		
-		$out->shape = [];
+		$kernel = $attributes["kernel"] ?? "MEAN_GENERIC_AXIS";
+		$axis = $attributes["axes"][0] ?? 0;
 		
-		if (count($A->shape) !== 1 || count($A->data) === 0)
-			throw new RuntimeException('Mean: dimension mismatch');
-		
-		$mean = array_sum($A->data)/count($A->data);
-		
-		$out->data = [$mean];
+		switch ($kernel)
+		{
+			case "MEAN_1D_FIRST":
+				$this->MEAN_1D_FIRST($A, $out);
+				break;
+			case "MEAN_2D_FIRST":
+				$this->MEAN_2D_FIRST($A, $out);
+				break;
+			case "MEAN_3D_FIRST":
+				$this->MEAN_3D_FIRST($A, $out);
+				break;
+			case "MEAN_GENERIC_AXIS":
+				$this->MEAN_GENERIC_AXIS($A, $out, $axis);
+				break;
+		}
 	}
 	
 	public function backward(): void
@@ -1093,24 +1103,28 @@ class GraphRuntime
 		}
 	}
 	
-	private function backwardMean(int $aId, int $outId): void
+	private function backwardMean(int $aId, int $outId, array $attributes): void
 	{
 		$A = $this->tensors[$aId];
 		$out = $this->tensors[$outId];
-		$size = count($A->data);
 
-		if ($size === 0)
-			return;
-
-		if (count($A->shape) !== 1)
-			throw new RuntimeException('Mean backward: dimension mismatch');
-
-		$gradOut = $out->grad[0] ?? 0.0;
-		$scale = $gradOut / $size;
-
-		for ($i = 0; $i < $size; $i++)
+		$kernel = $attributes["kernel"] ?? "MEAN_GENERIC_AXIS";
+		$axis = $attributes["axes"][0] ?? 0;
+		
+		switch ($kernel)
 		{
-			$A->grad[$i] += $scale;
+			case "MEAN_1D_FIRST":
+				$this->BACKWARD_MEAN_1D_FIRST($A, $out);
+				break;
+			case "MEAN_2D_FIRST":
+				$this->BACKWARD_MEAN_2D_FIRST($A, $out);
+				break;
+			case "MEAN_3D_FIRST":
+				$this->BACKWARD_MEAN_3D_FIRST($A, $out);
+				break;
+			case "MEAN_GENERIC_AXIS":
+				$this->BACKWARD_MEAN_GENERIC_AXIS($A, $out, $axis);
+				break;
 		}
 	}
 	
@@ -1683,6 +1697,65 @@ class GraphRuntime
 		}
 	}
 	
+	// KERNELS REDUCE MEAN
+	private function MEAN_1D_FIRST(TensorRuntime $A, TensorRuntime $out)
+	{
+		$out->shape = [];
+		
+		if (count($A->shape) !== 1 || count($A->data) === 0)
+			throw new RuntimeException('Mean: dimension mismatch');
+		
+		$mean = array_sum($A->data)/count($A->data);
+		
+		$out->data = [$mean];
+	}
+	
+	private function MEAN_2D_FIRST(TensorRuntime $A, TensorRuntime $out)
+	{
+
+	}
+	
+	private function MEAN_3D_FIRST(TensorRuntime $A, TensorRuntime $out)
+	{
+	
+	}
+	
+	private function MEAN_GENERIC_AXIS(TensorRuntime $A, TensorRuntime $out, int $axis)
+	{
+		$this->reduceMeanAlongAxis($A->data, $A->shape, $A->strides, $axis, $out->shape, $out->data);
+	}
+	
+	private function BACKWARD_MEAN_1D_FIRST(TensorRuntime $A, TensorRuntime $out)
+	{
+		if (count($A->shape) !== 1)
+			throw new RuntimeException('Mean backward: dimension mismatch');
+		
+		$size = count($A->data);
+		
+		$gradOut = $out->grad[0] ?? 0.0;
+		$scale = $gradOut / $size;
+
+		for ($i = 0; $i < $size; $i++)
+		{
+			$A->grad[$i] += $scale;
+		}
+	}
+	
+	private function BACKWARD_MEAN_2D_FIRST(TensorRuntime $A, TensorRuntime $out)
+	{
+		
+	}
+	
+	private function BACKWARD_MEAN_3D_FIRST(TensorRuntime $A, TensorRuntime $out)
+	{
+		
+	}
+	
+	private function BACKWARD_MEAN_GENERIC_AXIS(TensorRuntime $A, TensorRuntime $out, int $axis)
+	{
+		
+	}
+	
 	// KERNELS ADD
 	private function ADD_1D_LAST(TensorRuntime $A, TensorRuntime $B, TensorRuntime $C)
 	{
@@ -1898,7 +1971,7 @@ class GraphRuntime
 	}
 	
 	// KERNELS SOFTMAX
-	private function SOFTMAX_1D_LAST($X, $Y)
+	private function SOFTMAX_1D_LAST(TensorRuntime $X, TensorRuntime $Y)
 	{
 		$size = count($X->data);
 		$max = $X->data[0];
@@ -1927,7 +2000,7 @@ class GraphRuntime
 		}
 	}
 	
-	private function SOFTMAX_2D_LAST($X, $Y)
+	private function SOFTMAX_2D_LAST(TensorRuntime $X, TensorRuntime $Y)
 	{
 		[$batch, $dim] = $X->shape;
 		$Y->data = array_fill(0, $batch * $dim, 0.0);
@@ -1962,7 +2035,7 @@ class GraphRuntime
 		}
 	}
 	
-	private function SOFTMAX_3D_LAST($X, $Y)
+	private function SOFTMAX_3D_LAST(TensorRuntime $X, TensorRuntime $Y)
 	{
 		[$batch, $time, $dim] = $X->shape;
 		$Y->data = array_fill(0, $batch * $time * $dim, 0.0);
@@ -2002,7 +2075,7 @@ class GraphRuntime
 		}
 	}
 	
-	private function SOFTMAX_GENERIC_AXIS($X, $Y, $axis)
+	private function SOFTMAX_GENERIC_AXIS(TensorRuntime $X, TensorRuntime $Y, int $axis)
 	{
 		$Y->shape = $X->shape;
 		$Y->data = $X->data;
@@ -2039,7 +2112,7 @@ class GraphRuntime
 		}
 	}
 	
-	private function BACKWORD_SOFTMAX_2D_LAST($X, $Y)
+	private function BACKWORD_SOFTMAX_2D_LAST(TensorRuntime $X, TensorRuntime $Y)
 	{
 		if (count($Y->shape) === 2)
 		{
@@ -2074,7 +2147,7 @@ class GraphRuntime
 		}
 	}
 	
-	private function BACKWORD_SOFTMAX_3D_LAST($X, $Y)
+	private function BACKWORD_SOFTMAX_3D_LAST(TensorRuntime $X, TensorRuntime $Y)
 	{
 		if (count($Y->shape) === 3)
 		{
@@ -2114,7 +2187,7 @@ class GraphRuntime
 		}
 	}
 	
-	private function BACKWORD_SOFTMAX_GENERIC_AXIS($X, $Y, $axis)
+	private function BACKWORD_SOFTMAX_GENERIC_AXIS(TensorRuntime $X, TensorRuntime $Y, int $axis)
 	{
 		$rank = count($Y->shape);
 		if ($rank === 0)
@@ -2505,16 +2578,100 @@ class GraphRuntime
 		);
 	}
 	
-// 	Esempio:
-// 	
-// 	Z.shape = [B, T, D]
-// 
-// 	Y.shape = [D]
-// 
-// 	Allineamento a destra (stile NumPy/PyTorch):
-// 
-// 	Y aligned shape   = [1, 1, D]
-// 	Y aligned strides = [0, 0, 1]
+	/**
+	* reduceMean su asse generico (NO keepdims), scrive direttamente in $outData (passato by ref)
+	* e riempie $outShape (passato by ref). Non ritorna nulla.
+	*
+	* Requisiti:
+	* - $outData viene (ri)allocato qui come array contiguo di float
+	* - $outShape viene calcolata qui (rank = inRank - 1)
+	*
+	* Nota: $outData è in row-major contiguo (stride standard).
+	*/
+	private function reduceMeanAlongAxis(
+		array $inData,
+		array $inShape,
+		array $inStrides,
+		int $axis,
+		array &$outShape,
+		array &$outData
+	): void {
+
+		$rank = count($inShape);
+
+		// Caso scalare: mean(scalare) = scalare, output rank 0
+		if ($rank === 0) {
+			$outShape = [];
+			$outData  = $inData; // assume inData = [value]
+			return;
+		}
+
+		// Normalizza axis (-1 = ultimo asse)
+		if ($axis < 0) $axis += $rank;
+		if ($axis < 0 || $axis >= $rank) {
+			throw new InvalidArgumentException("axis out of range");
+		}
+
+		$axisLen = $inShape[$axis];
+		if ($axisLen <= 0) {
+			// shape degenerata: output coerente ma vuoto
+			$outShape = $inShape;
+			array_splice($outShape, $axis, 1);
+			$outData = [];
+			return;
+		}
+
+		// 1) outShape = inShape senza la dimensione axis
+		$outShape = $inShape;
+		array_splice($outShape, $axis, 1);
+
+		// 2) Numero elementi output = prodotto outShape
+		//    Se outShape è [] => prodotto vuoto = 1 (una sola media totale)
+		$outCount = 1;
+		foreach ($outShape as $n) $outCount *= $n;
+
+		// 3) Alloca output contiguo
+		$outData = array_fill(0, $outCount, 0.0);
+
+		// 4) Scriviamo sequenzialmente: un valore per slice
+		$outPos = 0;
+		$invAxisLen = 1.0 / $axisLen;
+
+		$this->forEachSliceAlongAxisIncremental(
+			$inShape,
+			$inStrides,
+			$axis,
+			function(int $base, int $strideAxis, int $axisLen, array $idxNoAxis) use (
+				$inData,
+				&$outData,
+				&$outPos,
+				$invAxisLen
+			) {
+				// Somma lungo axis
+				$sum = 0.0;
+				$off = $base;
+
+				for ($i = 0; $i < $axisLen; $i++) {
+					$sum += (float)$inData[$off];
+					$off += $strideAxis;
+				}
+
+				// Media -> scrivi in output contiguo
+				$outData[$outPos++] = $sum * $invAxisLen;
+			}
+		);
+	}
+	
+	// 	Esempio:
+	// 	
+	// 	Z.shape = [B, T, D]
+	// 
+	// 	Y.shape = [D]
+	// 
+	// 	Allineamento a destra (stile NumPy/PyTorch):
+	// 
+	// 	Y aligned shape   = [1, 1, D]
+	// 	Y aligned strides = [0, 0, 1]
 	private function alignStridesToRank
 	(
 		array $shape,
