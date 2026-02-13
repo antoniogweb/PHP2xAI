@@ -1712,12 +1712,64 @@ class GraphRuntime
 	
 	private function MEAN_2D_FIRST(TensorRuntime $A, TensorRuntime $out)
 	{
-
+		if (count($A->shape) !== 2 || count($A->data) === 0)
+			throw new RuntimeException('Mean: dimension mismatch');
+		
+		[$batch, $dim] = $A->shape;
+		
+		$out->shape = [$dim];
+		$out->data = array_fill(0, $dim, 0.0);
+		
+		for ($b = 0; $b < $batch; $b++)
+		{
+			$rowStart = $b * $dim;
+			
+			for ($i = 0; $i < $dim; $i++)
+			{
+				$out->data[$i] += $A->data[$rowStart + $i];
+			}
+		}
+		
+		$invBatch = $batch > 0 ? (1 / $batch) : 0.0;
+		
+		for ($i = 0; $i < $dim; $i++)
+		{
+			$out->data[$i] *= $invBatch;
+		}
 	}
 	
 	private function MEAN_3D_FIRST(TensorRuntime $A, TensorRuntime $out)
 	{
-	
+		if (count($A->shape) !== 3 || count($A->data) === 0)
+			throw new RuntimeException('Mean: dimension mismatch');
+		
+		[$batch, $time, $dim] = $A->shape;
+		
+		$out->shape = [$time, $dim];
+		$out->data = array_fill(0, $time * $dim, 0.0);
+		
+		for ($b = 0; $b < $batch; $b++)
+		{
+			$batchOffset = $b * $time * $dim;
+			
+			for ($t = 0; $t < $time; $t++)
+			{
+				$rowOffset = $batchOffset + $t * $dim;
+				$outRow = $t * $dim;
+				
+				for ($i = 0; $i < $dim; $i++)
+				{
+					$out->data[$outRow + $i] += $A->data[$rowOffset + $i];
+				}
+			}
+		}
+		
+		$invBatch = $batch > 0 ? (1 / $batch) : 0.0;
+		
+		for ($i = 0; $i < $time * $dim; $i++)
+		{
+			$out->data[$i] *= $invBatch;
+		}
 	}
 	
 	private function MEAN_GENERIC_AXIS(TensorRuntime $A, TensorRuntime $out, int $axis)
@@ -1743,17 +1795,86 @@ class GraphRuntime
 	
 	private function BACKWARD_MEAN_2D_FIRST(TensorRuntime $A, TensorRuntime $out)
 	{
+		if (count($A->shape) !== 2)
+			throw new RuntimeException('Mean backward: dimension mismatch');
 		
+		[$batch, $dim] = $A->shape;
+		$invBatch = $batch > 0 ? (1 / $batch) : 0.0;
+		
+		for ($b = 0; $b < $batch; $b++)
+		{
+			$rowStart = $b * $dim;
+			
+			for ($i = 0; $i < $dim; $i++)
+			{
+				$A->grad[$rowStart + $i] += ($out->grad[$i] ?? 0.0) * $invBatch;
+			}
+		}
 	}
 	
 	private function BACKWARD_MEAN_3D_FIRST(TensorRuntime $A, TensorRuntime $out)
 	{
+		if (count($A->shape) !== 3)
+			throw new RuntimeException('Mean backward: dimension mismatch');
 		
+		[$batch, $time, $dim] = $A->shape;
+		$invBatch = $batch > 0 ? (1 / $batch) : 0.0;
+		
+		for ($b = 0; $b < $batch; $b++)
+		{
+			$batchOffset = $b * $time * $dim;
+			
+			for ($t = 0; $t < $time; $t++)
+			{
+				$rowOffset = $batchOffset + $t * $dim;
+				$outRow = $t * $dim;
+				
+				for ($i = 0; $i < $dim; $i++)
+				{
+					$A->grad[$rowOffset + $i] += ($out->grad[$outRow + $i] ?? 0.0) * $invBatch;
+				}
+			}
+		}
 	}
 	
 	private function BACKWARD_MEAN_GENERIC_AXIS(TensorRuntime $A, TensorRuntime $out, int $axis)
 	{
+		$rank = count($A->shape);
 		
+		if ($rank === 0)
+		{
+			$A->grad[0] += $out->grad[0] ?? 0.0;
+			return;
+		}
+		
+		if ($axis < 0) $axis += $rank;
+		if ($axis < 0 || $axis >= $rank)
+			throw new InvalidArgumentException("axis out of range");
+		
+		$axisLen = $A->shape[$axis];
+		if ($axisLen <= 0)
+			return;
+		
+		$invAxisLen = 1.0 / $axisLen;
+		$outPos = 0;
+		
+		$this->forEachSliceAlongAxisIncremental(
+			$A->shape,
+			$A->strides,
+			$axis,
+			function (int $base, int $strideAxis, int $axisLen, array $idxNoAxis) use ($A, $out, &$outPos, $invAxisLen)
+			{
+				$gradOut = $out->grad[$outPos++] ?? 0.0;
+				$scale = $gradOut * $invAxisLen;
+				
+				$off = $base;
+				for ($i = 0; $i < $axisLen; $i++)
+				{
+					$A->grad[$off] += $scale;
+					$off += $strideAxis;
+				}
+			}
+		);
 	}
 	
 	// KERNELS ADD
