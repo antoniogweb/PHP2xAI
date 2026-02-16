@@ -23,7 +23,7 @@ namespace PHP2xAI::Runtime::CPP
 		int baseOffset{};
 		std::vector<int> strides;
 
-		std::vector<int> computeStrides(const std::vector<int> &shape) const
+		static std::vector<int> computeStrides(const std::vector<int> &shape)
 		{
 			const int rank = static_cast<int>(shape.size());
 			std::vector<int> stridesLocal(rank, 0);
@@ -81,7 +81,7 @@ namespace PHP2xAI::Runtime::CPP
 
 		bool isContiguous() const
 		{
-			return strides == computeStrides(shape) && baseOffset == 0;
+			return strides == Tensor::computeStrides(shape) && baseOffset == 0;
 		}
 	};
 

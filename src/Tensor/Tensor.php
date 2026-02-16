@@ -142,7 +142,6 @@ class Tensor
 		return $tensor;
 	}
 	
-	// [B, D] x [D, N] = [B, N]
 	public function matMul(Tensor $b) : Tensor
 	{
 		$context = $this->initContextFrom($b);
@@ -157,6 +156,7 @@ class Tensor
 		
 		if ($thisRank === 2 && $bRank === 2)
 		{
+			// [B, D] x [D, N] = [B, N]
 			$kernel = "MATMUL_2D_2D";
 			$outputShape = array($this->shape[0], $b->shape[1]);
 			
@@ -165,22 +165,25 @@ class Tensor
 		}
 		else if ($thisRank === 3 && $bRank === 3)
 		{
+			// [T, B, D] x [T, D, N] = [T, B, N]
 			$kernel = "MATMUL_1B_2D_2D";
 			$outputShape = array($this->shape[0], $this->shape[1], $b->shape[2]);
 			
-			if ($this->shape[2] != $b->shape[2])
+			if ($this->shape[2] != $b->shape[1])
 				throw new Exception("Matmul dimensions mismatch");
 		}
 		else if ($thisRank === 4 && $bRank === 4)
 		{
+			// [B, H, T, D_h] * [B, H, D_h, T] = [B, H, T, T]
 			$kernel = "MATMUL_2B_2D_2D";
 			$outputShape = array($this->shape[0], $this->shape[1], $this->shape[2], $b->shape[3]);
 			
-			if ($this->shape[3] != $b->shape[3])
+			if ($this->shape[3] != $b->shape[2])
 				throw new Exception("Matmul dimensions mismatch");
 		}
 		else if ($thisRank === 3 && $bRank === 3)
 		{
+			// [B, T, D] * [D, H] = [B, T, H]
 			$kernel = "MATMUL_1B_2D_2D_LINEAR";
 			$outputShape = array($this->shape[0], $this->shape[1], $b->shape[1]);
 			

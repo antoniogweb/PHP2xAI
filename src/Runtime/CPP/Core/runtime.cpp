@@ -1186,7 +1186,7 @@ namespace PHP2xAI::Runtime::CPP
 			outCount *= n;
 
 		out.data.assign(static_cast<std::size_t>(outCount), 0.0f);
-		out.strides = out.computeStrides(out.shape);
+		out.strides = Tensor::computeStrides(out.shape);
 
 		const Scalar invAxisLen = 1.0f / static_cast<Scalar>(axisLen);
 		std::size_t outPos = 0;
@@ -2442,7 +2442,7 @@ namespace PHP2xAI::Runtime::CPP
 			tensor.name = t.value("name", "");
 			tensor.shape = t.at("shape").get<std::vector<int>>();
 			tensor.baseOffset = 0;
-			tensor.strides = tensor.computeStrides(tensor.shape);
+			tensor.strides = Tensor::computeStrides(tensor.shape);
 
 			// Initialize data/grad; if data provided, use it, otherwise fill zeros with shape product (or 1).
 			if (t.contains("data"))
