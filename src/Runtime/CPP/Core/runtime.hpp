@@ -8,6 +8,10 @@
 #include "../ThirdParty/nlohmann/json.hpp"
 #include "../types.hpp"
 
+#ifndef PHP2XAI_USE_EIGEN
+#define PHP2XAI_USE_EIGEN 1
+#endif
+
 namespace PHP2xAI::Runtime::CPP
 {
 	using nlohmann::json;

@@ -5,10 +5,16 @@
 #include "Core/Core.hpp"
 
 // g++ -std=c++17 -I./ -I./ThirdParty Utility/Utility.cpp Core/Core.cpp Core/runtime.cpp Dataset/TrainValidateDataset.cpp Dataset/stream_file_dataset.cpp Optimizers/Optimizer.cpp Optimizers/Adam.cpp Optimizers/Fixed.cpp main.cpp -o php2xai_runtime
-// g++ -std=c++17 -O3 -DNDEBUG -march=native -flto -pipe -I./ -I./ThirdPartyUtility/Utility.cpp Core/Core.cpp Core/runtime.cpp Dataset/TrainValidateDataset.cpp Dataset/stream_file_dataset.cpp Optimizers/Optimizer.cpp Optimizers/Adam.cpp Optimizers/Fixed.cpp main.cpp -o php2xai_runtime
 
+// COMPILAZIONE NAIVE
+// g++ -std=c++17 -O3 -DNDEBUG -march=native -flto -pipe -I./ -I./ThirdParty Utility/Utility.cpp Core/Core.cpp Core/runtime.cpp Dataset/TrainValidateDataset.cpp Dataset/stream_file_dataset.cpp Optimizers/Optimizer.cpp Optimizers/Adam.cpp Optimizers/Fixed.cpp main.cpp -o php2xai_runtime
 //.so
 // g++ -std=c++17 -O3 -fPIC -shared -I./ -I./ThirdParty Utility/Utility.cpp Core/Core.cpp Core/runtime.cpp Core/ffi.cpp Dataset/TrainValidateDataset.cpp Dataset/stream_file_dataset.cpp Optimizers/Optimizer.cpp Optimizers/Adam.cpp  Optimizers/Fixed.cpp -o php2xai_runtime.so
+
+// COMPILAZIONE EIGEN
+// g++ -std=c++17 -O3 -DNDEBUG -march=native -flto -pipe -DPHP2XAI_USE_EIGEN -I./ -I./ThirdParty/nlohmann -I./ThirdParty/eigen/Eigen Utility/Utility.cpp Core/Core.cpp Core/runtime.cpp Dataset/TrainValidateDataset.cpp Dataset/stream_file_dataset.cpp Optimizers/Optimizer.cpp Optimizers/Adam.cpp Optimizers/Fixed.cpp main.cpp -o php2xai_runtime_eigen
+//.so
+// g++ -std=c++17 -O3 -fPIC -shared -DPHP2XAI_USE_EIGEN -I./ -I./ThirdParty/nlohmann -I./ThirdParty/eigen/Eigen Utility/Utility.cpp Core/Core.cpp Core/runtime.cpp Core/ffi.cpp Dataset/TrainValidateDataset.cpp Dataset/stream_file_dataset.cpp Optimizers/Optimizer.cpp Optimizers/Adam.cpp  Optimizers/Fixed.cpp -o php2xai_runtime_eigen.so
 
 
 // ./php2xai_runtime ../../../Exercises/MNIST/config.json

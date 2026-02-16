@@ -563,7 +563,12 @@ namespace PHP2xAI::Runtime::CPP
 		const std::string kernelName = kernel.empty() ? "MATMUL_GENERIC_B_2D_2D_BROADCAST" : kernel;
 
 		if (kernelName == "MATMUL_2D_2D")
+		{
+			#if PHP2XAI_USE_EIGEN
+				return MATMUL_2D_2D(A, B, C);
+			#endif
 			return MATMUL_2D_2D(A, B, C);
+		}
 		if (kernelName == "MATMUL_1B_2D_2D")
 			return MATMUL_1B_2D_2D(A, B, C);
 		if (kernelName == "MATMUL_2B_2D_2D")
