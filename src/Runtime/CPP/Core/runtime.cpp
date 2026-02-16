@@ -565,9 +565,10 @@ namespace PHP2xAI::Runtime::CPP
 		if (kernelName == "MATMUL_2D_2D")
 		{
 			#if PHP2XAI_USE_EIGEN
+				return MATMUL_2D_2D_EIGEN(A, B, C);
+			#else
 				return MATMUL_2D_2D(A, B, C);
 			#endif
-			return MATMUL_2D_2D(A, B, C);
 		}
 		if (kernelName == "MATMUL_1B_2D_2D")
 			return MATMUL_1B_2D_2D(A, B, C);
@@ -610,6 +611,37 @@ namespace PHP2xAI::Runtime::CPP
 					C.data[static_cast<std::size_t>(cRow + n)] += aVal * B.data[static_cast<std::size_t>(bRow + n)];
 			}
 		}
+	}
+
+	void GraphRuntime::MATMUL_2D_2D_EIGEN(Tensor &A, Tensor &B, Tensor &C)
+	{
+		if (A.shape.size() != 2 || B.shape.size() != 2)
+			throw std::runtime_error("matmul: dimension mismatch");
+
+		const int batch = A.shape[0];
+		const int dim = A.shape[1];
+		const int dimB = B.shape[0];
+		const int outDim = B.shape[1];
+
+		if (dim != dimB)
+			throw std::runtime_error("matmul: dimension mismatch");
+
+		C.shape = {batch, outDim};
+		C.data.assign(static_cast<std::size_t>(batch * outDim), 0.0f);
+
+		#if PHP2XAI_USE_EIGEN
+			using RowMajorMat = Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
+			using ConstMatMap = Eigen::Map<const RowMajorMat>;
+			using MatMap = Eigen::Map<RowMajorMat>;
+
+			const ConstMatMap aMap(A.data.data(), batch, dim);
+			const ConstMatMap bMap(B.data.data(), dim, outDim);
+			MatMap cMap(C.data.data(), batch, outDim);
+
+			cMap.noalias() = aMap * bMap;
+		#else
+			MATMUL_2D_2D(A, B, C);
+		#endif
 	}
 
 	void GraphRuntime::MATMUL_1B_2D_2D(Tensor &A, Tensor &B, Tensor &C)
@@ -1714,7 +1746,13 @@ namespace PHP2xAI::Runtime::CPP
 		const std::string kernelName = kernel.empty() ? "MATMUL_GENERIC_B_2D_2D_BROADCAST" : kernel;
 
 		if (kernelName == "MATMUL_2D_2D")
-			return BACKWARD_MATMUL_2D_2D(A, B, C);
+		{
+			#if PHP2XAI_USE_EIGEN
+				return BACKWARD_MATMUL_2D_2D_EIGEN(A, B, C);
+			#else
+				return BACKWARD_MATMUL_2D_2D(A, B, C);
+			#endif
+		}
 		if (kernelName == "MATMUL_1B_2D_2D")
 			return BACKWARD_MATMUL_1B_2D_2D(A, B, C);
 		if (kernelName == "MATMUL_2B_2D_2D")
@@ -1758,6 +1796,37 @@ namespace PHP2xAI::Runtime::CPP
 				}
 			}
 		}
+	}
+
+	void GraphRuntime::BACKWARD_MATMUL_2D_2D_EIGEN(Tensor &A, Tensor &B, Tensor &C)
+	{
+		if (A.shape.size() != 2 || B.shape.size() != 2)
+			throw std::runtime_error("matmul: dimension mismatch");
+
+		const int batch = A.shape[0];
+		const int dim = A.shape[1];
+		const int dimB = B.shape[0];
+		const int outDim = B.shape[1];
+
+		if (dim != dimB)
+			throw std::runtime_error("matmul: dimension mismatch");
+
+		#if PHP2XAI_USE_EIGEN
+			using RowMajorMat = Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
+			using ConstMatMap = Eigen::Map<const RowMajorMat>;
+			using MatMap = Eigen::Map<RowMajorMat>;
+
+			const ConstMatMap aMap(A.data.data(), batch, dim);
+			const ConstMatMap bMap(B.data.data(), dim, outDim);
+			const ConstMatMap cGradMap(C.grad.data(), batch, outDim);
+			MatMap aGradMap(A.grad.data(), batch, dim);
+			MatMap bGradMap(B.grad.data(), dim, outDim);
+
+			aGradMap.noalias() += cGradMap * bMap.transpose();
+			bGradMap.noalias() += aMap.transpose() * cGradMap;
+		#else
+			BACKWARD_MATMUL_2D_2D(A, B, C);
+		#endif
 	}
 
 	void GraphRuntime::BACKWARD_MATMUL_1B_2D_2D(Tensor &A, Tensor &B, Tensor &C)

@@ -27,6 +27,7 @@ abstract class Model
     private int $inputId;    // id of input tensor in GraphDef
     private int $targetId;   // id of target tensor in GraphDef
 	private string $runtime = "PHP";
+	private string $provider = "";
 	private string $modelSavePath = "./model.json";
 	private string $configSavePath = "./config.json";
 	private ?GraphRuntime $predictRuntime;
@@ -64,6 +65,11 @@ abstract class Model
     public function setRuntime($runtime = "CPP")
 	{
 		$this->runtime = $runtime;
+	}
+	
+	public function setProvider($provider = "")
+	{
+		$this->provider = $provider;
 	}
 	
 	public function setModelSavePath($modelSavePath = "./model.json")
@@ -132,7 +138,10 @@ abstract class Model
 		
 		if ($this->runtime == "CPP")
 		{
-			$soPath = realpath(__DIR__ . '/../Runtime/CPP/php2xai_runtime.so');
+			if ($this->provider == "EIGEN")
+				$soPath = realpath(__DIR__ . '/../Runtime/CPP/php2xai_runtime_eigen.so');
+			else
+				$soPath = realpath(__DIR__ . '/../Runtime/CPP/php2xai_runtime.so');
 			
 			if ($soPath === false)
 				throw new \RuntimeException("CPP runtime library not found");
@@ -198,7 +207,11 @@ abstract class Model
 		}
 		
 		// run_train.php
-		$bin = realpath(__DIR__ . '/../Runtime/CPP/php2xai_runtime');          // il tuo eseguibile C++
+		if ($this->provider == "EIGEN")
+			$bin = realpath(__DIR__ . '/../Runtime/CPP/php2xai_runtime_eigen');
+		else
+			$bin = realpath(__DIR__ . '/../Runtime/CPP/php2xai_runtime');
+		
 		$jsonPath = realpath($this->configSavePath);
 		
 		// echo realpath($bin);die();

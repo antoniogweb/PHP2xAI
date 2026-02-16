@@ -12,6 +12,10 @@
 #define PHP2XAI_USE_EIGEN 1
 #endif
 
+#if PHP2XAI_USE_EIGEN
+	#include <Eigen/Dense>
+#endif
+
 namespace PHP2xAI::Runtime::CPP
 {
 	using nlohmann::json;
@@ -175,11 +179,13 @@ namespace PHP2xAI::Runtime::CPP
 		void BACKWARD_ADD_GENERIC_LAST(Tensor &A, Tensor &B, Tensor &C);
 		
 		void MATMUL_2D_2D(Tensor &A, Tensor &B, Tensor &C);
+		void MATMUL_2D_2D_EIGEN(Tensor &A, Tensor &B, Tensor &C);
 		void MATMUL_1B_2D_2D(Tensor &A, Tensor &B, Tensor &C);
 		void MATMUL_2B_2D_2D(Tensor &A, Tensor &B, Tensor &C);
 		void MATMUL_1B_2D_2D_LINEAR(Tensor &A, Tensor &B, Tensor &C);
 		void MATMUL_GENERIC_B_2D_2D_BROADCAST(Tensor &A, Tensor &B, Tensor &C);
 		void BACKWARD_MATMUL_2D_2D(Tensor &A, Tensor &B, Tensor &C);
+		void BACKWARD_MATMUL_2D_2D_EIGEN(Tensor &A, Tensor &B, Tensor &C);
 		void BACKWARD_MATMUL_1B_2D_2D(Tensor &A, Tensor &B, Tensor &C);
 		void BACKWARD_MATMUL_2B_2D_2D(Tensor &A, Tensor &B, Tensor &C);
 		void BACKWARD_MATMUL_1B_2D_2D_LINEAR(Tensor &A, Tensor &B, Tensor &C);
