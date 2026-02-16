@@ -49,7 +49,7 @@ class Tensor
 		$this->name = $name;
 		$this->grad = array_fill(0, count($data), 0.0);
 		
-		$this->strides = $this->computeStrides($shape);
+		$this->strides = self::computeStrides($shape);
 	}
 	
 	public static function createFromData(array $multidimensionalArrayOfData, ?string $name = null) : Tensor
@@ -149,8 +149,41 @@ class Tensor
 		$leftId = $this->registerInContext($context, $this);
 		$rightId = $this->registerInContext($context, $b);
 		
-		$result = self::zeros(array($this->shape[0], $b->shape[1]), 'matmul');
-		$context->registerOp('matmul', [$leftId, $rightId], $result);
+		$thisRank = $this->getRank();
+		$bRank = $b->getRank();
+		
+		if ($thisRank < 2 || $bRank < 2)
+			throw new Exception("Matmul only for rank >= 2");
+		
+		if ($thisRank === 2 && $bRank === 2)
+		{
+			$kernel = "MATMUL_2D_2D";
+			$outputShape = array($this->shape[0], $b->shape[1]);
+		}
+		else if ($thisRank === 3 && $bRank === 3)
+		{
+			$kernel = "MATMUL_1B_2D_2D";
+			$outputShape = array($this->shape[0], $this->shape[1], $b->shape[2]);
+		}
+		else if ($thisRank === 4 && $bRank === 4)
+		{
+			$kernel = "MATMUL_2B_2D_2D";
+			$outputShape = array($this->shape[0], $this->shape[1], $this->shape[2], $b->shape[3]);
+		}
+		else if ($thisRank === 3 && $bRank === 3)
+		{
+			$kernel = "MATMUL_1B_2D_2D_LINEAR";
+			$outputShape = array($this->shape[0], $this->shape[1], $b->shape[1]);
+		}
+		else
+		{
+			$kernel = "MATMUL_GENERIC_B_2D_2D_BROADCAST";
+			$outputShape = $this->shapeReduced(-1);
+			$outputShape[] = $b->shape[count($b->shape)-1];
+		}
+		
+		$result = self::zeros($outputShape, 'matmul');
+		$context->registerOp('matmul', [$leftId, $rightId], $result, array("kernel" => $kernel));
 		
 		return $result;
 	}

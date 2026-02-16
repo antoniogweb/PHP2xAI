@@ -3,6 +3,7 @@
 namespace PHP2xAI\Runtime\PHP\Core;
 
 use RuntimeException;
+use InvalidArgumentException;
 use PHP2xAI\Tensor\Tensor;
 use PHP2xAI\Graph\GraphContext;
 
@@ -299,75 +300,31 @@ class GraphRuntime
 		}
 	}
 	
-	private function opMatmul(int $aId, int $bId, int $outId): void
+	private function opMatmul(int $aId, int $bId, int $outId, array $attributes): void
 	{
 		$A = $this->tensors[$aId];
 		$B = $this->tensors[$bId];
 		$C = $this->tensors[$outId];
 
-		if (count($A->shape) !== 2)
-			throw new RuntimeException('matmul: left operand must be a matrix');
+		$kernel = $attributes["kernel"] ?? "GENERIC_B_2D_2D_MATMUL_BROADCAST";
 		
-		// N: hidden layer dimension
-		// D: number of elements of input tensor
-		// B: number of samples in batch
-		
-		// shapes: A[N, D] * B[D] = C[N]
-		if (count($B->shape) == 1)
+		switch ($kernel)
 		{
-			[$m, $n] = $A->shape;
-			
-			if ($B->shape[0] !== $n)
-				throw new RuntimeException('matmul: dimension mismatch');
-
-			// A[m, n] * B[n] => C[m]
-			$C->shape = [$m];
-			$C->data  = array_fill(0, $m, 0.0);
-			for ($i = 0; $i < $m; $i++)
-			{
-				$sum = 0.0;
-				
-				for ($k = 0; $k < $n; $k++)
-				{
-					$sum += $A->data[$i * $n + $k] * $B->data[$k];
-				}
-				
-				$C->data[$i] = $sum;
-			}
-		}
-		else if (count($B->shape) == 2) // A[B, D] * B[D, N] = C[B, N]
-		{
-			[$batch, $dim] = $A->shape;
-			[$dimB, $outDim] = $B->shape;
-			
-			if ($dim !== $dimB)
-				throw new RuntimeException('matmul: dimension mismatch');
-			
-			// A[B, D] * B[D, N] = C[B, N]
-			$C->shape = [$batch, $outDim];
-			$C->data = array_fill(0, $batch * $outDim, 0.0);
-			
-			for ($b = 0; $b < $batch; $b++)
-			{
-				$aRow = $b * $dim;
-				$cRow = $b * $outDim;
-
-				for ($d = 0; $d < $dim; $d++)
-				{
-					$aVal = $A->data[$aRow + $d];
-					$bRow = $d * $outDim;
-
-					for ($n = 0; $n < $outDim; $n++)
-					{
-						$C->data[$cRow + $n] += $aVal * $B->data[$bRow + $n];
-					}
-				}
-			}
-		}
-		else
-		{
-			// per ora puoi gestire solo matrice * vettore
-			throw new RuntimeException("matmul: caso non implementato");
+			case "MATMUL_2D_2D":
+				$this->MATMUL_2D_2D($A, $B, $C);
+				break;
+			case "MATMUL_1B_2D_2D":
+				$this->MATMUL_1B_2D_2D($A, $B, $C);
+				break;
+			case "MATMUL_2B_2D_2D":
+				$this->MATMUL_2B_2D_2D($A, $B, $C);
+				break;
+			case "MATMUL_1B_2D_2D_LINEAR":
+				$this->MATMUL_1B_2D_2D_LINEAR($A, $B, $C);
+				break;
+			case "MATMUL_GENERIC_B_2D_2D_BROADCAST":
+				$this->MATMUL_GENERIC_B_2D_2D_BROADCAST($A, $B, $C);
+				break;
 		}
 	}
 	
@@ -1128,66 +1085,32 @@ class GraphRuntime
 		}
 	}
 	
-	private function backwardMatmul(int $aId, int $bId, int $outId): void
+	private function backwardMatmul(int $aId, int $bId, int $outId, array $attributes): void
 	{
 		$A = $this->tensors[$aId];
 		$B = $this->tensors[$bId];
 		$C = $this->tensors[$outId];
 
-		// caso A[m, n] * B[n] = C[m]
-		if (count($B->shape) == 1)
+		$kernel = $attributes["kernel"] ?? "GENERIC_B_2D_2D_MATMUL_BROADCAST";
+		
+		switch ($kernel)
 		{
-			[$m, $n] = $A->shape;
-			
-			for ($i = 0; $i < $m; $i++)
-			{
-				$gradC = $C->grad[$i];
-				
-				for ($k = 0; $k < $n; $k++)
-				{
-					$aIdx = $i * $n + $k;
-					// dC[i]/dA[i,k] = B[k]
-					$A->grad[$aIdx] += $gradC * $B->data[$k];
-					// dC[i]/dB[k]   = A[i,k]
-					$B->grad[$k]    += $gradC * $A->data[$aIdx];
-				}
-			}
-			
-			return;
+			case "MATMUL_2D_2D":
+				$this->BACKWARD_MATMUL_2D_2D($A, $B, $C);
+				break;
+			case "MATMUL_1B_2D_2D":
+				$this->BACKWARD_MATMUL_1B_2D_2D($A, $B, $C);
+				break;
+			case "MATMUL_2B_2D_2D":
+				$this->BACKWARD_MATMUL_2B_2D_2D($A, $B, $C);
+				break;
+			case "MATMUL_1B_2D_2D_LINEAR":
+				$this->BACKWARD_MATMUL_1B_2D_2D_LINEAR($A, $B, $C);
+				break;
+			case "MATMUL_GENERIC_B_2D_2D_BROADCAST":
+				$this->BACKWARD_MATMUL_GENERIC_B_2D_2D_BROADCAST($A, $B, $C);
+				break;
 		}
-
-		// caso A[B, D] * B[D, N] = C[B, N]
-		if (count($B->shape) == 2)
-		{
-			[$batch, $dim] = $A->shape;
-			[$dimB, $outDim] = $B->shape;
-			
-			if ($dim !== $dimB)
-				throw new RuntimeException('matmul: dimension mismatch');
-			
-			for ($b = 0; $b < $batch; $b++)
-			{
-				$aRow = $b * $dim;
-				$cRow = $b * $outDim;
-				
-				for ($d = 0; $d < $dim; $d++)
-				{
-					$aVal = $A->data[$aRow + $d];
-					$bRow = $d * $outDim;
-					
-					for ($n = 0; $n < $outDim; $n++)
-					{
-						$gradC = $C->grad[$cRow + $n];
-						$A->grad[$aRow + $d] += $gradC * $B->data[$bRow + $n];
-						$B->grad[$bRow + $n] += $aVal * $gradC;
-					}
-				}
-			}
-			
-			return;
-		}
-
-		throw new RuntimeException("matmul backward: caso non implementato");
 	}
 	
 	private function backwardAdd(int $aId, int $bId, int $outId, array $attributes): void
@@ -1697,6 +1620,120 @@ class GraphRuntime
 		}
 	}
 	
+	// KERNELS MATMUL
+	private function MATMUL_2D_2D(TensorRuntime $A, TensorRuntime $B, TensorRuntime $C)
+	{
+		// N: hidden layer dimension
+		// D: number of elements of input tensor
+		// B: number of samples in batch
+		
+		// A[B, D] * B[D, N] = C[B, N]
+		
+		[$batch, $dim] = $A->shape;
+		[$dimB, $outDim] = $B->shape;
+		
+		if ($dim !== $dimB)
+			throw new RuntimeException('matmul: dimension mismatch');
+		
+		$C->shape = [$batch, $outDim];
+		$C->data = array_fill(0, $batch * $outDim, 0.0);
+		
+		for ($b = 0; $b < $batch; $b++)
+		{
+			$aRow = $b * $dim;
+			$cRow = $b * $outDim;
+
+			for ($d = 0; $d < $dim; $d++)
+			{
+				$aVal = $A->data[$aRow + $d];
+				$bRow = $d * $outDim;
+
+				for ($n = 0; $n < $outDim; $n++)
+				{
+					$C->data[$cRow + $n] += $aVal * $B->data[$bRow + $n];
+				}
+			}
+		}
+	}
+	
+	private function MATMUL_1B_2D_2D(TensorRuntime $A, TensorRuntime $B, TensorRuntime $C)
+	{
+		// N: hidden layer dimension
+		// D: number of elements of input tensor
+		// B: number of samples in batch
+		// T: time dimension
+		
+		// A[B, T, D] * B[B, D, N] = C[B, T, N]
+	}
+	
+	private function MATMUL_2B_2D_2D(TensorRuntime $A, TensorRuntime $B, TensorRuntime $C)
+	{
+		// H: number of attention heads
+		// D: number of elements of input tensor
+		// B: number of samples in batch
+		// T: time dimension
+		
+		// A[B, H, T, D_h] * B[B, H, D_h, T] = C[B, H, T, T]
+	}
+	
+	private function MATMUL_1B_2D_2D_LINEAR(TensorRuntime $A, TensorRuntime $B, TensorRuntime $C)
+	{
+		// A[B, T, D] * B[D, H] = C[B, T, H]
+	}
+	
+	private function MATMUL_GENERIC_B_2D_2D_BROADCAST(TensorRuntime $A, TensorRuntime $B, TensorRuntime $C)
+	{
+		$this->bmmGenericBroadcast($A->data,$A->shape,$A->strides,$B->data,$B->shape,$B->strides,$C->data,$C->shape,$C->strides);
+	}
+	
+	private function BACKWARD_MATMUL_2D_2D(TensorRuntime $A, TensorRuntime $B, TensorRuntime $C)
+	{
+		[$batch, $dim] = $A->shape;
+		[$dimB, $outDim] = $B->shape;
+		
+		if ($dim !== $dimB)
+			throw new RuntimeException('matmul: dimension mismatch');
+		
+		for ($b = 0; $b < $batch; $b++)
+		{
+			$aRow = $b * $dim;
+			$cRow = $b * $outDim;
+			
+			for ($d = 0; $d < $dim; $d++)
+			{
+				$aVal = $A->data[$aRow + $d];
+				$bRow = $d * $outDim;
+				
+				for ($n = 0; $n < $outDim; $n++)
+				{
+					$gradC = $C->grad[$cRow + $n];
+					$A->grad[$aRow + $d] += $gradC * $B->data[$bRow + $n];
+					$B->grad[$bRow + $n] += $aVal * $gradC;
+				}
+			}
+		}
+	}
+	
+	private function BACKWARD_MATMUL_1B_2D_2D(TensorRuntime $A, TensorRuntime $B, TensorRuntime $C)
+	{
+		
+	}
+	
+	private function BACKWARD_MATMUL_2B_2D_2D(TensorRuntime $A, TensorRuntime $B, TensorRuntime $C)
+	{
+		
+	}
+	
+	private function BACKWARD_MATMUL_1B_2D_2D_LINEAR(TensorRuntime $A, TensorRuntime $B, TensorRuntime $C)
+	{
+		
+	}
+	
+	private function BACKWARD_MATMUL_GENERIC_B_2D_2D_BROADCAST(TensorRuntime $A, TensorRuntime $B, TensorRuntime $C)
+	{
+		
+	}
+	
 	// KERNELS REDUCE MEAN
 	private function MEAN_1D_FIRST(TensorRuntime $A, TensorRuntime $out)
 	{
@@ -1962,7 +1999,8 @@ class GraphRuntime
 		$C->shape = $A->shape;
 		$C->data = array_fill(0, array_product($A->shape) ?: 1, 0.0);
 		
-		$BStrides = $this->alignStridesToRank($B->shape, $B->strides, $C->getRank());
+		// $BStrides = $this->alignStridesToRank($B->shape, $B->strides, $C->getRank());
+		list($aa , $BStrides) = $this->alignBatchShapeStrides($B->shape, $B->strides, $C->getRank());
 		
 		$this->addAlongAxisInPlace($C->data,$C->shape,$C->strides,$A->data,$A->strides,$B->data,$BStrides);
 	}
@@ -2039,7 +2077,9 @@ class GraphRuntime
 		if ($B->shape[0] !== $lastDim)
 			throw new RuntimeException('add: dimension mismatch');
 		
-		$BStrides = $this->alignStridesToRank($B->shape, $B->strides, $rank);
+		// $BStrides = $this->alignStridesToRank($B->shape, $B->strides, $rank);
+		list($aa , $BStrides) = $this->alignBatchShapeStrides($B->shape, $B->strides, $C->getRank());
+		
 		$axis = $rank - 1;
 		
 		$this->forEachSliceAlongAxisIncremental(
@@ -2783,37 +2823,194 @@ class GraphRuntime
 		);
 	}
 	
-	// 	Esempio:
-	// 	
-	// 	Z.shape = [B, T, D]
-	// 
-	// 	Y.shape = [D]
-	// 
-	// 	Allineamento a destra (stile NumPy/PyTorch):
-	// 
-	// 	Y aligned shape   = [1, 1, D]
-	// 	Y aligned strides = [0, 0, 1]
-	private function alignStridesToRank
-	(
-		array $shape,
-		array $strides,
-		int $targetRank
-	): array {
-		$rank = count($shape);
-		if ($rank > $targetRank)
-			throw new InvalidArgumentException("rank > targetRank");
+	/**
+	* GENERIC_B_MATMUL_BROADCAST (NO alloc/NO C shape/stride calc):
+	* - $cShape e $cStrides sono già definiti nel grafo
+	* - $cData è già allocato della dimensione corretta (riempito a 0.0 a monte)
+	*
+	* Convenzione matmul standard sugli ultimi 2 indici:
+	*   A: [..., M, K]
+	*   B: [..., K, N]
+	*   C: [..., M, N]
+	*/
+	private function bmmGenericBroadcast(
+		array $aData, array $aShape, array $aStrides,
+		array $bData, array $bShape, array $bStrides,
+		array &$cData, array $cShape, array $cStrides
+	): void {
+		$rankA = count($aShape);
+		$rankB = count($bShape);
+		$rankC = count($cShape);
+		if ($rankA < 2 || $rankB < 2) throw new InvalidArgumentException("A,B need rank>=2");
 
-		$aligned = array_fill(0, $targetRank, 0);
+		// ---- (1) M,K,N ----
+		$M  = $aShape[$rankA - 2];
+		$K  = $aShape[$rankA - 1];
+		$Kb = $bShape[$rankB - 2];
+		$N  = $bShape[$rankB - 1];
+		if ($K !== $Kb) throw new InvalidArgumentException("K mismatch");
 
-		// allinea a destra
-		$offset = $targetRank - $rank;
+		// 2D strides
+		$aStrideM = $aStrides[$rankA - 2];
+		$aStrideK = $aStrides[$rankA - 1];
+		$bStrideK = $bStrides[$rankB - 2];
+		$bStrideN = $bStrides[$rankB - 1];
 
-		for ($i = 0; $i < $rank; $i++)
+		// ---- (2) Batch ranks + checks su C ----
+		$batchRank = max($rankA - 2, $rankB - 2);
+
+		if ($rankC !== $batchRank + 2)
+			throw new InvalidArgumentException("C rank mismatch: expected " . ($batchRank + 2) . ", got $rankC");
+
+		[$aBatchShape, $aBatchStrideEff] = $this->alignBatchShapeStrides($aShape, $aStrides, $batchRank);
+		[$bBatchShape, $bBatchStrideEff] = $this->alignBatchShapeStrides($bShape, $bStrides, $batchRank);
+
+		$outBatchShape = array_fill(0, $batchRank, 1);
+		for ($d = 0; $d < $batchRank; $d++)
 		{
-			// se shape==1 → broadcast → stride 0
-			$aligned[$offset + $i] = ($shape[$i] == 1) ? 0 : $strides[$i];
+			$ad = $aBatchShape[$d];
+			$bd = $bBatchShape[$d];
+			if ($ad !== $bd && $ad !== 1 && $bd !== 1)
+				throw new InvalidArgumentException("batch dim $d not broadcastable ($ad vs $bd)");
+
+			$outBatchShape[$d] = max($ad, $bd);
+
+			if ($cShape[$d] !== $outBatchShape[$d])
+				throw new InvalidArgumentException("C batch shape mismatch at dim $d (expected {$outBatchShape[$d]}, got {$cShape[$d]})");
 		}
 
-		return $aligned;
+		if ($cShape[$batchRank] !== $M || $cShape[$batchRank + 1] !== $N)
+			throw new InvalidArgumentException("C last dims mismatch: expected [$M,$N], got [{$cShape[$batchRank]},{$cShape[$batchRank+1]}]");
+
+		$cCount = 1;
+		foreach ($cShape as $dim) $cCount *= $dim;
+		if (count($cData) !== $cCount)
+			throw new InvalidArgumentException("cData size mismatch: expected $cCount, got " . count($cData));
+
+		$cStrideM = $cStrides[$batchRank + 0];
+		$cStrideN = $cStrides[$batchRank + 1];
+
+		// ---- (3) Iterazione batch via forEachSliceAlongAxisIncremental (dummy tensor) ----
+		$dummyShape = array_merge($outBatchShape, [1]);
+		$dummyStrides = TensorRuntime::computeStrides($dummyShape);
+		$dummyAxis = count($dummyShape) - 1;
+
+		$this->forEachSliceAlongAxisIncremental(
+			$dummyShape,
+			$dummyStrides,
+			$dummyAxis,
+			function(int $baseDummy, int $strideDummyAxis, int $axisLenDummy, array $idxNoAxis) use (
+				$batchRank,
+				$aData, $bData,
+				$aBatchStrideEff, $bBatchStrideEff,
+				$aStrideM, $aStrideK,
+				$bStrideK, $bStrideN,
+				&$cData,
+				$cStrides, $cStrideM, $cStrideN,
+				$M, $K, $N
+			) {
+				$baseA = 0;
+				$baseB = 0;
+				$baseC = 0;
+
+				for ($d = 0; $d < $batchRank; $d++)
+				{
+					$i = $idxNoAxis[$d];
+					$baseA += $i * $aBatchStrideEff[$d];
+					$baseB += $i * $bBatchStrideEff[$d];
+					$baseC += $i * $cStrides[$d];
+				}
+
+				for ($m = 0; $m < $M; $m++)
+				{
+					$aRowBase = $baseA + $m * $aStrideM;
+					$cRowBase = $baseC + $m * $cStrideM;
+
+					for ($n = 0; $n < $N; $n++)
+					{
+						$sum = 0.0;
+
+						$aOff = $aRowBase;
+						$bOff = $baseB + $n * $bStrideN;
+
+						for ($k = 0; $k < $K; $k++)
+						{
+							$sum += (float)$aData[$aOff] * (float)$bData[$bOff];
+							$aOff += $aStrideK;
+							$bOff += $bStrideK;
+						}
+
+						$cData[$cRowBase + $n * $cStrideN] = $sum;
+					}
+				}
+			}
+		);
 	}
+
+	/**
+	* Allinea (a destra) le batch dims (tutte tranne le ultime 2) a un target batchRank.
+	* - Missing dims => shape=1, stride=0
+	* - dims con shape=1 => stride effettivo 0 (broadcast)
+	*
+	* Ritorna: [alignedBatchShape, alignedBatchStridesEff]
+	*/
+	private function alignBatchShapeStrides(array $shape, array $strides, int $targetBatchRank): array
+	{
+		$rank = count($shape);
+		if ($rank < 2) throw new InvalidArgumentException("rank must be >= 2");
+
+		$batchRank = $rank - 2;
+		if ($batchRank > $targetBatchRank)
+			throw new InvalidArgumentException("batchRank > targetBatchRank");
+
+		$alignedShape  = array_fill(0, $targetBatchRank, 1);
+		$alignedStride = array_fill(0, $targetBatchRank, 0);
+
+		$off = $targetBatchRank - $batchRank;
+		for ($i = 0; $i < $batchRank; $i++)
+		{
+			$dim = $shape[$i];
+			$alignedShape[$off + $i]  = $dim;
+			$alignedStride[$off + $i] = ($dim == 1) ? 0 : $strides[$i];
+		}
+
+		return [$alignedShape, $alignedStride];
+	}
+	
+// 	// 	Esempio:
+// 	// 	
+// 	// 	Z.shape = [B, T, D]
+// 	// 
+// 	// 	Y.shape = [D]
+// 	// 
+// 	// 	Allineamento a destra (stile NumPy/PyTorch):
+// 	// 
+// 	// 	Y aligned shape   = [1, 1, D]
+// 	// 	Y aligned strides = [0, 0, 1]
+// 	private function alignStridesToRank
+// 	(
+// 		array $shape,
+// 		array $strides,
+// 		int $targetRank
+// 	): array {
+// 		$rank = count($shape);
+// 		if ($rank > $targetRank)
+// 			throw new InvalidArgumentException("rank > targetRank");
+// 
+// 		$aligned = array_fill(0, $targetRank, 0);
+// 		$alignedShape  = array_fill(0, $targetBatchRank, 1);
+// 		 
+// 		// allinea a destra
+// 		$offset = $targetRank - $rank;
+// 		
+// 		for ($i = 0; $i < $rank; $i++)
+// 		{
+// 			// se shape==1 → broadcast → stride 0
+// 			$dim = $shape[$i];
+// 			$aligned[$offset + $i] = ($dim == 1) ? 0 : $strides[$i];
+// 			$alignedShape[$off + $i]  = $dim;
+// 		}
+// 
+// 		return $aligned;
+// 	}
 }

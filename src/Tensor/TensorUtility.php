@@ -206,7 +206,7 @@ trait TensorUtility
 		return $out;
 	}
 	
-	public function computeStrides(array $shape): array
+	public static function computeStrides(array $shape): array
 	{
 		$rank = count($shape);
 		$strides = array_fill(0, $rank, 0);
