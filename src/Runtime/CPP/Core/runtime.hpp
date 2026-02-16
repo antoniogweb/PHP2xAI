@@ -129,7 +129,7 @@ namespace PHP2xAI::Runtime::CPP
 		std::string graphPath_;
 		json graphDef_;
 
-		void opMatmul(int, int, int);
+		void opMatmul(int, int, int, const std::string &kernel);
 		void opAdd(int aId, int bId, int outId, const std::string &kernel);
 		// void opSub(int, int, int);
 		// void opDot(int, int, int);
@@ -145,7 +145,7 @@ namespace PHP2xAI::Runtime::CPP
 		void opCeLogits(int, int, int);
 		void opCeLogitsLabelInt(int, int, int);
 
-		void backwardMatmul(int, int, int);
+		void backwardMatmul(int, int, int, const std::string &kernel);
 		void backwardAdd(int, int, int, const std::string &kernel);
 		// void backwardSub(int, int, int);
 		// void backwardDot(int, int, int);
@@ -169,6 +169,17 @@ namespace PHP2xAI::Runtime::CPP
 		void BACKWARD_ADD_2D_LAST(Tensor &A, Tensor &B, Tensor &C);
 		void BACKWARD_ADD_3D_LAST(Tensor &A, Tensor &B, Tensor &C);
 		void BACKWARD_ADD_GENERIC_LAST(Tensor &A, Tensor &B, Tensor &C);
+		
+		void MATMUL_2D_2D(Tensor &A, Tensor &B, Tensor &C);
+		void MATMUL_1B_2D_2D(Tensor &A, Tensor &B, Tensor &C);
+		void MATMUL_2B_2D_2D(Tensor &A, Tensor &B, Tensor &C);
+		void MATMUL_1B_2D_2D_LINEAR(Tensor &A, Tensor &B, Tensor &C);
+		void MATMUL_GENERIC_B_2D_2D_BROADCAST(Tensor &A, Tensor &B, Tensor &C);
+		void BACKWARD_MATMUL_2D_2D(Tensor &A, Tensor &B, Tensor &C);
+		void BACKWARD_MATMUL_1B_2D_2D(Tensor &A, Tensor &B, Tensor &C);
+		void BACKWARD_MATMUL_2B_2D_2D(Tensor &A, Tensor &B, Tensor &C);
+		void BACKWARD_MATMUL_1B_2D_2D_LINEAR(Tensor &A, Tensor &B, Tensor &C);
+		void BACKWARD_MATMUL_GENERIC_B_2D_2D_BROADCAST(Tensor &A, Tensor &B, Tensor &C);
 
 		void SOFTMAX_1D_LAST(Tensor &X, Tensor &Y);
 		void SOFTMAX_2D_LAST(Tensor &X, Tensor &Y);
@@ -197,11 +208,6 @@ namespace PHP2xAI::Runtime::CPP
 		static json loadJson(const std::string &path);
 		void loadTensors(const json &graphDef, const json *weightsDef);
 		void loadOps(const json &graphDef);
-
-		std::vector<int> alignStridesToRank(
-			const std::vector<int> &shape,
-			const std::vector<int> &strides,
-			int targetRank) const;
 
 		template <class Callback>
 		void forEachSliceAlongAxisIncremental(

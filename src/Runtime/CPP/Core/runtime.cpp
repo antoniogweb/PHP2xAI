@@ -22,6 +22,275 @@
 
 namespace PHP2xAI::Runtime::CPP
 {
+	namespace
+	{
+		static std::size_t shapeElementCount(const std::vector<int> &shape)
+		{
+			std::size_t count = 1;
+			for (int d : shape)
+				count *= static_cast<std::size_t>(d);
+			return count;
+		}
+
+		static std::pair<std::vector<int>, std::vector<int>> alignBatchShapeStrides(
+			const std::vector<int> &shape,
+			const std::vector<int> &strides,
+			int targetBatchRank)
+		{
+			const int rank = static_cast<int>(shape.size());
+			if (rank > targetBatchRank)
+				throw std::invalid_argument("rank > targetBatchRank");
+
+			std::vector<int> alignedShape(static_cast<std::size_t>(targetBatchRank), 1);
+			std::vector<int> alignedStride(static_cast<std::size_t>(targetBatchRank), 0);
+
+			const int off = targetBatchRank - rank;
+			for (int i = 0; i < rank; ++i)
+			{
+				const int dim = shape[static_cast<std::size_t>(i)];
+				alignedShape[static_cast<std::size_t>(off + i)] = dim;
+				alignedStride[static_cast<std::size_t>(off + i)] =
+					(dim == 1) ? 0 : strides[static_cast<std::size_t>(i)];
+			}
+
+			return {alignedShape, alignedStride};
+		}
+
+		static void bmmGenericBroadcast(
+			const std::vector<Scalar> &aData,
+			const std::vector<int> &aShape,
+			const std::vector<int> &aStrides,
+			const std::vector<Scalar> &bData,
+			const std::vector<int> &bShape,
+			const std::vector<int> &bStrides,
+			std::vector<Scalar> &cData,
+			const std::vector<int> &cShape,
+			const std::vector<int> &cStrides)
+		{
+			const int rankA = static_cast<int>(aShape.size());
+			const int rankB = static_cast<int>(bShape.size());
+			const int rankC = static_cast<int>(cShape.size());
+			if (rankA < 2 || rankB < 2)
+				throw std::invalid_argument("A,B need rank>=2");
+
+			const int M = aShape[static_cast<std::size_t>(rankA - 2)];
+			const int K = aShape[static_cast<std::size_t>(rankA - 1)];
+			const int Kb = bShape[static_cast<std::size_t>(rankB - 2)];
+			const int N = bShape[static_cast<std::size_t>(rankB - 1)];
+			if (K != Kb)
+				throw std::invalid_argument("K mismatch");
+
+			const int aStrideM = aStrides[static_cast<std::size_t>(rankA - 2)];
+			const int aStrideK = aStrides[static_cast<std::size_t>(rankA - 1)];
+			const int bStrideK = bStrides[static_cast<std::size_t>(rankB - 2)];
+			const int bStrideN = bStrides[static_cast<std::size_t>(rankB - 1)];
+
+			const int batchRank = std::max(rankA - 2, rankB - 2);
+
+			if (rankC != batchRank + 2)
+				throw std::invalid_argument("C rank mismatch");
+
+			const std::vector<int> aBatchShapeRaw(aShape.begin(), aShape.end() - 2);
+			const std::vector<int> aBatchStridesRaw(aStrides.begin(), aStrides.end() - 2);
+			const std::vector<int> bBatchShapeRaw(bShape.begin(), bShape.end() - 2);
+			const std::vector<int> bBatchStridesRaw(bStrides.begin(), bStrides.end() - 2);
+
+			const auto [aBatchShape, aBatchStrideEff] = alignBatchShapeStrides(aBatchShapeRaw, aBatchStridesRaw, batchRank);
+			const auto [bBatchShape, bBatchStrideEff] = alignBatchShapeStrides(bBatchShapeRaw, bBatchStridesRaw, batchRank);
+
+			std::vector<int> outBatchShape(static_cast<std::size_t>(batchRank), 1);
+			for (int d = 0; d < batchRank; ++d)
+			{
+				const int ad = aBatchShape[static_cast<std::size_t>(d)];
+				const int bd = bBatchShape[static_cast<std::size_t>(d)];
+				if (ad != bd && ad != 1 && bd != 1)
+					throw std::invalid_argument("batch dim not broadcastable");
+
+				outBatchShape[static_cast<std::size_t>(d)] = std::max(ad, bd);
+
+				if (cShape[static_cast<std::size_t>(d)] != outBatchShape[static_cast<std::size_t>(d)])
+					throw std::invalid_argument("C batch shape mismatch");
+			}
+
+			if (cShape[static_cast<std::size_t>(batchRank)] != M
+				|| cShape[static_cast<std::size_t>(batchRank + 1)] != N)
+				throw std::invalid_argument("C last dims mismatch");
+
+			if (cData.size() != shapeElementCount(cShape))
+				throw std::invalid_argument("cData size mismatch");
+
+			const int cStrideM = cStrides[static_cast<std::size_t>(batchRank)];
+			const int cStrideN = cStrides[static_cast<std::size_t>(batchRank + 1)];
+
+			long long outerCount = 1;
+			for (int d : outBatchShape)
+				outerCount *= d;
+
+			std::vector<int> idx(static_cast<std::size_t>(batchRank), 0);
+
+			for (long long t = 0; t < outerCount; ++t)
+			{
+				int baseA = 0;
+				int baseB = 0;
+				int baseC = 0;
+				for (int d = 0; d < batchRank; ++d)
+				{
+					const int i = idx[static_cast<std::size_t>(d)];
+					baseA += i * aBatchStrideEff[static_cast<std::size_t>(d)];
+					baseB += i * bBatchStrideEff[static_cast<std::size_t>(d)];
+					baseC += i * cStrides[static_cast<std::size_t>(d)];
+				}
+
+				for (int m = 0; m < M; ++m)
+				{
+					const int aRowBase = baseA + m * aStrideM;
+					const int cRowBase = baseC + m * cStrideM;
+
+					for (int n = 0; n < N; ++n)
+					{
+						Scalar sum = 0.0f;
+						int aOff = aRowBase;
+						int bOff = baseB + n * bStrideN;
+
+						for (int k = 0; k < K; ++k)
+						{
+							sum += aData[static_cast<std::size_t>(aOff)] * bData[static_cast<std::size_t>(bOff)];
+							aOff += aStrideK;
+							bOff += bStrideK;
+						}
+
+						cData[static_cast<std::size_t>(cRowBase + n * cStrideN)] = sum;
+					}
+				}
+
+				for (int d = batchRank - 1; d >= 0; --d)
+				{
+					idx[static_cast<std::size_t>(d)]++;
+					if (idx[static_cast<std::size_t>(d)] < outBatchShape[static_cast<std::size_t>(d)])
+						break;
+					idx[static_cast<std::size_t>(d)] = 0;
+				}
+			}
+		}
+
+		static void bmmGenericBroadcastBackward(
+			const std::vector<Scalar> &aData,
+			const std::vector<int> &aShape,
+			const std::vector<int> &aStrides,
+			std::vector<Scalar> &aGrad,
+			const std::vector<Scalar> &bData,
+			const std::vector<int> &bShape,
+			const std::vector<int> &bStrides,
+			std::vector<Scalar> &bGrad,
+			const std::vector<Scalar> &cGrad,
+			const std::vector<int> &cShape,
+			const std::vector<int> &cStrides)
+		{
+			const int rankA = static_cast<int>(aShape.size());
+			const int rankB = static_cast<int>(bShape.size());
+			const int rankC = static_cast<int>(cShape.size());
+			if (rankA < 2 || rankB < 2)
+				throw std::invalid_argument("A,B need rank>=2");
+
+			const int M = aShape[static_cast<std::size_t>(rankA - 2)];
+			const int K = aShape[static_cast<std::size_t>(rankA - 1)];
+			const int Kb = bShape[static_cast<std::size_t>(rankB - 2)];
+			const int N = bShape[static_cast<std::size_t>(rankB - 1)];
+			if (K != Kb)
+				throw std::invalid_argument("K mismatch");
+
+			const int aStrideM = aStrides[static_cast<std::size_t>(rankA - 2)];
+			const int aStrideK = aStrides[static_cast<std::size_t>(rankA - 1)];
+			const int bStrideK = bStrides[static_cast<std::size_t>(rankB - 2)];
+			const int bStrideN = bStrides[static_cast<std::size_t>(rankB - 1)];
+
+			const int batchRank = std::max(rankA - 2, rankB - 2);
+
+			if (rankC != batchRank + 2)
+				throw std::invalid_argument("C rank mismatch");
+
+			const std::vector<int> aBatchShapeRaw(aShape.begin(), aShape.end() - 2);
+			const std::vector<int> aBatchStridesRaw(aStrides.begin(), aStrides.end() - 2);
+			const std::vector<int> bBatchShapeRaw(bShape.begin(), bShape.end() - 2);
+			const std::vector<int> bBatchStridesRaw(bStrides.begin(), bStrides.end() - 2);
+
+			const auto [aBatchShape, aBatchStrideEff] = alignBatchShapeStrides(aBatchShapeRaw, aBatchStridesRaw, batchRank);
+			const auto [bBatchShape, bBatchStrideEff] = alignBatchShapeStrides(bBatchShapeRaw, bBatchStridesRaw, batchRank);
+
+			for (int d = 0; d < batchRank; ++d)
+			{
+				const int ad = aBatchShape[static_cast<std::size_t>(d)];
+				const int bd = bBatchShape[static_cast<std::size_t>(d)];
+				if (ad != bd && ad != 1 && bd != 1)
+					throw std::invalid_argument("batch dim not broadcastable");
+			}
+
+			if (cShape[static_cast<std::size_t>(batchRank)] != M
+				|| cShape[static_cast<std::size_t>(batchRank + 1)] != N)
+				throw std::invalid_argument("C last dims mismatch");
+
+			if (cGrad.size() != shapeElementCount(cShape))
+				throw std::invalid_argument("cGrad size mismatch");
+
+			const int cStrideM = cStrides[static_cast<std::size_t>(batchRank)];
+			const int cStrideN = cStrides[static_cast<std::size_t>(batchRank + 1)];
+
+			std::vector<int> outBatchShape(static_cast<std::size_t>(batchRank), 1);
+			for (int d = 0; d < batchRank; ++d)
+				outBatchShape[static_cast<std::size_t>(d)] = cShape[static_cast<std::size_t>(d)];
+
+			long long outerCount = 1;
+			for (int d : outBatchShape)
+				outerCount *= d;
+
+			std::vector<int> idx(static_cast<std::size_t>(batchRank), 0);
+
+			for (long long t = 0; t < outerCount; ++t)
+			{
+				int baseA = 0;
+				int baseB = 0;
+				int baseC = 0;
+				for (int d = 0; d < batchRank; ++d)
+				{
+					const int i = idx[static_cast<std::size_t>(d)];
+					baseA += i * aBatchStrideEff[static_cast<std::size_t>(d)];
+					baseB += i * bBatchStrideEff[static_cast<std::size_t>(d)];
+					baseC += i * cStrides[static_cast<std::size_t>(d)];
+				}
+
+				for (int m = 0; m < M; ++m)
+				{
+					const int aRowBase = baseA + m * aStrideM;
+					const int cRowBase = baseC + m * cStrideM;
+
+					for (int n = 0; n < N; ++n)
+					{
+						const Scalar gradC = cGrad[static_cast<std::size_t>(cRowBase + n * cStrideN)];
+						const int bColBase = baseB + n * bStrideN;
+
+						int aOff = aRowBase;
+						int bOff = bColBase;
+						for (int k = 0; k < K; ++k)
+						{
+							aGrad[static_cast<std::size_t>(aOff)] += gradC * bData[static_cast<std::size_t>(bOff)];
+							bGrad[static_cast<std::size_t>(bOff)] += aData[static_cast<std::size_t>(aOff)] * gradC;
+							aOff += aStrideK;
+							bOff += bStrideK;
+						}
+					}
+				}
+
+				for (int d = batchRank - 1; d >= 0; --d)
+				{
+					idx[static_cast<std::size_t>(d)]++;
+					if (idx[static_cast<std::size_t>(d)] < outBatchShape[static_cast<std::size_t>(d)])
+						break;
+					idx[static_cast<std::size_t>(d)] = 0;
+				}
+			}
+		}
+	}
+
 	GraphRuntime::GraphRuntime(const json &graphDef, const std::string &weightsPath)
 		: graphDef_(graphDef)
 	{
@@ -56,7 +325,7 @@ namespace PHP2xAI::Runtime::CPP
 			const auto outId = op.output;
 
 			if (name == "matmul")
-				opMatmul(inputs[0], inputs[1], outId);
+				opMatmul(inputs[0], inputs[1], outId, op.kernel);
 			else if (name == "add")
 				opAdd(inputs[0], inputs[1], outId, op.kernel);
 			// else if (name == "sub")
@@ -108,7 +377,7 @@ namespace PHP2xAI::Runtime::CPP
 			auto outId = op.output;
 
 			if (name == "matmul")
-				backwardMatmul(inputs[0], inputs[1], outId);
+				backwardMatmul(inputs[0], inputs[1], outId, op.kernel);
 			else if (name == "add")
 				backwardAdd(inputs[0], inputs[1], outId, op.kernel);
 			// else if (name == "sub")
@@ -285,71 +554,189 @@ namespace PHP2xAI::Runtime::CPP
 		file << jsonArray.dump();
 	}
 
-	// TODO: implement operations; currently stubbed to signal unimplemented functionality.
-	void GraphRuntime::opMatmul(int aId, int bId, int outId)
+	void GraphRuntime::opMatmul(int aId, int bId, int outId, const std::string &kernel)
 	{
 		auto &A = tensors[aId];
 		auto &B = tensors[bId];
 		auto &C = tensors[outId];
 
-		if (A.shape.size() != 2)
-			throw std::runtime_error("matmul: left operand must be a matrix");
+		const std::string kernelName = kernel.empty() ? "MATMUL_GENERIC_B_2D_2D_BROADCAST" : kernel;
 
-		if (B.shape.size() == 1)
+		if (kernelName == "MATMUL_2D_2D")
+			return MATMUL_2D_2D(A, B, C);
+		if (kernelName == "MATMUL_1B_2D_2D")
+			return MATMUL_1B_2D_2D(A, B, C);
+		if (kernelName == "MATMUL_2B_2D_2D")
+			return MATMUL_2B_2D_2D(A, B, C);
+		if (kernelName == "MATMUL_1B_2D_2D_LINEAR")
+			return MATMUL_1B_2D_2D_LINEAR(A, B, C);
+		if (kernelName == "MATMUL_GENERIC_B_2D_2D_BROADCAST")
+			return MATMUL_GENERIC_B_2D_2D_BROADCAST(A, B, C);
+
+		throw std::runtime_error("matmul: kernel not supported");
+	}
+
+	void GraphRuntime::MATMUL_2D_2D(Tensor &A, Tensor &B, Tensor &C)
+	{
+		if (A.shape.size() != 2 || B.shape.size() != 2)
+			throw std::runtime_error("matmul: dimension mismatch");
+
+		const int batch = A.shape[0];
+		const int dim = A.shape[1];
+		const int dimB = B.shape[0];
+		const int outDim = B.shape[1];
+
+		if (dim != dimB)
+			throw std::runtime_error("matmul: dimension mismatch");
+
+		C.shape = {batch, outDim};
+		C.data.assign(static_cast<std::size_t>(batch * outDim), 0.0f);
+
+		for (int b = 0; b < batch; ++b)
 		{
-			const auto m = A.shape[0];
-			const auto n = A.shape[1];
+			const int aRow = b * dim;
+			const int cRow = b * outDim;
 
-			if (B.shape[0] != n)
-				throw std::runtime_error("matmul: dimension mismatch");
-
-			C.shape = {m};
-			C.data.assign(static_cast<std::size_t>(m), 0.0f);
-
-			for (int i = 0; i < m; ++i)
+			for (int d = 0; d < dim; ++d)
 			{
-				Scalar sum = 0.0f;
-
-				for (int k = 0; k < n; ++k)
-					sum += A.data[static_cast<std::size_t>(i * n + k)] * B.data[static_cast<std::size_t>(k)];
-
-				C.data[static_cast<std::size_t>(i)] = sum;
+				const Scalar aVal = A.data[static_cast<std::size_t>(aRow + d)];
+				const int bRow = d * outDim;
+				for (int n = 0; n < outDim; ++n)
+					C.data[static_cast<std::size_t>(cRow + n)] += aVal * B.data[static_cast<std::size_t>(bRow + n)];
 			}
 		}
-		else if (B.shape.size() == 2)
+	}
+
+	void GraphRuntime::MATMUL_1B_2D_2D(Tensor &A, Tensor &B, Tensor &C)
+	{
+		if (A.shape.size() != 3 || B.shape.size() != 3)
+			throw std::runtime_error("matmul: dimension mismatch");
+
+		const int batch = A.shape[0];
+		const int time = A.shape[1];
+		const int dim = A.shape[2];
+		const int batchB = B.shape[0];
+		const int dimB = B.shape[1];
+		const int outDim = B.shape[2];
+
+		if (batch != batchB || dim != dimB)
+			throw std::runtime_error("matmul: dimension mismatch");
+
+		C.shape = {batch, time, outDim};
+		C.data.assign(static_cast<std::size_t>(batch * time * outDim), 0.0f);
+
+		for (int b = 0; b < batch; ++b)
 		{
-			const auto batch = A.shape[0];
-			const auto dim = A.shape[1];
-			const auto dimB = B.shape[0];
-			const auto outDim = B.shape[1];
+			const int aBatch = b * time * dim;
+			const int bBatch = b * dim * outDim;
+			const int cBatch = b * time * outDim;
 
-			if (dim != dimB)
-				throw std::runtime_error("matmul: dimension mismatch");
-
-			C.shape = {batch, outDim};
-			C.data.assign(static_cast<std::size_t>(batch * outDim), 0.0f);
-
-			for (int b = 0; b < batch; ++b)
+			for (int t = 0; t < time; ++t)
 			{
-				const auto aRow = b * dim;
-				const auto cRow = b * outDim;
+				const int aRow = aBatch + t * dim;
+				const int cRow = cBatch + t * outDim;
 
 				for (int d = 0; d < dim; ++d)
 				{
-					Scalar aVal = A.data[static_cast<std::size_t>(aRow + d)];
-					const auto bRow = d * outDim;
-
+					const Scalar aVal = A.data[static_cast<std::size_t>(aRow + d)];
+					const int bRow = bBatch + d * outDim;
 					for (int n = 0; n < outDim; ++n)
-					{
 						C.data[static_cast<std::size_t>(cRow + n)] += aVal * B.data[static_cast<std::size_t>(bRow + n)];
+				}
+			}
+		}
+	}
+
+	void GraphRuntime::MATMUL_2B_2D_2D(Tensor &A, Tensor &B, Tensor &C)
+	{
+		if (A.shape.size() != 4 || B.shape.size() != 4)
+			throw std::runtime_error("matmul: dimension mismatch");
+
+		const int batch = A.shape[0];
+		const int heads = A.shape[1];
+		const int time = A.shape[2];
+		const int dim = A.shape[3];
+		const int batchB = B.shape[0];
+		const int headsB = B.shape[1];
+		const int dimB = B.shape[2];
+		const int outTime = B.shape[3];
+
+		if (batch != batchB || heads != headsB || dim != dimB)
+			throw std::runtime_error("matmul: dimension mismatch");
+
+		C.shape = {batch, heads, time, outTime};
+		C.data.assign(static_cast<std::size_t>(batch * heads * time * outTime), 0.0f);
+
+		for (int b = 0; b < batch; ++b)
+		{
+			const int aBatch = b * heads * time * dim;
+			const int bBatch = b * heads * dim * outTime;
+			const int cBatch = b * heads * time * outTime;
+
+			for (int h = 0; h < heads; ++h)
+			{
+				const int aHead = aBatch + h * time * dim;
+				const int bHead = bBatch + h * dim * outTime;
+				const int cHead = cBatch + h * time * outTime;
+
+				for (int t = 0; t < time; ++t)
+				{
+					const int aRow = aHead + t * dim;
+					const int cRow = cHead + t * outTime;
+
+					for (int d = 0; d < dim; ++d)
+					{
+						const Scalar aVal = A.data[static_cast<std::size_t>(aRow + d)];
+						const int bRow = bHead + d * outTime;
+						for (int n = 0; n < outTime; ++n)
+							C.data[static_cast<std::size_t>(cRow + n)] += aVal * B.data[static_cast<std::size_t>(bRow + n)];
 					}
 				}
 			}
 		}
-		else
+	}
+
+	void GraphRuntime::MATMUL_1B_2D_2D_LINEAR(Tensor &A, Tensor &B, Tensor &C)
+	{
+		if (A.shape.size() != 3 || B.shape.size() != 2)
+			throw std::runtime_error("matmul: dimension mismatch");
+
+		const int batch = A.shape[0];
+		const int time = A.shape[1];
+		const int dim = A.shape[2];
+		const int dimB = B.shape[0];
+		const int hidden = B.shape[1];
+
+		if (dim != dimB)
+			throw std::runtime_error("matmul: dimension mismatch");
+
+		C.shape = {batch, time, hidden};
+		C.data.assign(static_cast<std::size_t>(batch * time * hidden), 0.0f);
+
+		for (int b = 0; b < batch; ++b)
 		{
-			throw std::runtime_error("matmul: caso non implementato");
+			const int aBatch = b * time * dim;
+			const int cBatch = b * time * hidden;
+
+			for (int t = 0; t < time; ++t)
+			{
+				const int aRow = aBatch + t * dim;
+				const int cRow = cBatch + t * hidden;
+
+				for (int d = 0; d < dim; ++d)
+				{
+					const Scalar aVal = A.data[static_cast<std::size_t>(aRow + d)];
+					const int bRow = d * hidden;
+					for (int h = 0; h < hidden; ++h)
+						C.data[static_cast<std::size_t>(cRow + h)] += aVal * B.data[static_cast<std::size_t>(bRow + h)];
+				}
+			}
 		}
+	}
+
+	void GraphRuntime::MATMUL_GENERIC_B_2D_2D_BROADCAST(Tensor &A, Tensor &B, Tensor &C)
+	{
+		bmmGenericBroadcast(A.data, A.shape, A.strides, B.data, B.shape, B.strides, C.data, C.shape, C.strides);
 	}
 
 	void GraphRuntime::opAdd(int aId, int bId, int outId, const std::string &kernel)
@@ -1313,65 +1700,200 @@ namespace PHP2xAI::Runtime::CPP
 			});
 	}
 
-	void GraphRuntime::backwardMatmul(int aId, int bId, int outId)
+	void GraphRuntime::backwardMatmul(int aId, int bId, int outId, const std::string &kernel)
 	{
 		auto &A = tensors[aId];
 		auto &B = tensors[bId];
 		auto &C = tensors[outId];
 
-		if (B.shape.size() == 1)
+		const std::string kernelName = kernel.empty() ? "MATMUL_GENERIC_B_2D_2D_BROADCAST" : kernel;
+
+		if (kernelName == "MATMUL_2D_2D")
+			return BACKWARD_MATMUL_2D_2D(A, B, C);
+		if (kernelName == "MATMUL_1B_2D_2D")
+			return BACKWARD_MATMUL_1B_2D_2D(A, B, C);
+		if (kernelName == "MATMUL_2B_2D_2D")
+			return BACKWARD_MATMUL_2B_2D_2D(A, B, C);
+		if (kernelName == "MATMUL_1B_2D_2D_LINEAR")
+			return BACKWARD_MATMUL_1B_2D_2D_LINEAR(A, B, C);
+		if (kernelName == "MATMUL_GENERIC_B_2D_2D_BROADCAST")
+			return BACKWARD_MATMUL_GENERIC_B_2D_2D_BROADCAST(A, B, C);
+
+		throw std::runtime_error("matmul backward: kernel not supported");
+	}
+
+	void GraphRuntime::BACKWARD_MATMUL_2D_2D(Tensor &A, Tensor &B, Tensor &C)
+	{
+		if (A.shape.size() != 2 || B.shape.size() != 2)
+			throw std::runtime_error("matmul: dimension mismatch");
+
+		const int batch = A.shape[0];
+		const int dim = A.shape[1];
+		const int dimB = B.shape[0];
+		const int outDim = B.shape[1];
+
+		if (dim != dimB)
+			throw std::runtime_error("matmul: dimension mismatch");
+
+		for (int b = 0; b < batch; ++b)
 		{
-			const auto m = A.shape[0];
-			const auto n = A.shape[1];
+			const int aRow = b * dim;
+			const int cRow = b * outDim;
 
-			for (int i = 0; i < m; ++i)
+			for (int d = 0; d < dim; ++d)
 			{
-				Scalar gradC = C.grad[static_cast<std::size_t>(i)];
+				const Scalar aVal = A.data[static_cast<std::size_t>(aRow + d)];
+				const int bRow = d * outDim;
 
-				for (int k = 0; k < n; ++k)
+				for (int n = 0; n < outDim; ++n)
 				{
-					auto aIdx = static_cast<std::size_t>(i * n + k);
-					A.grad[aIdx] += gradC * B.data[static_cast<std::size_t>(k)];
-					B.grad[static_cast<std::size_t>(k)] += gradC * A.data[aIdx];
+					const Scalar gradC = C.grad[static_cast<std::size_t>(cRow + n)];
+					A.grad[static_cast<std::size_t>(aRow + d)] += gradC * B.data[static_cast<std::size_t>(bRow + n)];
+					B.grad[static_cast<std::size_t>(bRow + n)] += aVal * gradC;
 				}
 			}
-
-			return;
 		}
+	}
 
-		if (B.shape.size() == 2)
+	void GraphRuntime::BACKWARD_MATMUL_1B_2D_2D(Tensor &A, Tensor &B, Tensor &C)
+	{
+		if (A.shape.size() != 3 || B.shape.size() != 3)
+			throw std::runtime_error("matmul: dimension mismatch");
+
+		const int batch = A.shape[0];
+		const int time = A.shape[1];
+		const int dim = A.shape[2];
+		const int batchB = B.shape[0];
+		const int dimB = B.shape[1];
+		const int outDim = B.shape[2];
+
+		if (batch != batchB || dim != dimB)
+			throw std::runtime_error("matmul: dimension mismatch");
+
+		for (int b = 0; b < batch; ++b)
 		{
-			const auto batch = A.shape[0];
-			const auto dim = A.shape[1];
-			const auto dimB = B.shape[0];
-			const auto outDim = B.shape[1];
+			const int aBatch = b * time * dim;
+			const int bBatch = b * dim * outDim;
+			const int cBatch = b * time * outDim;
 
-			if (dim != dimB)
-				throw std::runtime_error("matmul: dimension mismatch");
-
-			for (int b = 0; b < batch; ++b)
+			for (int t = 0; t < time; ++t)
 			{
-				const auto aRow = b * dim;
-				const auto cRow = b * outDim;
+				const int aRow = aBatch + t * dim;
+				const int cRow = cBatch + t * outDim;
 
 				for (int d = 0; d < dim; ++d)
 				{
-					Scalar aVal = A.data[static_cast<std::size_t>(aRow + d)];
-					const auto bRow = d * outDim;
+					const Scalar aVal = A.data[static_cast<std::size_t>(aRow + d)];
+					const int bRow = bBatch + d * outDim;
 
 					for (int n = 0; n < outDim; ++n)
 					{
-						Scalar gradC = C.grad[static_cast<std::size_t>(cRow + n)];
+						const Scalar gradC = C.grad[static_cast<std::size_t>(cRow + n)];
 						A.grad[static_cast<std::size_t>(aRow + d)] += gradC * B.data[static_cast<std::size_t>(bRow + n)];
 						B.grad[static_cast<std::size_t>(bRow + n)] += aVal * gradC;
 					}
 				}
 			}
-
-			return;
 		}
+	}
 
-		throw std::runtime_error("matmul backward: caso non implementato");
+	void GraphRuntime::BACKWARD_MATMUL_2B_2D_2D(Tensor &A, Tensor &B, Tensor &C)
+	{
+		if (A.shape.size() != 4 || B.shape.size() != 4)
+			throw std::runtime_error("matmul: dimension mismatch");
+
+		const int batch = A.shape[0];
+		const int heads = A.shape[1];
+		const int time = A.shape[2];
+		const int dim = A.shape[3];
+		const int batchB = B.shape[0];
+		const int headsB = B.shape[1];
+		const int dimB = B.shape[2];
+		const int outTime = B.shape[3];
+
+		if (batch != batchB || heads != headsB || dim != dimB)
+			throw std::runtime_error("matmul: dimension mismatch");
+
+		for (int b = 0; b < batch; ++b)
+		{
+			const int aBatch = b * heads * time * dim;
+			const int bBatch = b * heads * dim * outTime;
+			const int cBatch = b * heads * time * outTime;
+
+			for (int h = 0; h < heads; ++h)
+			{
+				const int aHead = aBatch + h * time * dim;
+				const int bHead = bBatch + h * dim * outTime;
+				const int cHead = cBatch + h * time * outTime;
+
+				for (int t = 0; t < time; ++t)
+				{
+					const int aRow = aHead + t * dim;
+					const int cRow = cHead + t * outTime;
+
+					for (int d = 0; d < dim; ++d)
+					{
+						const Scalar aVal = A.data[static_cast<std::size_t>(aRow + d)];
+						const int bRow = bHead + d * outTime;
+
+						for (int n = 0; n < outTime; ++n)
+						{
+							const Scalar gradC = C.grad[static_cast<std::size_t>(cRow + n)];
+							A.grad[static_cast<std::size_t>(aRow + d)] += gradC * B.data[static_cast<std::size_t>(bRow + n)];
+							B.grad[static_cast<std::size_t>(bRow + n)] += aVal * gradC;
+						}
+					}
+				}
+			}
+		}
+	}
+
+	void GraphRuntime::BACKWARD_MATMUL_1B_2D_2D_LINEAR(Tensor &A, Tensor &B, Tensor &C)
+	{
+		if (A.shape.size() != 3 || B.shape.size() != 2)
+			throw std::runtime_error("matmul: dimension mismatch");
+
+		const int batch = A.shape[0];
+		const int time = A.shape[1];
+		const int dim = A.shape[2];
+		const int dimB = B.shape[0];
+		const int hidden = B.shape[1];
+
+		if (dim != dimB)
+			throw std::runtime_error("matmul: dimension mismatch");
+
+		for (int b = 0; b < batch; ++b)
+		{
+			const int aBatch = b * time * dim;
+			const int cBatch = b * time * hidden;
+
+			for (int t = 0; t < time; ++t)
+			{
+				const int aRow = aBatch + t * dim;
+				const int cRow = cBatch + t * hidden;
+
+				for (int d = 0; d < dim; ++d)
+				{
+					const Scalar aVal = A.data[static_cast<std::size_t>(aRow + d)];
+					const int bRow = d * hidden;
+
+					for (int h = 0; h < hidden; ++h)
+					{
+						const Scalar gradC = C.grad[static_cast<std::size_t>(cRow + h)];
+						A.grad[static_cast<std::size_t>(aRow + d)] += gradC * B.data[static_cast<std::size_t>(bRow + h)];
+						B.grad[static_cast<std::size_t>(bRow + h)] += aVal * gradC;
+					}
+				}
+			}
+		}
+	}
+
+	void GraphRuntime::BACKWARD_MATMUL_GENERIC_B_2D_2D_BROADCAST(Tensor &A, Tensor &B, Tensor &C)
+	{
+		bmmGenericBroadcastBackward(
+			A.data, A.shape, A.strides, A.grad,
+			B.data, B.shape, B.strides, B.grad,
+			C.grad, C.shape, C.strides);
 	}
 
 	void GraphRuntime::backwardAdd(int aId, int bId, int outId, const std::string &kernel)
@@ -1481,7 +2003,7 @@ namespace PHP2xAI::Runtime::CPP
 			std::multiplies<int>());
 		C.data.assign(static_cast<std::size_t>(size == 0 ? 1 : size), 0.0f);
 
-		auto bStrides = alignStridesToRank(B.shape, B.strides, C.getRank());
+		auto bStrides = alignBatchShapeStrides(B.shape, B.strides, C.getRank()).second;
 		addAlongAxisInPlace(C.data, C.shape, C.strides, A.data, A.strides, B.data, bStrides);
 	}
 
@@ -1561,7 +2083,7 @@ namespace PHP2xAI::Runtime::CPP
 		if (B.shape[0] != lastDim)
 			throw std::runtime_error("add: dimension mismatch");
 
-		auto bStrides = alignStridesToRank(B.shape, B.strides, rank);
+		auto bStrides = alignBatchShapeStrides(B.shape, B.strides, rank).second;
 		const int axis = rank - 1;
 
 		forEachSliceAlongAxisIncremental(
@@ -2195,28 +2717,6 @@ namespace PHP2xAI::Runtime::CPP
 			BACKWARD_MEAN_GENERIC_AXIS(A, out, axis);
 		else
 			throw std::runtime_error("Mean backward: kernel not supported");
-	}
-
-	std::vector<int> GraphRuntime::alignStridesToRank(
-		const std::vector<int> &shape,
-		const std::vector<int> &strides,
-		int targetRank) const
-	{
-		const int rank = static_cast<int>(shape.size());
-		if (rank > targetRank)
-			throw std::invalid_argument("rank > targetRank");
-
-		std::vector<int> aligned(static_cast<std::size_t>(targetRank), 0);
-		const int offset = targetRank - rank;
-
-		for (int i = 0; i < rank; ++i)
-		{
-			aligned[static_cast<std::size_t>(offset + i)] = (shape[static_cast<std::size_t>(i)] == 1)
-				? 0
-				: strides[static_cast<std::size_t>(i)];
-		}
-
-		return aligned;
 	}
 
 	template <class Callback>
