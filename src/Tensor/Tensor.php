@@ -159,27 +159,42 @@ class Tensor
 		{
 			$kernel = "MATMUL_2D_2D";
 			$outputShape = array($this->shape[0], $b->shape[1]);
+			
+			if ($this->shape[1] != $b->shape[0])
+				throw new Exception("Matmul dimensions mismatch");
 		}
 		else if ($thisRank === 3 && $bRank === 3)
 		{
 			$kernel = "MATMUL_1B_2D_2D";
 			$outputShape = array($this->shape[0], $this->shape[1], $b->shape[2]);
+			
+			if ($this->shape[2] != $b->shape[2])
+				throw new Exception("Matmul dimensions mismatch");
 		}
 		else if ($thisRank === 4 && $bRank === 4)
 		{
 			$kernel = "MATMUL_2B_2D_2D";
 			$outputShape = array($this->shape[0], $this->shape[1], $this->shape[2], $b->shape[3]);
+			
+			if ($this->shape[3] != $b->shape[3])
+				throw new Exception("Matmul dimensions mismatch");
 		}
 		else if ($thisRank === 3 && $bRank === 3)
 		{
 			$kernel = "MATMUL_1B_2D_2D_LINEAR";
 			$outputShape = array($this->shape[0], $this->shape[1], $b->shape[1]);
+			
+			if ($this->shape[2] != $b->shape[0])
+				throw new Exception("Matmul dimensions mismatch");
 		}
 		else
 		{
 			$kernel = "MATMUL_GENERIC_B_2D_2D_BROADCAST";
 			$outputShape = $this->shapeReduced(-1);
 			$outputShape[] = $b->shape[count($b->shape)-1];
+			
+			if ($this->shape[count($this->shape)-1] != $b->shape[count($this->shape)-2])
+				throw new Exception("Matmul dimensions mismatch");
 		}
 		
 		$result = self::zeros($outputShape, 'matmul');
