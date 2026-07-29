@@ -1,0 +1,10 @@
+/home/tonicucoz/backup/attività/AmazonS3/AI/PHP2xAI/src/Tokenizer/Rust/Trainer/target/release/deps/version_check-5d8fb7e267195d09.d: /home/tonicucoz/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/version_check-0.9.5/src/lib.rs /home/tonicucoz/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/version_check-0.9.5/src/version.rs /home/tonicucoz/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/version_check-0.9.5/src/channel.rs /home/tonicucoz/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/version_check-0.9.5/src/date.rs
+
+/home/tonicucoz/backup/attività/AmazonS3/AI/PHP2xAI/src/Tokenizer/Rust/Trainer/target/release/deps/libversion_check-5d8fb7e267195d09.rlib: /home/tonicucoz/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/version_check-0.9.5/src/lib.rs /home/tonicucoz/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/version_check-0.9.5/src/version.rs /home/tonicucoz/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/version_check-0.9.5/src/channel.rs /home/tonicucoz/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/version_check-0.9.5/src/date.rs
+
+/home/tonicucoz/backup/attività/AmazonS3/AI/PHP2xAI/src/Tokenizer/Rust/Trainer/target/release/deps/libversion_check-5d8fb7e267195d09.rmeta: /home/tonicucoz/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/version_check-0.9.5/src/lib.rs /home/tonicucoz/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/version_check-0.9.5/src/version.rs /home/tonicucoz/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/version_check-0.9.5/src/channel.rs /home/tonicucoz/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/version_check-0.9.5/src/date.rs
+
+/home/tonicucoz/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/version_check-0.9.5/src/lib.rs:
+/home/tonicucoz/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/version_check-0.9.5/src/version.rs:
+/home/tonicucoz/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/version_check-0.9.5/src/channel.rs:
+/home/tonicucoz/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/version_check-0.9.5/src/date.rs:
