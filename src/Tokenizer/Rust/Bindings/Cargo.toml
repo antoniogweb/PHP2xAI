@@ -1,0 +1,17 @@
+[package]
+name = "php2xai-tokenizers"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "tokenizers"
+crate-type = ["cdylib"]
+
+[dependencies]
+tokenizers = { path = "../../../../ThirdParty/tokenizers/tokenizers" }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true 
