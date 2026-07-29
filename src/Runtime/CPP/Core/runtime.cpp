@@ -338,7 +338,7 @@ namespace PHP2xAI::Runtime::CPP
 			else if (name == "softmax_ce_logits")
 				opCeLogits(inputs[0], inputs[1], outId);
 			else if (name == "softmax_ce_logits_label_int")
-				opCeLogitsLabelInt(inputs[0], inputs[1], outId);
+				opCeLogitsLabelInt(inputs[0], inputs[1], outId, op.kernel, op.axes);
 			else
 				throw std::runtime_error("Op not supported: " + name);
 		}
@@ -390,7 +390,7 @@ namespace PHP2xAI::Runtime::CPP
 			else if (name == "softmax_ce_logits")
 				backwardCeLogits(inputs[0], inputs[1], outId);
 			else if (name == "softmax_ce_logits_label_int")
-				backwardCeLogitsLabelInt(inputs[0], inputs[1], outId);
+				backwardCeLogitsLabelInt(inputs[0], inputs[1], outId, op.kernel, op.axes);
 			else
 				throw std::runtime_error("Op not supported: " + name);
 		}
@@ -1370,106 +1370,204 @@ namespace PHP2xAI::Runtime::CPP
 		out.data = {loss};
 	}
 
-	void GraphRuntime::opCeLogitsLabelInt(int logitsId, int targetId, int outId)
+	void GraphRuntime::opCeLogitsLabelInt(int logitsId, int targetId, int outId, const std::string &kernel, const std::vector<int> &axes)
 	{
 		auto &logits = tensors[logitsId];
 		auto &target = tensors[targetId];
 		auto &out = tensors[outId];
 
-		auto classes = logits.data.size();
-
+		const auto classes = logits.data.size();
 		if (classes == 0)
 		{
 			out.shape.clear();
+			out.strides.clear();
 			out.data = {0.0f};
 			return;
 		}
 
-		if (logits.shape.size() == 2)
-		{
-			const auto batch = logits.shape[0];
-			const auto dim = logits.shape[1];
+		const std::string selectedKernel = kernel.empty() ? "CE_LOGITS_LABEL_INT_GENERIC_AXIS" : kernel;
+		const int axis = axes.empty() ? -1 : axes[0];
 
-			if (target.shape.size() != 1 || target.shape[0] != batch)
-				throw std::runtime_error("CE logits label int: dimension mismatch");
+		if (selectedKernel == "CE_LOGITS_LABEL_INT_1D_LAST")
+			return CE_LOGITS_LABEL_INT_1D_LAST(logits, target, out);
+		if (selectedKernel == "CE_LOGITS_LABEL_INT_2D_LAST")
+			return CE_LOGITS_LABEL_INT_2D_LAST(logits, target, out);
+		if (selectedKernel == "CE_LOGITS_LABEL_INT_3D_LAST")
+			return CE_LOGITS_LABEL_INT_3D_LAST(logits, target, out);
+		if (selectedKernel == "CE_LOGITS_LABEL_INT_GENERIC_AXIS")
+			return CE_LOGITS_LABEL_INT_GENERIC_AXIS(logits, target, out, axis);
 
-			out.shape = {batch};
-			out.data.assign(static_cast<std::size_t>(batch), 0.0f);
+		throw std::runtime_error("CE logits label int: kernel not supported");
+	}
 
-			const Scalar eps = 1.0e-12f;
+	void GraphRuntime::CE_LOGITS_LABEL_INT_1D_LAST(Tensor &logits, Tensor &target, Tensor &out)
+	{
+		if (logits.shape.size() != 1)
+			throw std::runtime_error("CE logits label int 1D: dimension mismatch");
 
-			for (int b = 0; b < batch; ++b)
-			{
-				const auto rowStart = b * dim;
-				Scalar labelInt = target.data[static_cast<std::size_t>(b)];
-				Scalar maxVal = logits.data[static_cast<std::size_t>(rowStart)];
-
-				for (int i = 1; i < dim; ++i)
-				{
-					Scalar val = logits.data[static_cast<std::size_t>(rowStart + i)];
-					if (val > maxVal)
-						maxVal = val;
-				}
-
-				std::vector<Scalar> probs(static_cast<std::size_t>(dim), 0.0f);
-				Scalar sumExp = 0.0f;
-
-				for (int i = 0; i < dim; ++i)
-				{
-					Scalar expVal = std::exp(logits.data[static_cast<std::size_t>(rowStart + i)] - maxVal);
-					probs[static_cast<std::size_t>(i)] = expVal;
-					sumExp += expVal;
-				}
-
-				Scalar invSum = sumExp > 0.0f ? 1.0f / sumExp : 0.0f;
-				for (int i = 0; i < dim; ++i)
-					probs[static_cast<std::size_t>(i)] *= invSum;
-
-				Scalar loss = 0.0f;
-
-				for (int i = 0; i < dim; ++i)
-				{
-					if (i == static_cast<int>(labelInt))
-						loss += -1.0f * std::log(probs[static_cast<std::size_t>(i)] + eps);
-				}
-
-				out.data[static_cast<std::size_t>(b)] = loss;
-			}
-
-			return;
-		}
-
+		const auto classes = logits.data.size();
 		out.shape.clear();
+		out.strides.clear();
+
 		Scalar maxVal = logits.data[0];
-		Scalar labelInt = target.data.empty() ? 0.0f : target.data[0];
+		const int labelInt = target.data.empty() ? 0 : static_cast<int>(target.data[0]);
 
 		for (std::size_t i = 1; i < classes; ++i)
 			if (logits.data[i] > maxVal)
 				maxVal = logits.data[i];
 
-		std::vector<Scalar> probs(classes, 0.0f);
 		Scalar sumExp = 0.0f;
 		for (std::size_t i = 0; i < classes; ++i)
+			sumExp += std::exp(logits.data[i] - maxVal);
+
+		out.data = {std::log(sumExp) + maxVal - logits.data[static_cast<std::size_t>(labelInt)]};
+	}
+
+	void GraphRuntime::CE_LOGITS_LABEL_INT_2D_LAST(Tensor &logits, Tensor &target, Tensor &out)
+	{
+		if (logits.shape.size() != 2)
+			throw std::runtime_error("CE logits label int 2D: dimension mismatch");
+
+		const int batch = logits.shape[0];
+		const int dim = logits.shape[1];
+
+		if (target.shape.size() != 1 || target.shape[0] != batch)
+			throw std::runtime_error("CE logits label int: dimension mismatch");
+
+		out.shape = {batch};
+		out.strides = Tensor::computeStrides(out.shape);
+		out.data.assign(static_cast<std::size_t>(batch), 0.0f);
+
+		for (int b = 0; b < batch; ++b)
 		{
-			Scalar expVal = std::exp(logits.data[i] - maxVal);
-			probs[i] = expVal;
-			sumExp += expVal;
+			const int rowStart = b * dim;
+			const int labelInt = static_cast<int>(target.data[static_cast<std::size_t>(b)]);
+			Scalar maxVal = logits.data[static_cast<std::size_t>(rowStart)];
+
+			for (int i = 1; i < dim; ++i)
+			{
+				const Scalar val = logits.data[static_cast<std::size_t>(rowStart + i)];
+				if (val > maxVal)
+					maxVal = val;
+			}
+
+			Scalar sumExp = 0.0f;
+			for (int i = 0; i < dim; ++i)
+				sumExp += std::exp(logits.data[static_cast<std::size_t>(rowStart + i)] - maxVal);
+
+			out.data[static_cast<std::size_t>(b)] =
+				std::log(sumExp) + maxVal - logits.data[static_cast<std::size_t>(rowStart + labelInt)];
 		}
+	}
 
-		Scalar invSum = sumExp > 0.0f ? 1.0f / sumExp : 0.0f;
-		for (std::size_t i = 0; i < classes; ++i)
-			probs[i] *= invSum;
+	void GraphRuntime::CE_LOGITS_LABEL_INT_3D_LAST(Tensor &logits, Tensor &target, Tensor &out)
+	{
+		if (logits.shape.size() != 3)
+			throw std::runtime_error("CE logits label int 3D: dimension mismatch");
 
-		Scalar loss = 0.0f;
-		const Scalar eps = 1.0e-12f;
+		const int batch = logits.shape[0];
+		const int steps = logits.shape[1];
+		const int dim = logits.shape[2];
 
-		for (std::size_t i = 0; i < classes; ++i)
+		if (target.shape.size() != 2 || target.shape[0] != batch || target.shape[1] != steps)
+			throw std::runtime_error("CE logits label int 3D: dimension mismatch");
+
+		out.shape = {batch, steps};
+		out.strides = Tensor::computeStrides(out.shape);
+		out.data.assign(static_cast<std::size_t>(batch * steps), 0.0f);
+
+		for (int b = 0; b < batch; ++b)
 		{
-			if (static_cast<int>(i) == static_cast<int>(labelInt))
-				loss += -1.0f * std::log(probs[i] + eps);
-		}
+			const int batchBase = b * steps * dim;
+			const int outBase = b * steps;
 
-		out.data = {loss};
+			for (int t = 0; t < steps; ++t)
+			{
+				const int rowStart = batchBase + t * dim;
+				const int outPos = outBase + t;
+				const int labelInt = static_cast<int>(target.data[static_cast<std::size_t>(outPos)]);
+				Scalar maxVal = logits.data[static_cast<std::size_t>(rowStart)];
+
+				for (int i = 1; i < dim; ++i)
+				{
+					const Scalar val = logits.data[static_cast<std::size_t>(rowStart + i)];
+					if (val > maxVal)
+						maxVal = val;
+				}
+
+				Scalar sumExp = 0.0f;
+				for (int i = 0; i < dim; ++i)
+					sumExp += std::exp(logits.data[static_cast<std::size_t>(rowStart + i)] - maxVal);
+
+				out.data[static_cast<std::size_t>(outPos)] =
+					std::log(sumExp) + maxVal - logits.data[static_cast<std::size_t>(rowStart + labelInt)];
+			}
+		}
+	}
+
+	void GraphRuntime::CE_LOGITS_LABEL_INT_GENERIC_AXIS(Tensor &logits, Tensor &target, Tensor &out, int axis)
+	{
+		const int rank = static_cast<int>(logits.shape.size());
+		if (rank == 0)
+			throw std::runtime_error("CE logits label int: logits rank must be >= 1");
+
+		int axisNorm = axis < 0 ? axis + rank : axis;
+		if (axisNorm < 0 || axisNorm >= rank)
+			throw std::invalid_argument("axis out of range");
+
+		std::vector<int> expectedTargetShape = logits.shape;
+		expectedTargetShape.erase(expectedTargetShape.begin() + axisNorm);
+
+		if (target.shape != expectedTargetShape)
+			throw std::runtime_error("CE logits label int: dimension mismatch");
+
+		out.shape = expectedTargetShape;
+		out.strides = Tensor::computeStrides(out.shape);
+		out.data.assign(shapeElementCount(out.shape), 0.0f);
+
+		std::size_t outPos = 0;
+		forEachSliceAlongAxisIncremental(
+			logits.shape,
+			logits.strides,
+			axis,
+			[&](int base, int strideAxis, int axisLen, const std::vector<int> &idxNoAxis)
+			{
+				int targetBase = 0;
+				int targetDim = 0;
+
+				for (int d = 0; d < rank; ++d)
+				{
+					if (d == axisNorm)
+						continue;
+
+					targetBase += idxNoAxis[static_cast<std::size_t>(d)]
+						* target.strides[static_cast<std::size_t>(targetDim)];
+					++targetDim;
+				}
+
+				const int labelInt = static_cast<int>(target.data[static_cast<std::size_t>(targetBase)]);
+				Scalar maxVal = logits.data[static_cast<std::size_t>(base)];
+				int off = base + strideAxis;
+
+				for (int i = 1; i < axisLen; ++i)
+				{
+					const Scalar val = logits.data[static_cast<std::size_t>(off)];
+					if (val > maxVal)
+						maxVal = val;
+					off += strideAxis;
+				}
+
+				Scalar sumExp = 0.0f;
+				off = base;
+				for (int i = 0; i < axisLen; ++i)
+				{
+					sumExp += std::exp(logits.data[static_cast<std::size_t>(off)] - maxVal);
+					off += strideAxis;
+				}
+
+				out.data[outPos++] = std::log(sumExp) + maxVal
+					- logits.data[static_cast<std::size_t>(base + labelInt * strideAxis)];
+			});
 	}
 
 	void GraphRuntime::opMean(int aId, int outId, const std::string &kernel, const std::vector<int> &axes)
@@ -2664,98 +2762,226 @@ namespace PHP2xAI::Runtime::CPP
 		}
 	}
 
-	void GraphRuntime::backwardCeLogitsLabelInt(int logitsId, int targetId, int outId)
+	void GraphRuntime::backwardCeLogitsLabelInt(int logitsId, int targetId, int outId, const std::string &kernel, const std::vector<int> &axes)
 	{
 		auto &logits = tensors[logitsId];
 		auto &target = tensors[targetId];
 		auto &out = tensors[outId];
 
-		auto classes = logits.data.size();
-		if (classes == 0)
+		if (logits.data.empty())
 			return;
 
-		if (logits.shape.size() == 2)
-		{
-			const auto batch = logits.shape[0];
-			const auto dim = logits.shape[1];
+		const std::string selectedKernel = kernel.empty() ? "CE_LOGITS_LABEL_INT_GENERIC_AXIS" : kernel;
+		const int axis = axes.empty() ? -1 : axes[0];
 
-			if (target.shape.size() != 1 || target.shape[0] != batch)
-				throw std::runtime_error("CE logits label int backward: dimension mismatch");
+		if (selectedKernel == "CE_LOGITS_LABEL_INT_1D_LAST")
+			return BACKWORD_CE_LOGITS_LABEL_INT_1D_LAST(logits, target, out);
+		if (selectedKernel == "CE_LOGITS_LABEL_INT_2D_LAST")
+			return BACKWORD_CE_LOGITS_LABEL_INT_2D_LAST(logits, target, out);
+		if (selectedKernel == "CE_LOGITS_LABEL_INT_3D_LAST")
+			return BACKWORD_CE_LOGITS_LABEL_INT_3D_LAST(logits, target, out);
+		if (selectedKernel == "CE_LOGITS_LABEL_INT_GENERIC_AXIS")
+			return BACKWORD_CE_LOGITS_LABEL_INT_GENERIC_AXIS(logits, target, out, axis);
 
-			for (int b = 0; b < batch; ++b)
-			{
-				const auto rowStart = b * dim;
-				Scalar labelInt = target.data[static_cast<std::size_t>(b)];
-				Scalar maxVal = logits.data[static_cast<std::size_t>(rowStart)];
+		throw std::runtime_error("CE logits label int backward: kernel not supported");
+	}
 
-				for (int i = 1; i < dim; ++i)
-				{
-					Scalar val = logits.data[static_cast<std::size_t>(rowStart + i)];
-					if (val > maxVal)
-						maxVal = val;
-				}
+	void GraphRuntime::BACKWORD_CE_LOGITS_LABEL_INT_1D_LAST(Tensor &logits, Tensor &target, Tensor &out)
+	{
+		if (logits.shape.size() != 1)
+			throw std::runtime_error("CE logits label int 1D backward: dimension mismatch");
 
-				std::vector<Scalar> probs(static_cast<std::size_t>(dim), 0.0f);
-				Scalar sumExp = 0.0f;
-
-				for (int i = 0; i < dim; ++i)
-				{
-					Scalar expVal = std::exp(logits.data[static_cast<std::size_t>(rowStart + i)] - maxVal);
-					probs[static_cast<std::size_t>(i)] = expVal;
-					sumExp += expVal;
-				}
-
-				Scalar invSum = sumExp > 0.0f ? 1.0f / sumExp : 0.0f;
-				for (int i = 0; i < dim; ++i)
-					probs[static_cast<std::size_t>(i)] *= invSum;
-
-				Scalar gradOut = (static_cast<std::size_t>(b) < out.grad.size()) ? out.grad[static_cast<std::size_t>(b)] : 0.0f;
-				Scalar scale = gradOut;
-
-				for (int i = 0; i < dim; ++i)
-				{
-					if (i == static_cast<int>(labelInt))
-						logits.grad[static_cast<std::size_t>(rowStart + i)] += scale * (probs[static_cast<std::size_t>(i)] - 1.0f);
-					else
-						logits.grad[static_cast<std::size_t>(rowStart + i)] += scale * (probs[static_cast<std::size_t>(i)]);
-				}
-			}
-
-			return;
-		}
-
-		Scalar gradOut = out.grad.empty() ? 0.0f : out.grad[0];
+		const auto classes = logits.data.size();
+		const Scalar scale = out.grad.empty() ? 0.0f : out.grad[0];
+		const int labelInt = target.data.empty() ? 0 : static_cast<int>(target.data[0]);
 		Scalar maxVal = logits.data[0];
-		Scalar labelInt = target.data.empty() ? 0.0f : target.data[0];
 
 		for (std::size_t i = 1; i < classes; ++i)
 			if (logits.data[i] > maxVal)
 				maxVal = logits.data[i];
 
-		std::vector<Scalar> probs(classes, 0.0f);
 		Scalar sumExp = 0.0f;
 		for (std::size_t i = 0; i < classes; ++i)
+			sumExp += std::exp(logits.data[i] - maxVal);
+
+		const Scalar invSum = sumExp > 0.0f ? 1.0f / sumExp : 0.0f;
+		for (std::size_t i = 0; i < classes; ++i)
 		{
-			Scalar expVal = std::exp(logits.data[i] - maxVal);
-			probs[i] = expVal;
-			sumExp += expVal;
+			Scalar prob = std::exp(logits.data[i] - maxVal) * invSum;
+			if (static_cast<int>(i) == labelInt)
+				prob -= 1.0f;
+
+			logits.grad[i] += scale * prob;
 		}
+	}
 
-		Scalar invSum = sumExp > 0.0f ? 1.0f / sumExp : 0.0f;
-		for (std::size_t i = 0; i < classes; ++i)
-			probs[i] *= invSum;
+	void GraphRuntime::BACKWORD_CE_LOGITS_LABEL_INT_2D_LAST(Tensor &logits, Tensor &target, Tensor &out)
+	{
+		if (logits.shape.size() != 2)
+			throw std::runtime_error("CE logits label int 2D backward: dimension mismatch");
 
-		Scalar scale = gradOut;
+		const int batch = logits.shape[0];
+		const int dim = logits.shape[1];
 
-		for (std::size_t i = 0; i < classes; ++i)
+		if (target.shape.size() != 1 || target.shape[0] != batch)
+			throw std::runtime_error("CE logits label int backward: dimension mismatch");
+
+		for (int b = 0; b < batch; ++b)
 		{
-			if (static_cast<int>(i) == static_cast<int>(labelInt))
+			const int rowStart = b * dim;
+			const int labelInt = static_cast<int>(target.data[static_cast<std::size_t>(b)]);
+			Scalar maxVal = logits.data[static_cast<std::size_t>(rowStart)];
+
+			for (int i = 1; i < dim; ++i)
 			{
-				logits.grad[i] += scale * (probs[i] - 1.0f);
+				const Scalar val = logits.data[static_cast<std::size_t>(rowStart + i)];
+				if (val > maxVal)
+					maxVal = val;
 			}
-			else
-				logits.grad[i] += scale * (probs[i]);
+
+			Scalar sumExp = 0.0f;
+			for (int i = 0; i < dim; ++i)
+				sumExp += std::exp(logits.data[static_cast<std::size_t>(rowStart + i)] - maxVal);
+
+			const Scalar invSum = sumExp > 0.0f ? 1.0f / sumExp : 0.0f;
+			const Scalar scale = static_cast<std::size_t>(b) < out.grad.size()
+				? out.grad[static_cast<std::size_t>(b)]
+				: 0.0f;
+
+			for (int i = 0; i < dim; ++i)
+			{
+				Scalar prob = std::exp(logits.data[static_cast<std::size_t>(rowStart + i)] - maxVal) * invSum;
+				if (i == labelInt)
+					prob -= 1.0f;
+
+				logits.grad[static_cast<std::size_t>(rowStart + i)] += scale * prob;
+			}
 		}
+	}
+
+	void GraphRuntime::BACKWORD_CE_LOGITS_LABEL_INT_3D_LAST(Tensor &logits, Tensor &target, Tensor &out)
+	{
+		if (logits.shape.size() != 3)
+			throw std::runtime_error("CE logits label int 3D backward: dimension mismatch");
+
+		const int batch = logits.shape[0];
+		const int steps = logits.shape[1];
+		const int dim = logits.shape[2];
+
+		if (target.shape.size() != 2 || target.shape[0] != batch || target.shape[1] != steps)
+			throw std::runtime_error("CE logits label int 3D backward: dimension mismatch");
+
+		for (int b = 0; b < batch; ++b)
+		{
+			const int batchBase = b * steps * dim;
+			const int outBase = b * steps;
+
+			for (int t = 0; t < steps; ++t)
+			{
+				const int rowStart = batchBase + t * dim;
+				const int outPos = outBase + t;
+				const int labelInt = static_cast<int>(target.data[static_cast<std::size_t>(outPos)]);
+				Scalar maxVal = logits.data[static_cast<std::size_t>(rowStart)];
+
+				for (int i = 1; i < dim; ++i)
+				{
+					const Scalar val = logits.data[static_cast<std::size_t>(rowStart + i)];
+					if (val > maxVal)
+						maxVal = val;
+				}
+
+				Scalar sumExp = 0.0f;
+				for (int i = 0; i < dim; ++i)
+					sumExp += std::exp(logits.data[static_cast<std::size_t>(rowStart + i)] - maxVal);
+
+				const Scalar invSum = sumExp > 0.0f ? 1.0f / sumExp : 0.0f;
+				const Scalar scale = static_cast<std::size_t>(outPos) < out.grad.size()
+					? out.grad[static_cast<std::size_t>(outPos)]
+					: 0.0f;
+
+				for (int i = 0; i < dim; ++i)
+				{
+					Scalar prob = std::exp(logits.data[static_cast<std::size_t>(rowStart + i)] - maxVal) * invSum;
+					if (i == labelInt)
+						prob -= 1.0f;
+
+					logits.grad[static_cast<std::size_t>(rowStart + i)] += scale * prob;
+				}
+			}
+		}
+	}
+
+	void GraphRuntime::BACKWORD_CE_LOGITS_LABEL_INT_GENERIC_AXIS(Tensor &logits, Tensor &target, Tensor &out, int axis)
+	{
+		const int rank = static_cast<int>(logits.shape.size());
+		if (rank == 0)
+			throw std::runtime_error("CE logits label int backward: logits rank must be >= 1");
+
+		int axisNorm = axis < 0 ? axis + rank : axis;
+		if (axisNorm < 0 || axisNorm >= rank)
+			throw std::invalid_argument("axis out of range");
+
+		std::vector<int> expectedTargetShape = logits.shape;
+		expectedTargetShape.erase(expectedTargetShape.begin() + axisNorm);
+
+		if (target.shape != expectedTargetShape)
+			throw std::runtime_error("CE logits label int backward: dimension mismatch");
+
+		std::size_t outPos = 0;
+		forEachSliceAlongAxisIncremental(
+			logits.shape,
+			logits.strides,
+			axis,
+			[&](int base, int strideAxis, int axisLen, const std::vector<int> &idxNoAxis)
+			{
+				int targetBase = 0;
+				int targetDim = 0;
+
+				for (int d = 0; d < rank; ++d)
+				{
+					if (d == axisNorm)
+						continue;
+
+					targetBase += idxNoAxis[static_cast<std::size_t>(d)]
+						* target.strides[static_cast<std::size_t>(targetDim)];
+					++targetDim;
+				}
+
+				const int labelInt = static_cast<int>(target.data[static_cast<std::size_t>(targetBase)]);
+				Scalar maxVal = logits.data[static_cast<std::size_t>(base)];
+				int off = base + strideAxis;
+
+				for (int i = 1; i < axisLen; ++i)
+				{
+					const Scalar val = logits.data[static_cast<std::size_t>(off)];
+					if (val > maxVal)
+						maxVal = val;
+					off += strideAxis;
+				}
+
+				Scalar sumExp = 0.0f;
+				off = base;
+				for (int i = 0; i < axisLen; ++i)
+				{
+					sumExp += std::exp(logits.data[static_cast<std::size_t>(off)] - maxVal);
+					off += strideAxis;
+				}
+
+				const Scalar invSum = sumExp > 0.0f ? 1.0f / sumExp : 0.0f;
+				const Scalar scale = outPos < out.grad.size() ? out.grad[outPos] : 0.0f;
+				++outPos;
+
+				off = base;
+				for (int i = 0; i < axisLen; ++i)
+				{
+					Scalar prob = std::exp(logits.data[static_cast<std::size_t>(off)] - maxVal) * invSum;
+					if (i == labelInt)
+						prob -= 1.0f;
+
+					logits.grad[static_cast<std::size_t>(off)] += scale * prob;
+					off += strideAxis;
+				}
+			});
 	}
 
 	void GraphRuntime::backwardMean(int aId, int outId, const std::string &kernel, const std::vector<int> &axes)

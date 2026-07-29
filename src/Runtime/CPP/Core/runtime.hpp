@@ -151,7 +151,7 @@ namespace PHP2xAI::Runtime::CPP
 		void opSoftmax(int, int, const std::string &kernel, const std::vector<int> &axes);
 		void opCe(int, int, int);
 		void opCeLogits(int, int, int);
-		void opCeLogitsLabelInt(int, int, int);
+		void opCeLogitsLabelInt(int, int, int, const std::string &kernel, const std::vector<int> &axes);
 
 		void backwardMatmul(int, int, int, const std::string &kernel);
 		void backwardAdd(int, int, int, const std::string &kernel);
@@ -167,7 +167,7 @@ namespace PHP2xAI::Runtime::CPP
 		void backwardSoftmax(int, int, const std::string &kernel, const std::vector<int> &axes);
 		void backwardCe(int, int, int);
 		void backwardCeLogits(int, int, int);
-		void backwardCeLogitsLabelInt(int, int, int);
+		void backwardCeLogitsLabelInt(int, int, int, const std::string &kernel, const std::vector<int> &axes);
 
 		void ADD_1D_LAST(Tensor &A, Tensor &B, Tensor &C);
 		void ADD_2D_LAST(Tensor &A, Tensor &B, Tensor &C);
@@ -199,6 +199,15 @@ namespace PHP2xAI::Runtime::CPP
 		void BACKWORD_SOFTMAX_2D_LAST(Tensor &X, Tensor &Y);
 		void BACKWORD_SOFTMAX_3D_LAST(Tensor &X, Tensor &Y);
 		void BACKWORD_SOFTMAX_GENERIC_AXIS(Tensor &X, Tensor &Y, int axis);
+
+		void CE_LOGITS_LABEL_INT_1D_LAST(Tensor &logits, Tensor &target, Tensor &out);
+		void CE_LOGITS_LABEL_INT_2D_LAST(Tensor &logits, Tensor &target, Tensor &out);
+		void CE_LOGITS_LABEL_INT_3D_LAST(Tensor &logits, Tensor &target, Tensor &out);
+		void CE_LOGITS_LABEL_INT_GENERIC_AXIS(Tensor &logits, Tensor &target, Tensor &out, int axis);
+		void BACKWORD_CE_LOGITS_LABEL_INT_1D_LAST(Tensor &logits, Tensor &target, Tensor &out);
+		void BACKWORD_CE_LOGITS_LABEL_INT_2D_LAST(Tensor &logits, Tensor &target, Tensor &out);
+		void BACKWORD_CE_LOGITS_LABEL_INT_3D_LAST(Tensor &logits, Tensor &target, Tensor &out);
+		void BACKWORD_CE_LOGITS_LABEL_INT_GENERIC_AXIS(Tensor &logits, Tensor &target, Tensor &out, int axis);
 		
 		void MEAN_1D_FIRST(Tensor &A, Tensor &out);
 		void MEAN_2D_FIRST(Tensor &A, Tensor &out);
