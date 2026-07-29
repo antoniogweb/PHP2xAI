@@ -377,7 +377,7 @@ class Tensor
 			"axes"		=>	array($axis),
 		);
 		
-		$result = self::zeros($this->shapeReduced(-1), 'CELogitsLabelInt');
+		$result = self::zeros($this->shapeReduced($axis), 'CELogitsLabelInt');
 		$context->registerOp('softmax_ce_logits_label_int', [$logitsId, $targetId], $result, $attributes);
 		
 		return $result;
