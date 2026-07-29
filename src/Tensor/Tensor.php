@@ -357,14 +357,28 @@ class Tensor
 		return $result;
     }
     
-    public function CELogitsLabelInt(Tensor $target) : Tensor
+    public function CELogitsLabelInt(Tensor $target, int $axis = -1) : Tensor
     {
 		$context = $this->initContextFrom($target);
 		$logitsId = $this->registerInContext($context, $this);
 		$targetId = $this->registerInContext($context, $target);
 		
+		if (count($this->shape) === 1)
+			$kernel = "CE_LOGITS_LABEL_INT_1D_LAST";
+		else if (count($this->shape) === 2 && $axis === -1)
+			$kernel = "CE_LOGITS_LABEL_INT_2D_LAST";
+		else if (count($this->shape) === 3 && $axis === -1)
+			$kernel = "CE_LOGITS_LABEL_INT_3D_LAST";
+		else
+			$kernel = "CE_LOGITS_LABEL_INT_GENERIC_AXIS";
+		
+		$attributes = array(
+			"kernel"	=>	$kernel,
+			"axes"		=>	array($axis),
+		);
+		
 		$result = self::zeros($this->shapeReduced(-1), 'CELogitsLabelInt');
-		$context->registerOp('softmax_ce_logits_label_int', [$logitsId, $targetId], $result);
+		$context->registerOp('softmax_ce_logits_label_int', [$logitsId, $targetId], $result, $attributes);
 		
 		return $result;
     }
