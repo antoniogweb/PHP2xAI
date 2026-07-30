@@ -85,6 +85,27 @@ class Tokenizer
 	}
 
 	/**
+	 * @return int[]
+	 */
+	public function encodeFixed(
+		string $text,
+		int $length,
+		bool $addSpecialTokens = true,
+		int $padTokenId = 0
+	): array
+	{
+		if ($length < 0)
+			throw new RuntimeException('Tokenizer fixed length must be >= 0');
+
+		$ids = array_slice($this->encode($text, $addSpecialTokens), 0, $length);
+
+		if (count($ids) < $length)
+			$ids = array_pad($ids, $length, $padTokenId);
+
+		return $ids;
+	}
+
+	/**
 	 * @param int[] $ids
 	 */
 	public function decode(array $ids, bool $skipSpecialTokens = true): string
