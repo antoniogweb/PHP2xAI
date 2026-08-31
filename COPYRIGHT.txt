@@ -27,3 +27,10 @@ Eigen
 C++ library to parse JSON
 License:	License: Mozilla Public License, Version 2.0 (MPL2)
 link: 		https://libeigen.gitlab.io/
+
+Hugging Face Tokenizers
+-----------------------
+Rust tokenization library used by PHP2xAI for tokenizer training and text encoding/decoding bindings.
+License: Apache License, Version 2.0 (Apache-2.0)
+link:      https://github.com/huggingface/tokenizers
+local copy: ThirdParty/tokenizers
