@@ -399,8 +399,6 @@ abstract class Model
 		
 		$context = new GraphContext();
 		
-		$trainableIds = [];
-		
 		// --- create tensors
 		$xId = $context->registerTensor($x, 'input', $x->getName(), $x->getShape());
 		
@@ -412,10 +410,7 @@ abstract class Model
 			if ($tensor->getName() === null)
 				$tensor->setName($name);
 			
-			$paramId = $context->registerTensor($tensor, 'param', $tensor->getName(), $tensor->getShape());
-			
-			if ($this->p[$name]->isTrainable())
-				$trainableIds[] = $paramId;
+			$context->registerTensor($tensor, 'param', $tensor->getName(), $tensor->getShape());
 		}
 		
 		// --- create ops
@@ -427,7 +422,6 @@ abstract class Model
 		
 		$outputId = $context->getTensorId($output);
 		
-		$graph['trainable'] = $trainableIds;
 		$graph['output'] = $outputId;
 		
 		return $graph;
@@ -446,8 +440,6 @@ abstract class Model
 		
 		$context = new GraphContext();
 		
-		$trainableIds = [];
-		
 		// --- create tensors
 		$xId = $context->registerTensor($x, 'input', $x->getName(), $x->getShape());
 		
@@ -459,10 +451,7 @@ abstract class Model
 			if ($tensor->getName() === null)
 				$tensor->setName($name);
 			
-			$paramId = $context->registerTensor($tensor, 'param', $tensor->getName(), $tensor->getShape());
-			
-			if ($this->p[$name]->isTrainable())
-				$trainableIds[] = $paramId;
+			$context->registerTensor($tensor, 'param', $tensor->getName(), $tensor->getShape());
 		}
 		
 		$yId = $context->registerTensor($y, 'target', $y->getName(), $y->getShape());
@@ -481,9 +470,8 @@ abstract class Model
 		$graph['tensors'][$lossIdx]['kind'] = 'loss';
 		$graph['tensors'][$lossIdx]['name'] = $graph['tensors'][$lossIdx]['name'] ?? ($loss->getName() ?? 'loss');
 		
-		// --- add lossId and list of trainable
+		// --- add lossId
 		$graph['loss'] = $lossId;
-		$graph['trainable'] = $trainableIds;
 		
 		return $graph;
 	}

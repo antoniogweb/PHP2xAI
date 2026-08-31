@@ -15,7 +15,7 @@ class GraphRuntime
 	public array $ops;
 	public int $lossId = 0;
 	/** @var int[] */
-	public array $trainable;
+	public array $trainable = [];
 	
 	public int $inputId = 0;
 	public int $targetId = 0;

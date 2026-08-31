@@ -12,8 +12,8 @@ $graph = [
         ['id' => 0, 'kind' => 'input',  'name' => 'x',      'shape' => [784]],
         ['id' => 1, 'kind' => 'input',  'name' => 'target', 'shape' => [10]],
 
-        ['id' => 2, 'kind' => 'param',  'name' => 'W', 'shape' => [10, 784]],
-        ['id' => 3, 'kind' => 'param',  'name' => 'b', 'shape' => [10]],
+        ['id' => 2, 'kind' => 'param',  'name' => 'W', 'shape' => [10, 784], 'trainable' => true],
+        ['id' => 3, 'kind' => 'param',  'name' => 'b', 'shape' => [10], 'trainable' => true],
 
         ['id' => 4, 'kind' => 'intermediate', 'name' => 'logits', 'shape' => [10]],
         ['id' => 5, 'kind' => 'intermediate', 'name' => 'loss',   'shape' => []],
@@ -66,6 +66,7 @@ class GraphContext
 			'name' => $name ?? $tensor->getName(),
 			'shape' => $shape,
 			'data'	=>	$tensor->data,
+			'trainable' => $tensor->isTrainable(),
 		];
 		
 		$tensor->setContext($this);
@@ -133,9 +134,18 @@ class GraphContext
 	
 	public function export() : array
 	{
+		$trainableIds = [];
+
+		foreach ($this->tensors as $tensor)
+		{
+			if ($tensor['kind'] === 'param' && ($tensor['trainable'] ?? true))
+				$trainableIds[] = $tensor['id'];
+		}
+
 		return [
 			'tensors' => $this->tensors,
 			'ops' => $this->ops,
+			'trainable' => $trainableIds,
 		];
 	}
 }
