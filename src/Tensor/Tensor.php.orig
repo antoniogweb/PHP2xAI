@@ -241,30 +241,6 @@ class Tensor
 		
 		return $result;
     }
-
-	/**
-	 * Looks up token embeddings for a training batch.
-	 *
-	 * $this is x_ids [B, L] and $embeddings is the embedding table E [V, D].
-	 * The resulting tensor has shape [B, L, D].
-	 */
-	public function embeddings(Tensor $embeddings) : Tensor
-	{
-		if ($this->getRank() !== 2)
-			throw new Exception("x_ids must have rank 2 [B, L]");
-
-		if ($embeddings->getRank() !== 2)
-			throw new Exception("Embeddings must have rank 2 [V, D]");
-
-		$context = $this->initContextFrom($embeddings);
-		$inputId = $this->registerInContext($context, $this);
-		$embeddingsId = $this->registerInContext($context, $embeddings);
-
-		$result = self::zeros([$this->shape[0], $this->shape[1], $embeddings->shape[1]], 'embeddings');
-		$context->registerOp('embeddings', [$inputId, $embeddingsId], $result);
-
-		return $result;
-	}
     
 //     public function sub(Tensor $b) : Tensor
 //     {
