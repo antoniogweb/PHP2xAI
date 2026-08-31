@@ -35,6 +35,8 @@ class Tensor
 	
 	public int $baseOffset = 0;
 	
+	protected bool $trainable = true;
+	
 	/**
 	* Graph context used for IR construction.
 	*
@@ -140,6 +142,16 @@ class Tensor
 		}
 		
 		return $tensor;
+	}
+	
+	public function setTrainable(bool $trainable) : void
+	{
+		$this->trainable = $trainable;
+	}
+	
+	public function isTrainable() : bool
+	{
+		return $this->trainable;
 	}
 	
 	public function matMul(Tensor $b) : Tensor

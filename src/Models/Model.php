@@ -414,7 +414,8 @@ abstract class Model
 			
 			$paramId = $context->registerTensor($tensor, 'param', $tensor->getName(), $tensor->getShape());
 			
-			$trainableIds[] = $paramId;
+			if ($this->p[$name]->isTrainable())
+				$trainableIds[] = $paramId;
 		}
 		
 		// --- create ops
@@ -460,7 +461,8 @@ abstract class Model
 			
 			$paramId = $context->registerTensor($tensor, 'param', $tensor->getName(), $tensor->getShape());
 			
-			$trainableIds[] = $paramId;
+			if ($this->p[$name]->isTrainable())
+				$trainableIds[] = $paramId;
 		}
 		
 		$yId = $context->registerTensor($y, 'target', $y->getName(), $y->getShape());
