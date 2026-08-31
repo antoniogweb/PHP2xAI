@@ -337,7 +337,6 @@ class GraphRuntime
 			$out->data[$i] = ($tokenId === $padId) ? 0.0 : 1.0;
 		}
 	}
-	private function opEmbeddings(int $xIdsId, int $embeddingsId, int $outId, array $attributes): void
 	{
 		$xIds = $this->tensors[$xIdsId];
 		$embeddings = $this->tensors[$embeddingsId];
@@ -1333,11 +1332,6 @@ class GraphRuntime
 		}
 	}
 	
-	private function backwardPaddingMask(int $inputId, int $outId, array $attributes): void
-	{
-		return;
-	}
-
 	private function backwardEmbeddings(int $xIdsId, int $embeddingsId, int $outId, array $attributes): void
 	{
 		$xIds = $this->tensors[$xIdsId];

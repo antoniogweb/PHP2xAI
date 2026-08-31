@@ -279,10 +279,30 @@ class Tensor
 	}
     
 	/**
+	 * Builds a binary padding mask for a training batch.
+	 *
+	 * $this is x_ids [B, L]. The result has shape [B, L], with 1 for each
+	 * token different from $padId and 0 for padding tokens.
+	 */
+	public function paddingMask(int $padId) : Tensor
+	{
+		if ($this->getRank() !== 2)
+			throw new Exception("x_ids must have rank 2 [B, L]");
+
+		$context = $this->initContextFrom();
+		$inputId = $this->registerInContext($context, $this);
+
+		$result = self::zeros($this->shape, 'paddingMask');
+		$context->registerOp('padding_mask', [$inputId], $result, array("padId" => $padId));
+
+		return $result;
+	}
+
+	/**
 	 * Mean-pools token representations in a training batch, excluding padding.
 	 *
 	 * $this is X [B, L, D] and $mask is [B, L], with 1 for a valid token and
-	 * 0 for PAD_TOKEN (id 0). The resulting tensor has shape [B, D].
+	 * 0 for padding tokens. The resulting tensor has shape [B, D].
 	 */
 	public function meanPooling(Tensor $mask) : Tensor
 	{

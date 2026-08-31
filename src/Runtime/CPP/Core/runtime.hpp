@@ -101,6 +101,7 @@ namespace PHP2xAI::Runtime::CPP
 		std::vector<int> inputs;
 		int output{};
 		std::string kernel{};
+		int padId{};
 		std::vector<int> axes;
 	};
 
@@ -141,6 +142,7 @@ namespace PHP2xAI::Runtime::CPP
 		void opMatmul(int, int, int, const std::string &kernel);
 		void opEmbeddings(int xIdsId, int embeddingsId, int outId);
 		void opMeanPooling(int inputId, int maskId, int outId);
+		void opPaddingMask(int inputId, int outId, int padId);
 		void opAdd(int aId, int bId, int outId, const std::string &kernel);
 		// void opSub(int, int, int);
 		// void opDot(int, int, int);
@@ -160,6 +162,7 @@ namespace PHP2xAI::Runtime::CPP
 		void backwardAdd(int, int, int, const std::string &kernel);
 		void backwardEmbeddings(int xIdsId, int embeddingsId, int outId);
 		void backwardMeanPooling(int inputId, int maskId, int outId);
+		void backwardPaddingMask(int inputId, int outId);
 		// void backwardSub(int, int, int);
 		// void backwardDot(int, int, int);
 		void backwardDropout(int, int);

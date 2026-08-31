@@ -335,6 +335,8 @@ namespace PHP2xAI::Runtime::CPP
 				opEmbeddings(inputs[0], inputs[1], outId);
 			else if (name == "mean_pooling")
 				opMeanPooling(inputs[0], inputs[1], outId);
+			else if (name == "padding_mask")
+				opPaddingMask(inputs[0], outId, op.padId);
 			else if (name == "softmax")
 				opSoftmax(inputs[0], outId, op.kernel, op.axes);
 			else if (name == "CE")
@@ -391,6 +393,8 @@ namespace PHP2xAI::Runtime::CPP
 				backwardEmbeddings(inputs[0], inputs[1], outId);
 			else if (name == "mean_pooling")
 				backwardMeanPooling(inputs[0], inputs[1], outId);
+			else if (name == "padding_mask")
+				backwardPaddingMask(inputs[0], outId);
 			else if (name == "softmax")
 				backwardSoftmax(inputs[0], outId, op.kernel, op.axes);
 			else if (name == "CE")
@@ -547,6 +551,31 @@ namespace PHP2xAI::Runtime::CPP
 		file << jsonArray.dump();
 	}
 
+	void GraphRuntime::opPaddingMask(int inputId, int outId, int padId)
+	{
+		auto &input = tensors[inputId];
+		auto &out = tensors[outId];
+
+		if (input.shape.size() != 2 || out.shape.size() != 2)
+			throw std::runtime_error("padding_mask: dimension mismatch");
+
+		const int batch = input.shape[0];
+		const int length = input.shape[1];
+
+		if (out.shape != std::vector<int>{batch, length})
+			throw std::runtime_error("padding_mask: dimension mismatch");
+
+		for (int i = 0; i < batch * length; ++i)
+		{
+			const Scalar tokenIdValue = input.data[static_cast<std::size_t>(i)];
+			const int tokenId = static_cast<int>(tokenIdValue);
+
+			if (tokenIdValue != static_cast<Scalar>(tokenId))
+				throw std::runtime_error("padding_mask: token ID must be an integer");
+
+			out.data[static_cast<std::size_t>(i)] = (tokenId == padId) ? 0.0f : 1.0f;
+		}
+	}
 	void GraphRuntime::opEmbeddings(int xIdsId, int embeddingsId, int outId)
 	{
 		auto &xIds = tensors[xIdsId];
@@ -1909,6 +1938,11 @@ namespace PHP2xAI::Runtime::CPP
 					off += strideAxis;
 				}
 			});
+	}
+
+	void GraphRuntime::backwardPaddingMask(int inputId, int outId)
+	{
+		return;
 	}
 
 	void GraphRuntime::backwardEmbeddings(int xIdsId, int embeddingsId, int outId)
@@ -3499,6 +3533,8 @@ namespace PHP2xAI::Runtime::CPP
 					op.kernel = attrs.at("kernel").get<std::string>();
 				if (attrs.contains("axes"))
 					op.axes = attrs.at("axes").get<std::vector<int>>();
+				if (attrs.contains("padId"))
+					op.padId = attrs.at("padId").get<int>();
 			}
 
 			ops.push_back(std::move(op));
