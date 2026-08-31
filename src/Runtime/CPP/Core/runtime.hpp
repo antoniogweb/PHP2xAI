@@ -28,6 +28,7 @@ namespace PHP2xAI::Runtime::CPP
 		std::vector<int> shape;
 		std::string name;
 		std::string kind;
+		bool requiresGrad{};
 		int baseOffset{};
 		std::vector<int> strides;
 

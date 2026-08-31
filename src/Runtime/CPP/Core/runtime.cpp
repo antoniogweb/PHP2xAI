@@ -1826,6 +1826,9 @@ namespace PHP2xAI::Runtime::CPP
 		auto &B = tensors[bId];
 		auto &C = tensors[outId];
 
+		if (!A.requiresGrad && !B.requiresGrad)
+			return;
+
 		const std::string kernelName = kernel.empty() ? "MATMUL_GENERIC_B_2D_2D_BROADCAST" : kernel;
 
 		if (kernelName == "MATMUL_2D_2D")
@@ -2058,6 +2061,9 @@ namespace PHP2xAI::Runtime::CPP
 		auto &A = tensors[aId];
 		auto &B = tensors[bId];
 		auto &C = tensors[outId];
+
+		if (!A.requiresGrad && !B.requiresGrad)
+			return;
 
 		if (kernel == "ADD_1D_LAST")
 			return BACKWARD_ADD_1D_LAST(A, B, C);
@@ -2341,6 +2347,9 @@ namespace PHP2xAI::Runtime::CPP
 	{
 		auto &X = tensors[inpId];
 		auto &Y = tensors[outId];
+
+		if (!X.requiresGrad)
+			return;
 		auto size = X.data.size();
 
 		for (std::size_t i = 0; i < size; ++i)
@@ -2356,6 +2365,9 @@ namespace PHP2xAI::Runtime::CPP
 	{
 		auto &X = tensors[inpId];
 		auto &Y = tensors[outId];
+
+		if (!X.requiresGrad)
+			return;
 		auto size = X.data.size();
 
 		for (std::size_t i = 0; i < size; ++i)
@@ -2370,6 +2382,9 @@ namespace PHP2xAI::Runtime::CPP
 	{
 		auto &X = tensors[inpId];
 		auto &Y = tensors[outId];
+
+		if (!X.requiresGrad)
+			return;
 		auto size = X.data.size();
 
 		for (std::size_t i = 0; i < size; ++i)
@@ -2494,6 +2509,9 @@ namespace PHP2xAI::Runtime::CPP
 	{
 		auto &X = tensors[inpId];
 		auto &Y = tensors[outId];
+
+		if (!X.requiresGrad)
+			return;
 		const std::string kernelName = kernel.empty() ? "SOFTMAX_GENERIC_AXIS" : kernel;
 		const int axis = axes.empty() ? -1 : axes[0];
 
@@ -2630,6 +2648,9 @@ namespace PHP2xAI::Runtime::CPP
 	void GraphRuntime::backwardCe(int predId, int targetId, int outId)
 	{
 		auto &pred = tensors[predId];
+
+		if (!pred.requiresGrad)
+			return;
 		auto &target = tensors[targetId];
 		auto &out = tensors[outId];
 
@@ -2680,6 +2701,9 @@ namespace PHP2xAI::Runtime::CPP
 	void GraphRuntime::backwardCeLogits(int logitsId, int targetId, int outId)
 	{
 		auto &logits = tensors[logitsId];
+
+		if (!logits.requiresGrad)
+			return;
 		auto &target = tensors[targetId];
 		auto &out = tensors[outId];
 
@@ -2765,6 +2789,9 @@ namespace PHP2xAI::Runtime::CPP
 	void GraphRuntime::backwardCeLogitsLabelInt(int logitsId, int targetId, int outId, const std::string &kernel, const std::vector<int> &axes)
 	{
 		auto &logits = tensors[logitsId];
+
+		if (!logits.requiresGrad)
+			return;
 		auto &target = tensors[targetId];
 		auto &out = tensors[outId];
 
@@ -2988,6 +3015,9 @@ namespace PHP2xAI::Runtime::CPP
 	{
 		auto &A = tensors[aId];
 		auto &out = tensors[outId];
+
+		if (!A.requiresGrad)
+			return;
 
 		const std::string selectedKernel = kernel.empty() ? "MEAN_GENERIC_AXIS" : kernel;
 		const int axis = !axes.empty() ? axes[0] : 0;
@@ -3226,6 +3256,7 @@ namespace PHP2xAI::Runtime::CPP
 			tensor.kind = t.at("kind").get<std::string>();
 			tensor.name = t.value("name", "");
 			tensor.shape = t.at("shape").get<std::vector<int>>();
+			tensor.requiresGrad = t.at("requiresGrad").get<bool>();
 			tensor.baseOffset = 0;
 			tensor.strides = Tensor::computeStrides(tensor.shape);
 
