@@ -318,7 +318,7 @@ namespace PHP2xAI::Runtime::CPP
 			// else if (name == "dot")
 			// 	opDot(inputs[0], inputs[1], outId);
 			else if (name == "dropout")
-				opDropout(inputs[0], outId);
+				opDropout(inputs[0], outId, op.dropoutPerc);
 			else if (name == "sig")
 				opSig(inputs[0], outId);
 			else if (name == "ReLU" || name == "relu")
@@ -466,6 +466,11 @@ namespace PHP2xAI::Runtime::CPP
 			return tensor.data;
 	}
 	
+	void GraphRuntime::setTraining(bool training)
+	{
+		training_ = training;
+	}
+
 	void GraphRuntime::setLossGrad(Scalar lossGrad)
 	{
 		if (lossId != 0)
@@ -962,7 +967,7 @@ namespace PHP2xAI::Runtime::CPP
 	// 	C.data = {sum};
 	// }
 
-	void GraphRuntime::opDropout(int inpId, int outId)
+	void GraphRuntime::opDropout(int inpId, int outId, Scalar dropoutPerc)
 	{
 		auto &X = tensors[inpId];
 		auto &Y = tensors[outId];
@@ -970,18 +975,29 @@ namespace PHP2xAI::Runtime::CPP
 		Y.shape = X.shape;
 		auto size = X.data.size();
 		Y.data.assign(size, 0.0f);
+		std::vector<Scalar> maskValues(size, 0.0f);
 
-		int dropPerc = 50;
-		dropPerc = std::max(0, std::min(100, dropPerc));
-		Scalar keepProb = 1.0f - (static_cast<Scalar>(dropPerc) / 100.0f);
+		if (!training_)
+		{
+			Y.data = X.data;
+			dropoutMasks[outId] = std::vector<Scalar>(size, 1.0f);
+			return;
+		}
+
+		Scalar dropPerc = dropoutPerc;
+		dropPerc = std::max(0.0f, std::min(100.0f, dropPerc));
+		Scalar keepProb = 1.0f - (dropPerc / 100.0f);
 		Scalar scale = keepProb > 0.0f ? 1.0f / keepProb : 0.0f;
 
 		for (std::size_t i = 0; i < size; ++i)
 		{
-			bool keep = (std::rand() % 100) + 1 > dropPerc;
+			bool keep = (static_cast<Scalar>(std::rand()) / static_cast<Scalar>(RAND_MAX)) >= (dropPerc / 100.0f);
 			Scalar mask = keep ? scale : 0.0f;
+			maskValues[i] = mask;
 			Y.data[i] = X.data[i] * mask;
 		}
+
+		dropoutMasks[outId] = std::move(maskValues);
 	}
 
 	void GraphRuntime::opSig(int inpId, int outId)
@@ -2565,13 +2581,13 @@ namespace PHP2xAI::Runtime::CPP
 			return;
 		auto size = X.data.size();
 
+		const auto maskIt = dropoutMasks.find(outId);
+		if (maskIt == dropoutMasks.end())
+			throw std::runtime_error("dropout backward: missing forward mask");
+
+		const auto &maskValues = maskIt->second;
 		for (std::size_t i = 0; i < size; ++i)
-		{
-			Scalar x = X.data[i];
-			Scalar y = Y.data[i];
-			Scalar mask = (x != 0.0f) ? (y / x) : (y == 0.0f ? 0.0f : 1.0f);
-			X.grad[i] += Y.grad[i] * mask;
-		}
+			X.grad[i] += Y.grad[i] * maskValues[i];
 	}
 
 	void GraphRuntime::backwardSig(int inpId, int outId)
@@ -3535,6 +3551,8 @@ namespace PHP2xAI::Runtime::CPP
 					op.axes = attrs.at("axes").get<std::vector<int>>();
 				if (attrs.contains("padId"))
 					op.padId = attrs.at("padId").get<int>();
+				if (attrs.contains("dropoutPerc"))
+					op.dropoutPerc = attrs.at("dropoutPerc").get<Scalar>();
 			}
 
 			ops.push_back(std::move(op));

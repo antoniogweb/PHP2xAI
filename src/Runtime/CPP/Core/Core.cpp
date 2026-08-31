@@ -151,6 +151,7 @@ namespace PHP2xAI::Runtime::CPP
 
 		auto &dataset = *trainValDataset_;
 		auto &graph = *graphRuntime_;
+		graph.setTraining(true);
 
 		std::vector<Scalar> x;
 		std::vector<Scalar> y;
@@ -234,6 +235,7 @@ namespace PHP2xAI::Runtime::CPP
 
 		auto &dataset = trainValDataset_->val;
 		auto &graph = *graphRuntime_;
+		graph.setTraining(false);
 
 		std::vector<Scalar> x;
 		std::vector<Scalar> y;

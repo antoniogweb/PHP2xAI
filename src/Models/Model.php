@@ -291,6 +291,7 @@ abstract class Model
 		$count = 0;
 		
 		$dataset->resetEpoch();
+		$graph->setTraining(false);
 		
 		while ($dataset->nextBatch())
 		{
@@ -328,6 +329,7 @@ abstract class Model
 		$graphDef = $this->generateGraph($dataset->train);
 		
 		$graph = new GraphRuntime($graphDef);
+		$graph->setTraining(true);
 		
 		$betterValidationLoss = 99999999;
 		

@@ -337,13 +337,16 @@ class Tensor
 // 		return $result;
 //     }
     
-    public function dropout(int $perc = 50) : Tensor
+    public function dropout(float $perc = 50.0) : Tensor
     {
+		if ($perc < 0.0 || $perc > 100.0)
+			throw new Exception("Dropout percentage must be between 0 and 100");
+
 		$context = $this->initContextFrom();
 		$inputId = $this->registerInContext($context, $this);
 		
 		$result = self::zeros($this->shape, 'dropout');
-		$context->registerOp('dropout', [$inputId], $result);
+		$context->registerOp('dropout', [$inputId], $result, ['dropoutPerc' => $perc]);
 		
 		return $result;
     }

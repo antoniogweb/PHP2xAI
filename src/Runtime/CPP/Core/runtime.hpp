@@ -5,6 +5,7 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include <unordered_map>
 #include "../ThirdParty/nlohmann/json.hpp"
 #include "../types.hpp"
 
@@ -103,6 +104,7 @@ namespace PHP2xAI::Runtime::CPP
 		std::string kernel{};
 		int padId{};
 		std::vector<int> axes;
+		Scalar dropoutPerc{50.0f};
 	};
 
 	class GraphRuntime
@@ -112,6 +114,8 @@ namespace PHP2xAI::Runtime::CPP
 		std::vector<Op> ops;
 		int lossId{};
 		std::vector<int> trainable;
+		std::unordered_map<int, std::vector<Scalar>> dropoutMasks;
+		bool training_ = false;
 		int inputId{};
 		int targetId{};
 		int outputId{};
@@ -132,6 +136,7 @@ namespace PHP2xAI::Runtime::CPP
 		const Tensor &getTensor(int id) const;
 		
 		void setLossGrad(Scalar lossGrad = 1.0f);
+		void setTraining(bool training);
 		
 		explicit GraphRuntime(const json &graphDef, const std::string &weightsPath = "");
 
@@ -146,7 +151,7 @@ namespace PHP2xAI::Runtime::CPP
 		void opAdd(int aId, int bId, int outId, const std::string &kernel);
 		// void opSub(int, int, int);
 		// void opDot(int, int, int);
-		void opDropout(int, int);
+		void opDropout(int, int, Scalar);
 		void opSig(int, int);
 		void opRelu(int, int);
 		// void opLRelu(int, int);

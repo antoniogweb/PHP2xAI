@@ -23,6 +23,9 @@ class GraphRuntime
 	
 	private array $graphDef = [];
 	private ?GraphContext $context = null;
+	/** @var array<int,float[]> dropout masks from the latest forward pass */
+	private array $dropoutMasks = [];
+	private bool $training = false;
 	
 	public function __construct(array $graphDef, ?array $weigths = null)
 	{
@@ -76,6 +79,11 @@ class GraphRuntime
 			$this->outputId = $graphDef['output'];
 		
 	}
+	public function setTraining(bool $training): void
+	{
+		$this->training = $training;
+	}
+
 	public function setContext(GraphContext $context) : void
 	{
 		$this->context = $context;
@@ -579,25 +587,36 @@ class GraphRuntime
 		}
 	}
 
-	private function opDropout(int $inpId, int $outId): void
+	private function opDropout(int $inpId, int $outId, array $attributes = []): void
 	{
 		$X = $this->tensors[$inpId];
 		$Y = $this->tensors[$outId];
 		$Y->shape = $X->shape;
 		$size = count($X->data);
 		$Y->data = array_fill(0, $size, 0.0);
+		$maskValues = [];
 
-		$dropPerc = 50;
+		if (!$this->training)
+		{
+			$Y->data = $X->data;
+			$this->dropoutMasks[$outId] = array_fill(0, $size, 1.0);
+			return;
+		}
+
+		$dropPerc = (float)($attributes['dropoutPerc'] ?? 50.0);
 		$dropPerc = max(0, min(100, $dropPerc));
 		$keepProb = 1 - ($dropPerc / 100);
 		$scale = $keepProb > 0 ? 1 / $keepProb : 0.0;
 		
 		for ($i = 0; $i < $size; $i++)
 		{
-			$keep = mt_rand(1, 100) > $dropPerc;
+			$keep = (mt_rand() / mt_getrandmax()) >= ($dropPerc / 100.0);
 			$mask = $keep ? $scale : 0.0;
+			$maskValues[$i] = $mask;
 			$Y->data[$i] = $X->data[$i] * $mask;
 		}
+
+		$this->dropoutMasks[$outId] = $maskValues;
 	}
 
 // 	private function opMse(int $inpId, int $outId): void
@@ -1611,7 +1630,7 @@ class GraphRuntime
 		}
 	}
 
-	private function backwardDropout(int $inpId, int $outId): void
+	private function backwardDropout(int $inpId, int $outId, array $attributes = []): void
 	{
 		$X = $this->tensors[$inpId];
 		$Y = $this->tensors[$outId];
@@ -1620,11 +1639,10 @@ class GraphRuntime
 			return;
 		$size = count($X->data);
 
+		$maskValues = $this->dropoutMasks[$outId] ?? [];
 		for ($i = 0; $i < $size; $i++)
 		{
-			$x = $X->data[$i];
-			$y = $Y->data[$i];
-			$mask = ($x != 0.0) ? ($y / $x) : ($y == 0.0 ? 0.0 : 1.0);
+			$mask = $maskValues[$i] ?? 0.0;
 			$X->grad[$i] += $Y->grad[$i] * $mask;
 		}
 	}
