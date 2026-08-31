@@ -310,10 +310,81 @@ class GraphRuntime
 	
 	private function opEmbeddings(int $xIdsId, int $embeddingsId, int $outId, array $attributes): void
 	{
+		$xIds = $this->tensors[$xIdsId];
+		$embeddings = $this->tensors[$embeddingsId];
+		$out = $this->tensors[$outId];
+
+		if (count($xIds->shape) !== 2 || count($embeddings->shape) !== 2 || count($out->shape) !== 3)
+			throw new RuntimeException('embeddings: dimension mismatch');
+
+		[$batch, $length] = $xIds->shape;
+		[$vocabulary, $dim] = $embeddings->shape;
+
+		if ($out->shape !== [$batch, $length, $dim])
+			throw new RuntimeException('embeddings: dimension mismatch');
+
+		for ($i = 0; $i < $batch * $length; $i++)
+		{
+			$tokenIdValue = $xIds->data[$i];
+			$tokenId = (int)$tokenIdValue;
+
+			if ($tokenIdValue != $tokenId || $tokenId < 0 || $tokenId >= $vocabulary)
+				throw new RuntimeException('embeddings: token ID out of range or not an integer');
+
+			$embeddingOffset = $tokenId * $dim;
+			$outOffset = $i * $dim;
+
+			for ($d = 0; $d < $dim; $d++)
+				$out->data[$outOffset + $d] = $embeddings->data[$embeddingOffset + $d];
+		}
 	}
 
 	private function opMeanPooling(int $inputId, int $maskId, int $outId, array $attributes): void
 	{
+		$input = $this->tensors[$inputId];
+		$mask = $this->tensors[$maskId];
+		$out = $this->tensors[$outId];
+
+		if (count($input->shape) !== 3 || count($mask->shape) !== 2 || count($out->shape) !== 2)
+			throw new RuntimeException('mean_pooling: dimension mismatch');
+
+		[$batch, $length, $dim] = $input->shape;
+
+		if ($mask->shape !== [$batch, $length] || $out->shape !== [$batch, $dim])
+			throw new RuntimeException('mean_pooling: dimension mismatch');
+
+		$out->data = array_fill(0, $batch * $dim, 0.0);
+
+		for ($b = 0; $b < $batch; $b++)
+		{
+			$validTokens = 0;
+			$outOffset = $b * $dim;
+
+			for ($l = 0; $l < $length; $l++)
+			{
+				$maskValue = $mask->data[$b * $length + $l];
+
+				if ($maskValue != 0 && $maskValue != 1)
+					throw new RuntimeException('mean_pooling: mask values must be 0 or 1');
+
+				if ($maskValue == 0)
+					continue;
+
+				$validTokens++;
+				$inputOffset = ($b * $length + $l) * $dim;
+
+				for ($d = 0; $d < $dim; $d++)
+					$out->data[$outOffset + $d] += $input->data[$inputOffset + $d];
+			}
+
+			if ($validTokens === 0)
+				continue;
+
+			$invValidTokens = 1.0 / $validTokens;
+
+			for ($d = 0; $d < $dim; $d++)
+				$out->data[$outOffset + $d] *= $invValidTokens;
+		}
 	}
 
 	private function opMatmul(int $aId, int $bId, int $outId, array $attributes): void
