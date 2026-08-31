@@ -173,6 +173,12 @@ namespace PHP2xAI::Runtime::CPP
 			++numLines_;
 		}
 
+		// Il runtime usa placeholder a batch fisso: escludi l'ultimo batch parziale.
+		if ((numLines_ % batchSize_) != 0)
+		{
+			batchOffsets_.pop_back();
+		}
+
 		if (batchOffsets_.empty())
 		{
 			throw std::runtime_error("Dataset is empty: " + path_);

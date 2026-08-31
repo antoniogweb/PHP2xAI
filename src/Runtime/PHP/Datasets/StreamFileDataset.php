@@ -247,6 +247,10 @@ class StreamFileDataset implements \IteratorAggregate
 			$this->numLines++;
 		}
 
+		// Il runtime usa placeholder a batch fisso: escludi l'ultimo batch parziale.
+		if (($this->numLines % $this->batchSize) !== 0)
+			array_pop($this->batchOffsets);
+
 		if (count($this->batchOffsets) === 0) {
 			throw new \RuntimeException("Dataset is empty: {$this->path}");
 		}
