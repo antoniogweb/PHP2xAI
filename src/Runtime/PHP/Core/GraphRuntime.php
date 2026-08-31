@@ -296,12 +296,26 @@ class GraphRuntime
 				case 'mean':
 					$this->opMean($inputs[0], $outId, $attributes);
 					break;
+				case 'embeddings':
+					$this->opEmbeddings($inputs[0], $inputs[1], $outId, $attributes);
+					break;
+				case 'mean_pooling':
+					$this->opMeanPooling($inputs[0], $inputs[1], $outId, $attributes);
+					break;
 				default:
 					throw new RuntimeException("Op not supported: {$name}");
 			}
 		}
 	}
 	
+	private function opEmbeddings(int $xIdsId, int $embeddingsId, int $outId, array $attributes): void
+	{
+	}
+
+	private function opMeanPooling(int $inputId, int $maskId, int $outId, array $attributes): void
+	{
+	}
+
 	private function opMatmul(int $aId, int $bId, int $outId, array $attributes): void
 	{
 		$A = $this->tensors[$aId];

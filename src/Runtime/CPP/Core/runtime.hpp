@@ -139,6 +139,8 @@ namespace PHP2xAI::Runtime::CPP
 		json graphDef_;
 
 		void opMatmul(int, int, int, const std::string &kernel);
+		void opEmbeddings(int xIdsId, int embeddingsId, int outId);
+		void opMeanPooling(int inputId, int maskId, int outId);
 		void opAdd(int aId, int bId, int outId, const std::string &kernel);
 		// void opSub(int, int, int);
 		// void opDot(int, int, int);

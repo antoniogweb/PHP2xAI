@@ -331,6 +331,10 @@ namespace PHP2xAI::Runtime::CPP
 			// 	opMae(inputs[0], outId);
 			else if (name == "mean")
 				opMean(inputs[0], outId, op.kernel, op.axes);
+			else if (name == "embeddings")
+				opEmbeddings(inputs[0], inputs[1], outId);
+			else if (name == "mean_pooling")
+				opMeanPooling(inputs[0], inputs[1], outId);
 			else if (name == "softmax")
 				opSoftmax(inputs[0], outId, op.kernel, op.axes);
 			else if (name == "CE")
@@ -537,6 +541,14 @@ namespace PHP2xAI::Runtime::CPP
 			throw std::runtime_error("Unable to open file for writing: " + path);
 
 		file << jsonArray.dump();
+	}
+
+	void GraphRuntime::opEmbeddings(int xIdsId, int embeddingsId, int outId)
+	{
+	}
+
+	void GraphRuntime::opMeanPooling(int inputId, int maskId, int outId)
+	{
 	}
 
 	void GraphRuntime::opMatmul(int aId, int bId, int outId, const std::string &kernel)
