@@ -158,6 +158,8 @@ namespace PHP2xAI::Runtime::CPP
 
 		void backwardMatmul(int, int, int, const std::string &kernel);
 		void backwardAdd(int, int, int, const std::string &kernel);
+		void backwardEmbeddings(int xIdsId, int embeddingsId, int outId);
+		void backwardMeanPooling(int inputId, int maskId, int outId);
 		// void backwardSub(int, int, int);
 		// void backwardDot(int, int, int);
 		void backwardDropout(int, int);

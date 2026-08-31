@@ -387,6 +387,10 @@ namespace PHP2xAI::Runtime::CPP
 			// 	backwardMae(inputs[0], outId);
 			else if (name == "mean")
 				backwardMean(inputs[0], outId, op.kernel, op.axes);
+			else if (name == "embeddings")
+				backwardEmbeddings(inputs[0], inputs[1], outId);
+			else if (name == "mean_pooling")
+				backwardMeanPooling(inputs[0], inputs[1], outId);
 			else if (name == "softmax")
 				backwardSoftmax(inputs[0], outId, op.kernel, op.axes);
 			else if (name == "CE")
@@ -1905,6 +1909,94 @@ namespace PHP2xAI::Runtime::CPP
 					off += strideAxis;
 				}
 			});
+	}
+
+	void GraphRuntime::backwardEmbeddings(int xIdsId, int embeddingsId, int outId)
+	{
+		auto &xIds = tensors[xIdsId];
+		auto &embeddings = tensors[embeddingsId];
+		auto &out = tensors[outId];
+
+		if (!embeddings.requiresGrad)
+			return;
+
+		if (xIds.shape.size() != 2 || embeddings.shape.size() != 2 || out.shape.size() != 3)
+			throw std::runtime_error("embeddings backward: dimension mismatch");
+
+		const int batch = xIds.shape[0];
+		const int length = xIds.shape[1];
+		const int vocabulary = embeddings.shape[0];
+		const int dim = embeddings.shape[1];
+
+		if (out.shape != std::vector<int>{batch, length, dim})
+			throw std::runtime_error("embeddings backward: dimension mismatch");
+
+		for (int i = 0; i < batch * length; ++i)
+		{
+			const Scalar tokenIdValue = xIds.data[static_cast<std::size_t>(i)];
+			const int tokenId = static_cast<int>(tokenIdValue);
+			if (tokenIdValue != static_cast<Scalar>(tokenId) || tokenId < 0 || tokenId >= vocabulary)
+				throw std::runtime_error("embeddings backward: token ID out of range or not an integer");
+
+			const int embeddingOffset = tokenId * dim;
+			const int outOffset = i * dim;
+
+			for (int d = 0; d < dim; ++d)
+				embeddings.grad[static_cast<std::size_t>(embeddingOffset + d)] += out.grad[static_cast<std::size_t>(outOffset + d)];
+		}
+	}
+
+	void GraphRuntime::backwardMeanPooling(int inputId, int maskId, int outId)
+	{
+		auto &input = tensors[inputId];
+		auto &mask = tensors[maskId];
+		auto &out = tensors[outId];
+
+		if (!input.requiresGrad)
+			return;
+
+		if (input.shape.size() != 3 || mask.shape.size() != 2 || out.shape.size() != 2)
+			throw std::runtime_error("mean_pooling backward: dimension mismatch");
+
+		const int batch = input.shape[0];
+		const int length = input.shape[1];
+		const int dim = input.shape[2];
+
+		if (mask.shape != std::vector<int>{batch, length} || out.shape != std::vector<int>{batch, dim})
+			throw std::runtime_error("mean_pooling backward: dimension mismatch");
+
+		for (int b = 0; b < batch; ++b)
+		{
+			int validTokens = 0;
+
+			for (int l = 0; l < length; ++l)
+			{
+				const Scalar maskValue = mask.data[static_cast<std::size_t>(b * length + l)];
+
+				if (maskValue != 0.0f && maskValue != 1.0f)
+					throw std::runtime_error("mean_pooling backward: mask values must be 0 or 1");
+
+				if (maskValue == 1.0f)
+					++validTokens;
+			}
+
+			if (validTokens == 0)
+				continue;
+
+			const Scalar scale = 1.0f / static_cast<Scalar>(validTokens);
+			const int outOffset = b * dim;
+
+			for (int l = 0; l < length; ++l)
+			{
+				if (mask.data[static_cast<std::size_t>(b * length + l)] == 0.0f)
+					continue;
+
+				const int inputOffset = (b * length + l) * dim;
+
+				for (int d = 0; d < dim; ++d)
+					input.grad[static_cast<std::size_t>(inputOffset + d)] += out.grad[static_cast<std::size_t>(outOffset + d)] * scale;
+			}
+		}
 	}
 
 	void GraphRuntime::backwardMatmul(int aId, int bId, int outId, const std::string &kernel)

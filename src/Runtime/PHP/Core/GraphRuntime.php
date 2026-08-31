@@ -1289,12 +1289,103 @@ class GraphRuntime
 				case 'mean':
 					$this->backwardMean($inputs[0], $outId, $attributes);
 					break;
+				case 'embeddings':
+					$this->backwardEmbeddings($inputs[0], $inputs[1], $outId, $attributes);
+					break;
+				case 'mean_pooling':
+					$this->backwardMeanPooling($inputs[0], $inputs[1], $outId, $attributes);
+					break;
 				default:
 					throw new RuntimeException("Op not supported: {$name}");
 			}
 		}
 	}
 	
+	private function backwardEmbeddings(int $xIdsId, int $embeddingsId, int $outId, array $attributes): void
+	{
+		$xIds = $this->tensors[$xIdsId];
+		$embeddings = $this->tensors[$embeddingsId];
+		$out = $this->tensors[$outId];
+
+		if (!$embeddings->requiresGrad)
+			return;
+
+		if (count($xIds->shape) !== 2 || count($embeddings->shape) !== 2 || count($out->shape) !== 3)
+			throw new RuntimeException('embeddings backward: dimension mismatch');
+
+		[$batch, $length] = $xIds->shape;
+		[$vocabulary, $dim] = $embeddings->shape;
+
+		if ($out->shape !== [$batch, $length, $dim])
+			throw new RuntimeException('embeddings backward: dimension mismatch');
+
+		for ($i = 0; $i < $batch * $length; $i++)
+		{
+			$tokenIdValue = $xIds->data[$i];
+			$tokenId = (int)$tokenIdValue;
+
+			if ($tokenIdValue != $tokenId || $tokenId < 0 || $tokenId >= $vocabulary)
+				throw new RuntimeException('embeddings backward: token ID out of range or not an integer');
+
+			$embeddingOffset = $tokenId * $dim;
+			$outOffset = $i * $dim;
+
+			for ($d = 0; $d < $dim; $d++)
+				$embeddings->grad[$embeddingOffset + $d] += $out->grad[$outOffset + $d];
+		}
+	}
+
+	private function backwardMeanPooling(int $inputId, int $maskId, int $outId, array $attributes): void
+	{
+		$input = $this->tensors[$inputId];
+		$mask = $this->tensors[$maskId];
+		$out = $this->tensors[$outId];
+
+		if (!$input->requiresGrad)
+			return;
+
+		if (count($input->shape) !== 3 || count($mask->shape) !== 2 || count($out->shape) !== 2)
+			throw new RuntimeException('mean_pooling backward: dimension mismatch');
+
+		[$batch, $length, $dim] = $input->shape;
+
+		if ($mask->shape !== [$batch, $length] || $out->shape !== [$batch, $dim])
+			throw new RuntimeException('mean_pooling backward: dimension mismatch');
+
+		for ($b = 0; $b < $batch; $b++)
+		{
+			$validTokens = 0;
+
+			for ($l = 0; $l < $length; $l++)
+			{
+				$maskValue = $mask->data[$b * $length + $l];
+
+				if ($maskValue != 0 && $maskValue != 1)
+					throw new RuntimeException('mean_pooling backward: mask values must be 0 or 1');
+
+				if ($maskValue == 1)
+					$validTokens++;
+			}
+
+			if ($validTokens === 0)
+				continue;
+
+			$scale = 1.0 / $validTokens;
+			$outOffset = $b * $dim;
+
+			for ($l = 0; $l < $length; $l++)
+			{
+				if ($mask->data[$b * $length + $l] == 0)
+					continue;
+
+				$inputOffset = ($b * $length + $l) * $dim;
+
+				for ($d = 0; $d < $dim; $d++)
+					$input->grad[$inputOffset + $d] += $out->grad[$outOffset + $d] * $scale;
+			}
+		}
+	}
+
 	private function backwardMean(int $aId, int $outId, array $attributes): void
 	{
 		$A = $this->tensors[$aId];
