@@ -17,6 +17,7 @@ class TensorRuntime
 	public array $shape;
 	public string $kind;
 	public ?string $name;
+	public bool $requiresGrad = false;
 	
 	public int $baseOffset = 0;
 	

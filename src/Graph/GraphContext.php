@@ -9,19 +9,19 @@ use PHP2xAI\Tensor\Tensor;
 
 $graph = [
     'tensors' => [
-        ['id' => 0, 'kind' => 'input',  'name' => 'x',      'shape' => [784]],
-        ['id' => 1, 'kind' => 'input',  'name' => 'target', 'shape' => [10]],
+        ['id' => 0, 'kind' => 'input',        'name' => 'x',      'shape' => [784],     'trainable' => true, 'requiresGrad' => false],
+        ['id' => 1, 'kind' => 'target',       'name' => 'target', 'shape' => [10],      'trainable' => true, 'requiresGrad' => false],
 
-        ['id' => 2, 'kind' => 'param',  'name' => 'W', 'shape' => [10, 784], 'trainable' => true],
-        ['id' => 3, 'kind' => 'param',  'name' => 'b', 'shape' => [10], 'trainable' => true],
+        ['id' => 2, 'kind' => 'param',        'name' => 'W',      'shape' => [10, 784], 'trainable' => true, 'requiresGrad' => true],
+        ['id' => 3, 'kind' => 'param',        'name' => 'b',      'shape' => [10],      'trainable' => true, 'requiresGrad' => true],
 
-        ['id' => 4, 'kind' => 'intermediate', 'name' => 'logits', 'shape' => [10]],
-        ['id' => 5, 'kind' => 'intermediate', 'name' => 'loss',   'shape' => []],
+        ['id' => 4, 'kind' => 'intermediate', 'name' => 'logits', 'shape' => [10],      'trainable' => true, 'requiresGrad' => true],
+        ['id' => 5, 'kind' => 'intermediate', 'name' => 'loss',   'shape' => [],        'trainable' => true, 'requiresGrad' => true],
     ],
     'ops' => [
-        ['id' => 0, 'op' => 'matmul',           'inputs' => [2, 0], 'output' => 4], // logits = W*x
-        ['id' => 1, 'op' => 'add',              'inputs' => [4, 3], 'output' => 4], // logits += b
-        ['id' => 2, 'op' => 'softmax_ce_logits','inputs' => [4, 1], 'output' => 5], // loss
+        ['id' => 0, 'op' => 'matmul',            'inputs' => [2, 0], 'output' => 4], // logits = W*x
+        ['id' => 1, 'op' => 'add',               'inputs' => [4, 3], 'output' => 4], // logits += b
+        ['id' => 2, 'op' => 'softmax_ce_logits', 'inputs' => [4, 1], 'output' => 5], // loss
     ],
     'loss'      => 5,
     'trainable' => [2, 3],
@@ -67,6 +67,7 @@ class GraphContext
 			'shape' => $shape,
 			'data'	=>	$tensor->data,
 			'trainable' => $tensor->isTrainable(),
+			'requiresGrad' => $kind === 'param' && $tensor->isTrainable(),
 		];
 		
 		$tensor->setContext($this);
@@ -77,6 +78,18 @@ class GraphContext
 	public function registerOp(string $op, array $inputs, Tensor $output, array $attributes = []) : int
 	{
 		$outputId = $this->registerTensor($output, 'intermediate', $output->getName() ?? $op, $output->getShape());
+		$requiresGrad = false;
+
+		foreach ($inputs as $inputId)
+		{
+			if ($this->tensors[$inputId]['requiresGrad'])
+			{
+				$requiresGrad = true;
+				break;
+			}
+		}
+
+		$this->tensors[$outputId]['requiresGrad'] = $requiresGrad;
 		
 		$opId = $this->nextOpId++;
 		

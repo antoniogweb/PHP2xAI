@@ -27,6 +27,7 @@ class GraphRuntime
 	public function __construct(array $graphDef, ?array $weigths = null)
 	{
 		$this->graphDef = $graphDef;
+		$this->trainable = $graphDef["trainable"] ?? [];
 		
 		// crea i tensori
 		foreach ($graphDef['tensors'] as $t)
@@ -48,7 +49,11 @@ class GraphRuntime
 				$this->tensors[$id]->data = $data;
 			}
 			
+			if (!array_key_exists('requiresGrad', $t))
+				throw new InvalidArgumentException("Tensor {$id}: missing required field requiresGrad");
+
 			$this->tensors[$id]->grad = array_fill(0, $size, 0.0);
+			$this->tensors[$id]->requiresGrad = $t['requiresGrad'];
 			
 			if ($t["kind"] == "input")
 				$this->inputId = $id;
@@ -70,10 +75,7 @@ class GraphRuntime
 		if (isset($graphDef['output']))
 			$this->outputId = $graphDef['output'];
 		
-		if (isset($graphDef['trainable']))
-			$this->trainable = $graphDef['trainable'];
 	}
-	
 	public function setContext(GraphContext $context) : void
 	{
 		$this->context = $context;
@@ -1213,6 +1215,9 @@ class GraphRuntime
 		$A = $this->tensors[$aId];
 		$out = $this->tensors[$outId];
 
+		if (!$A->requiresGrad)
+			return;
+
 		$kernel = $attributes["kernel"] ?? "MEAN_GENERIC_AXIS";
 		$axis = $attributes["axes"][0] ?? 0;
 		
@@ -1238,6 +1243,9 @@ class GraphRuntime
 		$A = $this->tensors[$aId];
 		$B = $this->tensors[$bId];
 		$C = $this->tensors[$outId];
+
+		if (!$A->requiresGrad && !$B->requiresGrad)
+			return;
 
 		$kernel = $attributes["kernel"] ?? "GENERIC_B_2D_2D_MATMUL_BROADCAST";
 		
@@ -1266,6 +1274,9 @@ class GraphRuntime
 		$A = $this->tensors[$aId];
 		$B = $this->tensors[$bId];
 		$C = $this->tensors[$outId];
+
+		if (!$A->requiresGrad && !$B->requiresGrad)
+			return;
 		
 		switch ($attributes["kernel"])
 		{
@@ -1341,6 +1352,9 @@ class GraphRuntime
     {
         $X = $this->tensors[$inpId];
         $Y = $this->tensors[$outId];
+
+		if (!$X->requiresGrad)
+			return;
         $size = count($X->data);
 		
         for ($i = 0; $i < $size; $i++)
@@ -1354,6 +1368,9 @@ class GraphRuntime
 	{
 		$X = $this->tensors[$inpId];
 		$Y = $this->tensors[$outId];
+
+		if (!$X->requiresGrad)
+			return;
 		$alpha = 0.01;
 		$size = count($X->data);
 
@@ -1368,6 +1385,9 @@ class GraphRuntime
 	{
 		$X = $this->tensors[$inpId];
 		$Y = $this->tensors[$outId];
+
+		if (!$X->requiresGrad)
+			return;
 		$size = count($X->data);
 
 		for ($i = 0; $i < $size; $i++)
@@ -1382,6 +1402,9 @@ class GraphRuntime
 	{
 		$X = $this->tensors[$inpId];
 		$Y = $this->tensors[$outId];
+
+		if (!$X->requiresGrad)
+			return;
 		$size = count($X->data);
 
 		for ($i = 0; $i < $size; $i++)
@@ -1498,6 +1521,9 @@ class GraphRuntime
 	{
 		$X = $this->tensors[$inpId];
 		$Y = $this->tensors[$outId];
+
+		if (!$X->requiresGrad)
+			return;
 		$size = count($Y->data);
 		
 		$kernel = $attributes["kernel"] ?? "SOFTMAX_GENERIC_AXIS";
@@ -1523,6 +1549,9 @@ class GraphRuntime
 	private function backwardCe(int $predId, int $targetId, int $outId): void
 	{
 		$pred = $this->tensors[$predId];
+
+		if (!$pred->requiresGrad)
+			return;
 		$target = $this->tensors[$targetId];
 		$out = $this->tensors[$outId];
 
@@ -1571,6 +1600,9 @@ class GraphRuntime
 	private function backwardCeLogits(int $logitsId, int $targetId, int $outId): void
 	{
 		$logits = $this->tensors[$logitsId];
+
+		if (!$logits->requiresGrad)
+			return;
 		$target = $this->tensors[$targetId];
 		$out = $this->tensors[$outId];
 
@@ -1904,6 +1936,9 @@ class GraphRuntime
 	private function backwardCeLogitsLabelInt(int $logitsId, int $targetId, int $outId, array $attributes): void
 	{
 		$logits = $this->tensors[$logitsId];
+
+		if (!$logits->requiresGrad)
+			return;
 
 		$classes = count($logits->data);
 		if ($classes === 0)
