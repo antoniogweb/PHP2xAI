@@ -36,6 +36,8 @@ class Tensor
 	public int $baseOffset = 0;
 	
 	protected bool $trainable = true;
+
+	protected bool $requiresGrad = false;
 	
 	/**
 	* Graph context used for IR construction.
@@ -266,6 +268,33 @@ class Tensor
 		return $result;
 	}
     
+	/**
+	 * Mean-pools token representations in a training batch, excluding padding.
+	 *
+	 * $this is X [B, L, D] and $mask is [B, L], with 1 for a valid token and
+	 * 0 for PAD_TOKEN (id 0). The resulting tensor has shape [B, D].
+	 */
+	public function meanPooling(Tensor $mask) : Tensor
+	{
+		if ($this->getRank() !== 3)
+			throw new Exception("Input must have rank 3 [B, L, D]");
+
+		if ($mask->getRank() !== 2)
+			throw new Exception("Mask must have rank 2 [B, L]");
+
+		if ($this->shape[0] !== $mask->shape[0] || $this->shape[1] !== $mask->shape[1])
+			throw new Exception("Input and mask dimensions mismatch");
+
+		$context = $this->initContextFrom($mask);
+		$inputId = $this->registerInContext($context, $this);
+		$maskId = $this->registerInContext($context, $mask);
+
+		$result = self::zeros([$this->shape[0], $this->shape[2]], 'meanPooling');
+		$context->registerOp('mean_pooling', [$inputId, $maskId], $result);
+
+		return $result;
+	}
+
 //     public function sub(Tensor $b) : Tensor
 //     {
 // 		$context = $this->initContextFrom($b);

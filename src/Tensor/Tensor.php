@@ -36,6 +36,8 @@ class Tensor
 	public int $baseOffset = 0;
 	
 	protected bool $trainable = true;
+
+	protected bool $requiresGrad = false;
 	
 	/**
 	* Graph context used for IR construction.
@@ -154,6 +156,16 @@ class Tensor
 		return $this->trainable;
 	}
 	
+	public function setRequiresGrad(bool $requiresGrad) : void
+	{
+		$this->requiresGrad = $requiresGrad;
+	}
+
+	public function requiresGrad() : bool
+	{
+		return $this->requiresGrad;
+	}
+
 	public function matMul(Tensor $b) : Tensor
 	{
 		$context = $this->initContextFrom($b);

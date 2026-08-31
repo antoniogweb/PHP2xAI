@@ -60,6 +60,9 @@ class GraphContext
 		$this->tensorIds[$oid] = $id;
 		$this->tensorRefs[$oid] = $tensor; // keep reference so spl_object_id is not recycled
 		
+		$requiresGrad = $tensor->requiresGrad() || ($kind === 'param' && $tensor->isTrainable());
+		$tensor->setRequiresGrad($requiresGrad);
+
 		$this->tensors[] = [
 			'id' => $id,
 			'kind' => $kind,
@@ -67,7 +70,7 @@ class GraphContext
 			'shape' => $shape,
 			'data'	=>	$tensor->data,
 			'trainable' => $tensor->isTrainable(),
-			'requiresGrad' => $kind === 'param' && $tensor->isTrainable(),
+			'requiresGrad' => $requiresGrad,
 		];
 		
 		$tensor->setContext($this);
@@ -78,7 +81,7 @@ class GraphContext
 	public function registerOp(string $op, array $inputs, Tensor $output, array $attributes = []) : int
 	{
 		$outputId = $this->registerTensor($output, 'intermediate', $output->getName() ?? $op, $output->getShape());
-		$requiresGrad = false;
+		$requiresGrad = $output->requiresGrad();
 
 		foreach ($inputs as $inputId)
 		{
@@ -89,6 +92,7 @@ class GraphContext
 			}
 		}
 
+		$output->setRequiresGrad($requiresGrad);
 		$this->tensors[$outputId]['requiresGrad'] = $requiresGrad;
 		
 		$opId = $this->nextOpId++;
