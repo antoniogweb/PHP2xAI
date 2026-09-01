@@ -205,7 +205,7 @@ class Tensor
 			if ($this->shape[3] != $b->shape[2])
 				throw new Exception("Matmul dimensions mismatch");
 		}
-		else if ($thisRank === 3 && $bRank === 3)
+		else if ($thisRank === 3 && $bRank === 2)
 		{
 			// [B, T, D] * [D, H] = [B, T, H]
 			$kernel = "MATMUL_1B_2D_2D_LINEAR";
