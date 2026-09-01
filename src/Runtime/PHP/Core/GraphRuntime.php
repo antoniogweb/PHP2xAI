@@ -2260,6 +2260,285 @@ class GraphRuntime
 		}
 	}
 	
+	// KERNELS TRANSPOSE
+	private function TRANSPOSE_2D(TensorRuntime $A, TensorRuntime $C)
+	{
+		if (count($A->shape) !== 2)
+			throw new RuntimeException('transpose: dimension mismatch');
+
+		[$rows, $cols] = $A->shape;
+		$C->shape = [$cols, $rows];
+		$C->strides = TensorRuntime::computeStrides($C->shape);
+		$C->data = array_fill(0, $rows * $cols, 0.0);
+
+		for ($row = 0; $row < $rows; $row++)
+		{
+			$aRow = $row * $cols;
+
+			for ($col = 0; $col < $cols; $col++)
+				$C->data[$col * $rows + $row] = $A->data[$aRow + $col];
+		}
+	}
+
+	private function TRANSPOSE_3D_LAST_TWO(TensorRuntime $A, TensorRuntime $C)
+	{
+		if (count($A->shape) !== 3)
+			throw new RuntimeException('transpose: dimension mismatch');
+
+		[$batch, $rows, $cols] = $A->shape;
+		$C->shape = [$batch, $cols, $rows];
+		$C->strides = TensorRuntime::computeStrides($C->shape);
+		$C->data = array_fill(0, $batch * $rows * $cols, 0.0);
+
+		for ($b = 0; $b < $batch; $b++)
+		{
+			$aBatch = $b * $rows * $cols;
+			$cBatch = $b * $cols * $rows;
+
+			for ($row = 0; $row < $rows; $row++)
+			{
+				$aRow = $aBatch + $row * $cols;
+
+				for ($col = 0; $col < $cols; $col++)
+					$C->data[$cBatch + $col * $rows + $row] = $A->data[$aRow + $col];
+			}
+		}
+	}
+
+	private function TRANSPOSE_4D_LAST_TWO(TensorRuntime $A, TensorRuntime $C)
+	{
+		if (count($A->shape) !== 4)
+			throw new RuntimeException('transpose: dimension mismatch');
+
+		[$batch, $heads, $rows, $cols] = $A->shape;
+		$C->shape = [$batch, $heads, $cols, $rows];
+		$C->strides = TensorRuntime::computeStrides($C->shape);
+		$C->data = array_fill(0, $batch * $heads * $rows * $cols, 0.0);
+
+		for ($b = 0; $b < $batch; $b++)
+		{
+			for ($h = 0; $h < $heads; $h++)
+			{
+				$aHead = ($b * $heads + $h) * $rows * $cols;
+				$cHead = ($b * $heads + $h) * $cols * $rows;
+
+				for ($row = 0; $row < $rows; $row++)
+				{
+					$aRow = $aHead + $row * $cols;
+
+					for ($col = 0; $col < $cols; $col++)
+						$C->data[$cHead + $col * $rows + $row] = $A->data[$aRow + $col];
+				}
+			}
+		}
+	}
+
+	private function TRANSPOSE_4D_AXIS_1_2(TensorRuntime $A, TensorRuntime $C)
+	{
+		if (count($A->shape) !== 4)
+			throw new RuntimeException('transpose: dimension mismatch');
+
+		[$batch, $length, $heads, $dim] = $A->shape;
+		$C->shape = [$batch, $heads, $length, $dim];
+		$C->strides = TensorRuntime::computeStrides($C->shape);
+		$C->data = array_fill(0, $batch * $length * $heads * $dim, 0.0);
+
+		for ($b = 0; $b < $batch; $b++)
+		{
+			for ($l = 0; $l < $length; $l++)
+			{
+				for ($h = 0; $h < $heads; $h++)
+				{
+					$aBase = (($b * $length + $l) * $heads + $h) * $dim;
+					$cBase = (($b * $heads + $h) * $length + $l) * $dim;
+
+					for ($d = 0; $d < $dim; $d++)
+						$C->data[$cBase + $d] = $A->data[$aBase + $d];
+				}
+			}
+		}
+	}
+
+	private function TRANSPOSE_GENERIC(TensorRuntime $A, TensorRuntime $C, array $axes)
+	{
+		$rank = count($A->shape);
+		if ($rank < 2 || count($axes) !== 2)
+			throw new RuntimeException('transpose: invalid axes');
+
+		$axisA = $axes[0];
+		$axisB = $axes[1];
+
+		if ($axisA < 0)
+			$axisA += $rank;
+		if ($axisB < 0)
+			$axisB += $rank;
+
+		if ($axisA < 0 || $axisA >= $rank || $axisB < 0 || $axisB >= $rank || $axisA === $axisB)
+			throw new RuntimeException('transpose: invalid axes');
+
+		$C->shape = $A->shape;
+		[$C->shape[$axisA], $C->shape[$axisB]] = [$C->shape[$axisB], $C->shape[$axisA]];
+		$C->strides = TensorRuntime::computeStrides($C->shape);
+		$logicalStrides = TensorRuntime::computeStrides($A->shape);
+		$total = array_product($A->shape);
+		$C->data = array_fill(0, $total, 0.0);
+
+		for ($linear = 0; $linear < $total; $linear++)
+		{
+			$remaining = $linear;
+			$aOffset = $A->baseOffset;
+			$cOffset = $C->baseOffset;
+
+			for ($axis = 0; $axis < $rank; $axis++)
+			{
+				$index = intdiv($remaining, $logicalStrides[$axis]);
+				$remaining %= $logicalStrides[$axis];
+				$aOffset += $index * $A->strides[$axis];
+
+				$outAxis = $axis;
+				if ($axis === $axisA)
+					$outAxis = $axisB;
+				else if ($axis === $axisB)
+					$outAxis = $axisA;
+
+				$cOffset += $index * $C->strides[$outAxis];
+			}
+
+			$C->data[$cOffset] = $A->data[$aOffset];
+		}
+	}
+
+	private function BACKWARD_TRANSPOSE_2D(TensorRuntime $A, TensorRuntime $C)
+	{
+		if (count($A->shape) !== 2)
+			throw new RuntimeException('transpose backward: dimension mismatch');
+
+		[$rows, $cols] = $A->shape;
+
+		for ($row = 0; $row < $rows; $row++)
+		{
+			$aRow = $row * $cols;
+
+			for ($col = 0; $col < $cols; $col++)
+				$A->grad[$aRow + $col] += $C->grad[$col * $rows + $row];
+		}
+	}
+
+	private function BACKWARD_TRANSPOSE_3D_LAST_TWO(TensorRuntime $A, TensorRuntime $C)
+	{
+		if (count($A->shape) !== 3)
+			throw new RuntimeException('transpose backward: dimension mismatch');
+
+		[$batch, $rows, $cols] = $A->shape;
+
+		for ($b = 0; $b < $batch; $b++)
+		{
+			$aBatch = $b * $rows * $cols;
+			$cBatch = $b * $cols * $rows;
+
+			for ($row = 0; $row < $rows; $row++)
+			{
+				$aRow = $aBatch + $row * $cols;
+
+				for ($col = 0; $col < $cols; $col++)
+					$A->grad[$aRow + $col] += $C->grad[$cBatch + $col * $rows + $row];
+			}
+		}
+	}
+
+	private function BACKWARD_TRANSPOSE_4D_LAST_TWO(TensorRuntime $A, TensorRuntime $C)
+	{
+		if (count($A->shape) !== 4)
+			throw new RuntimeException('transpose backward: dimension mismatch');
+
+		[$batch, $heads, $rows, $cols] = $A->shape;
+
+		for ($b = 0; $b < $batch; $b++)
+		{
+			for ($h = 0; $h < $heads; $h++)
+			{
+				$aHead = ($b * $heads + $h) * $rows * $cols;
+				$cHead = ($b * $heads + $h) * $cols * $rows;
+
+				for ($row = 0; $row < $rows; $row++)
+				{
+					$aRow = $aHead + $row * $cols;
+
+					for ($col = 0; $col < $cols; $col++)
+						$A->grad[$aRow + $col] += $C->grad[$cHead + $col * $rows + $row];
+				}
+			}
+		}
+	}
+
+	private function BACKWARD_TRANSPOSE_4D_AXIS_1_2(TensorRuntime $A, TensorRuntime $C)
+	{
+		if (count($A->shape) !== 4)
+			throw new RuntimeException('transpose backward: dimension mismatch');
+
+		[$batch, $length, $heads, $dim] = $A->shape;
+
+		for ($b = 0; $b < $batch; $b++)
+		{
+			for ($l = 0; $l < $length; $l++)
+			{
+				for ($h = 0; $h < $heads; $h++)
+				{
+					$aBase = (($b * $length + $l) * $heads + $h) * $dim;
+					$cBase = (($b * $heads + $h) * $length + $l) * $dim;
+
+					for ($d = 0; $d < $dim; $d++)
+						$A->grad[$aBase + $d] += $C->grad[$cBase + $d];
+				}
+			}
+		}
+	}
+
+	private function BACKWARD_TRANSPOSE_GENERIC(TensorRuntime $A, TensorRuntime $C, array $axes)
+	{
+		$rank = count($A->shape);
+		if ($rank < 2 || count($axes) !== 2)
+			throw new RuntimeException('transpose backward: invalid axes');
+
+		$axisA = $axes[0];
+		$axisB = $axes[1];
+
+		if ($axisA < 0)
+			$axisA += $rank;
+		if ($axisB < 0)
+			$axisB += $rank;
+
+		if ($axisA < 0 || $axisA >= $rank || $axisB < 0 || $axisB >= $rank || $axisA === $axisB)
+			throw new RuntimeException('transpose backward: invalid axes');
+
+		$logicalStrides = TensorRuntime::computeStrides($A->shape);
+		$total = array_product($A->shape);
+
+		for ($linear = 0; $linear < $total; $linear++)
+		{
+			$remaining = $linear;
+			$aOffset = $A->baseOffset;
+			$cOffset = $C->baseOffset;
+
+			for ($axis = 0; $axis < $rank; $axis++)
+			{
+				$index = intdiv($remaining, $logicalStrides[$axis]);
+				$remaining %= $logicalStrides[$axis];
+				$aOffset += $index * $A->strides[$axis];
+
+				$outAxis = $axis;
+				if ($axis === $axisA)
+					$outAxis = $axisB;
+				else if ($axis === $axisB)
+					$outAxis = $axisA;
+
+				$cOffset += $index * $C->strides[$outAxis];
+			}
+
+			$A->grad[$aOffset] += $C->grad[$cOffset];
+		}
+	}
+
 	// KERNELS MATMUL
 	private function MATMUL_2D_2D(TensorRuntime $A, TensorRuntime $B, TensorRuntime $C)
 	{

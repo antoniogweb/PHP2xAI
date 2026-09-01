@@ -717,6 +717,162 @@ namespace PHP2xAI::Runtime::CPP
 		throw std::runtime_error("transpose: kernel not supported");
 	}
 
+	void GraphRuntime::TRANSPOSE_2D(Tensor &A, Tensor &C)
+	{
+		if (A.shape.size() != 2)
+			throw std::runtime_error("transpose: dimension mismatch");
+
+		const int rows = A.shape[0];
+		const int cols = A.shape[1];
+		C.shape = {cols, rows};
+		C.strides = Tensor::computeStrides(C.shape);
+		C.data.assign(static_cast<std::size_t>(rows * cols), 0.0f);
+
+		for (int row = 0; row < rows; ++row)
+		{
+			const int aRow = row * cols;
+
+			for (int col = 0; col < cols; ++col)
+				C.data[static_cast<std::size_t>(col * rows + row)] = A.data[static_cast<std::size_t>(aRow + col)];
+		}
+	}
+
+	void GraphRuntime::TRANSPOSE_3D_LAST_TWO(Tensor &A, Tensor &C)
+	{
+		if (A.shape.size() != 3)
+			throw std::runtime_error("transpose: dimension mismatch");
+
+		const int batch = A.shape[0];
+		const int rows = A.shape[1];
+		const int cols = A.shape[2];
+		C.shape = {batch, cols, rows};
+		C.strides = Tensor::computeStrides(C.shape);
+		C.data.assign(static_cast<std::size_t>(batch * rows * cols), 0.0f);
+
+		for (int b = 0; b < batch; ++b)
+		{
+			const int aBatch = b * rows * cols;
+			const int cBatch = b * cols * rows;
+
+			for (int row = 0; row < rows; ++row)
+			{
+				const int aRow = aBatch + row * cols;
+
+				for (int col = 0; col < cols; ++col)
+					C.data[static_cast<std::size_t>(cBatch + col * rows + row)] = A.data[static_cast<std::size_t>(aRow + col)];
+			}
+		}
+	}
+
+	void GraphRuntime::TRANSPOSE_4D_LAST_TWO(Tensor &A, Tensor &C)
+	{
+		if (A.shape.size() != 4)
+			throw std::runtime_error("transpose: dimension mismatch");
+
+		const int batch = A.shape[0];
+		const int heads = A.shape[1];
+		const int rows = A.shape[2];
+		const int cols = A.shape[3];
+		C.shape = {batch, heads, cols, rows};
+		C.strides = Tensor::computeStrides(C.shape);
+		C.data.assign(static_cast<std::size_t>(batch * heads * rows * cols), 0.0f);
+
+		for (int b = 0; b < batch; ++b)
+		{
+			for (int h = 0; h < heads; ++h)
+			{
+				const int aHead = (b * heads + h) * rows * cols;
+				const int cHead = (b * heads + h) * cols * rows;
+
+				for (int row = 0; row < rows; ++row)
+				{
+					const int aRow = aHead + row * cols;
+
+					for (int col = 0; col < cols; ++col)
+						C.data[static_cast<std::size_t>(cHead + col * rows + row)] = A.data[static_cast<std::size_t>(aRow + col)];
+				}
+			}
+		}
+	}
+
+	void GraphRuntime::TRANSPOSE_4D_AXIS_1_2(Tensor &A, Tensor &C)
+	{
+		if (A.shape.size() != 4)
+			throw std::runtime_error("transpose: dimension mismatch");
+
+		const int batch = A.shape[0];
+		const int length = A.shape[1];
+		const int heads = A.shape[2];
+		const int dim = A.shape[3];
+		C.shape = {batch, heads, length, dim};
+		C.strides = Tensor::computeStrides(C.shape);
+		C.data.assign(static_cast<std::size_t>(batch * length * heads * dim), 0.0f);
+
+		for (int b = 0; b < batch; ++b)
+		{
+			for (int l = 0; l < length; ++l)
+			{
+				for (int h = 0; h < heads; ++h)
+				{
+					const int aBase = ((b * length + l) * heads + h) * dim;
+					const int cBase = ((b * heads + h) * length + l) * dim;
+
+					for (int d = 0; d < dim; ++d)
+						C.data[static_cast<std::size_t>(cBase + d)] = A.data[static_cast<std::size_t>(aBase + d)];
+				}
+			}
+		}
+	}
+
+	void GraphRuntime::TRANSPOSE_GENERIC(Tensor &A, Tensor &C, const std::vector<int> &axes)
+	{
+		const int rank = static_cast<int>(A.shape.size());
+		if (rank < 2 || axes.size() != 2)
+			throw std::runtime_error("transpose: invalid axes");
+
+		int axisA = axes[0];
+		int axisB = axes[1];
+
+		if (axisA < 0)
+			axisA += rank;
+		if (axisB < 0)
+			axisB += rank;
+
+		if (axisA < 0 || axisA >= rank || axisB < 0 || axisB >= rank || axisA == axisB)
+			throw std::runtime_error("transpose: invalid axes");
+
+		C.shape = A.shape;
+		std::swap(C.shape[axisA], C.shape[axisB]);
+		C.strides = Tensor::computeStrides(C.shape);
+		const auto logicalStrides = Tensor::computeStrides(A.shape);
+		const int total = std::accumulate(A.shape.begin(), A.shape.end(), 1, std::multiplies<int>());
+		C.data.assign(static_cast<std::size_t>(total), 0.0f);
+
+		for (int linear = 0; linear < total; ++linear)
+		{
+			int remaining = linear;
+			int aOffset = A.baseOffset;
+			int cOffset = C.baseOffset;
+
+			for (int axis = 0; axis < rank; ++axis)
+			{
+				const int index = remaining / logicalStrides[axis];
+				remaining %= logicalStrides[axis];
+				aOffset += index * A.strides[axis];
+
+				int outAxis = axis;
+				if (axis == axisA)
+					outAxis = axisB;
+				else if (axis == axisB)
+					outAxis = axisA;
+
+				cOffset += index * C.strides[outAxis];
+			}
+
+			C.data[static_cast<std::size_t>(cOffset)] = A.data[static_cast<std::size_t>(aOffset)];
+		}
+	}
+
 	void GraphRuntime::MATMUL_2D_2D(Tensor &A, Tensor &B, Tensor &C)
 	{
 		if (A.shape.size() != 2 || B.shape.size() != 2)
@@ -2127,6 +2283,146 @@ namespace PHP2xAI::Runtime::CPP
 			return BACKWARD_TRANSPOSE_GENERIC(A, C, axes);
 
 		throw std::runtime_error("transpose backward: kernel not supported");
+	}
+
+	void GraphRuntime::BACKWARD_TRANSPOSE_2D(Tensor &A, Tensor &C)
+	{
+		if (A.shape.size() != 2)
+			throw std::runtime_error("transpose backward: dimension mismatch");
+
+		const int rows = A.shape[0];
+		const int cols = A.shape[1];
+
+		for (int row = 0; row < rows; ++row)
+		{
+			const int aRow = row * cols;
+
+			for (int col = 0; col < cols; ++col)
+				A.grad[static_cast<std::size_t>(aRow + col)] += C.grad[static_cast<std::size_t>(col * rows + row)];
+		}
+	}
+
+	void GraphRuntime::BACKWARD_TRANSPOSE_3D_LAST_TWO(Tensor &A, Tensor &C)
+	{
+		if (A.shape.size() != 3)
+			throw std::runtime_error("transpose backward: dimension mismatch");
+
+		const int batch = A.shape[0];
+		const int rows = A.shape[1];
+		const int cols = A.shape[2];
+
+		for (int b = 0; b < batch; ++b)
+		{
+			const int aBatch = b * rows * cols;
+			const int cBatch = b * cols * rows;
+
+			for (int row = 0; row < rows; ++row)
+			{
+				const int aRow = aBatch + row * cols;
+
+				for (int col = 0; col < cols; ++col)
+					A.grad[static_cast<std::size_t>(aRow + col)] += C.grad[static_cast<std::size_t>(cBatch + col * rows + row)];
+			}
+		}
+	}
+
+	void GraphRuntime::BACKWARD_TRANSPOSE_4D_LAST_TWO(Tensor &A, Tensor &C)
+	{
+		if (A.shape.size() != 4)
+			throw std::runtime_error("transpose backward: dimension mismatch");
+
+		const int batch = A.shape[0];
+		const int heads = A.shape[1];
+		const int rows = A.shape[2];
+		const int cols = A.shape[3];
+
+		for (int b = 0; b < batch; ++b)
+		{
+			for (int h = 0; h < heads; ++h)
+			{
+				const int aHead = (b * heads + h) * rows * cols;
+				const int cHead = (b * heads + h) * cols * rows;
+
+				for (int row = 0; row < rows; ++row)
+				{
+					const int aRow = aHead + row * cols;
+
+					for (int col = 0; col < cols; ++col)
+						A.grad[static_cast<std::size_t>(aRow + col)] += C.grad[static_cast<std::size_t>(cHead + col * rows + row)];
+				}
+			}
+		}
+	}
+
+	void GraphRuntime::BACKWARD_TRANSPOSE_4D_AXIS_1_2(Tensor &A, Tensor &C)
+	{
+		if (A.shape.size() != 4)
+			throw std::runtime_error("transpose backward: dimension mismatch");
+
+		const int batch = A.shape[0];
+		const int length = A.shape[1];
+		const int heads = A.shape[2];
+		const int dim = A.shape[3];
+
+		for (int b = 0; b < batch; ++b)
+		{
+			for (int l = 0; l < length; ++l)
+			{
+				for (int h = 0; h < heads; ++h)
+				{
+					const int aBase = ((b * length + l) * heads + h) * dim;
+					const int cBase = ((b * heads + h) * length + l) * dim;
+
+					for (int d = 0; d < dim; ++d)
+						A.grad[static_cast<std::size_t>(aBase + d)] += C.grad[static_cast<std::size_t>(cBase + d)];
+				}
+			}
+		}
+	}
+
+	void GraphRuntime::BACKWARD_TRANSPOSE_GENERIC(Tensor &A, Tensor &C, const std::vector<int> &axes)
+	{
+		const int rank = static_cast<int>(A.shape.size());
+		if (rank < 2 || axes.size() != 2)
+			throw std::runtime_error("transpose backward: invalid axes");
+
+		int axisA = axes[0];
+		int axisB = axes[1];
+
+		if (axisA < 0)
+			axisA += rank;
+		if (axisB < 0)
+			axisB += rank;
+
+		if (axisA < 0 || axisA >= rank || axisB < 0 || axisB >= rank || axisA == axisB)
+			throw std::runtime_error("transpose backward: invalid axes");
+
+		const auto logicalStrides = Tensor::computeStrides(A.shape);
+		const int total = std::accumulate(A.shape.begin(), A.shape.end(), 1, std::multiplies<int>());
+
+		for (int linear = 0; linear < total; ++linear)
+		{
+			int remaining = linear;
+			int aOffset = A.baseOffset;
+			int cOffset = C.baseOffset;
+
+			for (int axis = 0; axis < rank; ++axis)
+			{
+				const int index = remaining / logicalStrides[axis];
+				remaining %= logicalStrides[axis];
+				aOffset += index * A.strides[axis];
+
+				int outAxis = axis;
+				if (axis == axisA)
+					outAxis = axisB;
+				else if (axis == axisB)
+					outAxis = axisA;
+
+				cOffset += index * C.strides[outAxis];
+			}
+
+			A.grad[static_cast<std::size_t>(aOffset)] += C.grad[static_cast<std::size_t>(cOffset)];
+		}
 	}
 
 	void GraphRuntime::BACKWARD_MATMUL_2D_2D(Tensor &A, Tensor &B, Tensor &C)
