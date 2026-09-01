@@ -17,6 +17,7 @@ use tokenizers::{AddedToken, TokenizerBuilder};
 
 const DEFAULT_VOCAB_SIZE: usize = 30_000;
 const DEFAULT_MIN_FREQUENCY: u64 = 2;
+const DEFAULT_OUTPUT_PATH: &str = "tokenizer.json";
 
 const PAD_TOKEN: &str = "[PAD]";
 const UNK_TOKEN: &str = "[UNK]";
@@ -166,6 +167,7 @@ where
     };
 
     let metadata = serde_json::json!({
+        "vocabulary_size": tokenizer.get_vocab_size(true),
         "samples": samples,
         "max_length": max_length,
         "average_length": average_length,
@@ -203,7 +205,7 @@ fn parse_arguments() -> Result<Config, String> {
     let mut args = env::args().skip(1);
 
     let mut input_path: Option<PathBuf> = None;
-    let mut output_path: Option<PathBuf> = None;
+    let mut output_path = PathBuf::from(DEFAULT_OUTPUT_PATH);
     let mut vocab_size = DEFAULT_VOCAB_SIZE;
     let mut min_frequency = DEFAULT_MIN_FREQUENCY;
     let mut pretty = false;
@@ -215,7 +217,7 @@ fn parse_arguments() -> Result<Config, String> {
             }
 
             "--output" | "-o" => {
-                output_path = Some(PathBuf::from(next_argument(&mut args, "--output")?));
+                output_path = PathBuf::from(next_argument(&mut args, "--output")?);
             }
 
             "--vocab-size" | "-v" => {
@@ -253,9 +255,6 @@ fn parse_arguments() -> Result<Config, String> {
     }
 
     let input_path = input_path.ok_or_else(|| "Missing required argument: --input".to_string())?;
-
-    let output_path =
-        output_path.ok_or_else(|| "Missing required argument: --output".to_string())?;
 
     if vocab_size < 4 {
         return Err("Vocabulary size must be at least 4 for the special tokens.".to_string());
@@ -332,10 +331,11 @@ REQUIRED OPTIONS:
     -i, --input <FILE>
         UTF-8 corpus file. Each line should contain one training sample.
 
+OPTIONAL:
     -o, --output <FILE>
         Destination tokenizer.json file.
+        Default: {DEFAULT_OUTPUT_PATH}
 
-OPTIONAL:
     -v, --vocab-size <NUMBER>
         Maximum vocabulary size.
         Default: {DEFAULT_VOCAB_SIZE}
