@@ -344,6 +344,22 @@ class Tensor
 
 		return $result;
 	}
+
+	/**
+	 * Adds sinusoidal positional encoding to token embeddings [B, L, D].
+	 */
+	public function positionalEncoding() : Tensor
+	{
+		if ($this->getRank() !== 3)
+			throw new Exception("Positional encoding requires rank 3 [B, L, D]");
+
+		$context = $this->initContextFrom();
+		$inputId = $this->registerInContext($context, $this);
+		$result = self::zeros($this->shape, 'positionalEncoding');
+		$context->registerOp('positional_encoding', [$inputId], $result);
+
+		return $result;
+	}
 	
 	public function add(Tensor $b) : Tensor
     {
