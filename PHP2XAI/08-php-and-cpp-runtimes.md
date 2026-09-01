@@ -21,3 +21,5 @@ With the C++ runtime, the PHP model normally generates:
 The C++ runtime reads the configuration, loads graph and weights, constructs the datasets, and starts `Core::train()`.
 
 The `training` flag defaults to `false`, which means evaluation mode. `Core::train()` sets it to `true`; validation sets it back to `false`.
+
+Both runtimes implement the same forward and backward behavior for `transpose()`, contiguous `reshape()`, sinusoidal `positionalEncoding()`, `gelu()` with the tanh approximation, and `scale()`.

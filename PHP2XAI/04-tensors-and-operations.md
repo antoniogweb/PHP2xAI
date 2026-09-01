@@ -22,7 +22,10 @@ Available operations include:
 
 - `matmul()` for matrix multiplication;
 - `add()` for biases and supported broadcasting;
-- `sig()` and `ReLU()` for activations;
+- `sig()`, `ReLU()`, and `gelu()` for activations;
+- `scale()` for elementwise multiplication by a fixed scalar;
+- `transpose()` and `reshape()` for layout changes;
+- `positionalEncoding()` for sinusoidal sequence positions;
 - `softmax()` for probabilities;
 - `CE()`, `CELogits()`, and `CELogitsLabelInt()` for cross entropy;
 - `mean()` for reducing batch losses;
@@ -111,6 +114,33 @@ The inner dimensions must match: the input feature dimension `D` must equal the 
 
 For a single sample, the corresponding path may use `[D]` and `[D, H]` and produce `[H]`, depending on the operation and runtime path. A model intended for batch training should use one convention consistently. Accidentally mixing sample vectors and batch matrices is a common source of incompatible input errors.
 
+## Transpose and reshape
+
+`transpose()` swaps exactly two axes. By default it swaps the final two dimensions:
+
+```php
+$matrixT = $matrix->transpose();          // [-2, -1]
+$byHead = $x->transpose([1, 2]);          // [B, L, H, dk] -> [B, H, L, dk]
+$forScores = $byHead->transpose();        // [B, H, L, dk] -> [B, H, dk, L]
+```
+
+Negative axis indices are accepted. The operation supports dedicated paths for common 2D, 3D, and attention 4D layouts, with a generic fallback for any valid pair of distinct axes. PHP2xAI materializes the transposed values into a new contiguous output tensor; it does not currently create a non-contiguous transpose view.
+
+`reshape()` changes how the same row-major sequence of values is grouped:
+
+```php
+$flat = $x->reshape([2, -1]); // [2, 3, 4] becomes [2, 12]
+```
+
+The product of the requested dimensions must equal the input element count. One dimension can be `-1`; its value is inferred from the remaining dimensions. The current runtime requires a contiguous input and produces a contiguous output by copying the flat storage. Its backward pass is a linear identity mapping of gradients.
+
+For example, reshape does not transpose data:
+
+```text
+[ [1, 2, 3], [4, 5, 6] ]  shape [2, 3]
+becomes [ [1, 2], [3, 4], [5, 6] ]  shape [3, 2]
+```
+
 ## Addition and broadcasting
 
 `add()` is most often used for bias addition:
@@ -133,6 +163,22 @@ $probabilities = $hidden->softmax();
 ```
 
 `ReLU()` preserves positive values and maps negative values to zero. It is commonly used in hidden layers. `sig()` maps values to `(0, 1)` and is useful for binary outputs or gates. `softmax()` transforms a group of logits into normalized values whose sum is one along the selected axis.
+
+`gelu()` uses the common tanh approximation of the Gaussian Error Linear Unit:
+
+```text
+GELU(x) = 0.5 * x * (1 + tanh(sqrt(2 / pi) * (x + 0.044715 * x^3)))
+```
+
+It is elementwise and preserves the input shape. When comparing with PyTorch, use `torch.nn.functional.gelu(x, approximate="tanh")`.
+
+`scale()` is also elementwise and multiplies every value by a fixed scalar:
+
+```php
+$scaled = $x->scale(0.5);
+```
+
+Its backward pass multiplies the upstream gradient by the same scalar. The scalar is a fixed operation attribute, not a trainable Tensor.
 
 The activation must match the loss. A loss that expects logits, such as `CELogitsLabelInt()`, should normally receive the raw output of the final linear layer. Applying softmax before a logits-based loss changes the mathematical expression and can make optimization less stable.
 
@@ -180,6 +226,23 @@ pooled:     [B, D]
 ```
 
 `paddingMask()` marks valid positions, `embeddings()` maps integer token identifiers to rows in an embedding table, and `meanPooling()` combines valid token representations while ignoring padding. The mask is part of the computation and must have a shape compatible with the sequence representation.
+
+### Sinusoidal positional encoding
+
+`positionalEncoding()` applies the standard sinusoidal encoding to token embeddings with shape `[B, L, D]`:
+
+```php
+$x = $x->positionalEncoding();
+```
+
+`B` is the batch dimension, `L` is the token position, and `D` is the embedding dimension. Rank `[B, D]` is rejected because batch entries do not represent positions in one sequence. For every position `p` and feature-pair index `i`:
+
+```text
+PE(p, 2i)   = sin(p / 10000^(2i / D))
+PE(p, 2i+1) = cos(p / 10000^(2i / D))
+```
+
+The same `[L, D]` encoding is added independently to every batch item. Positional encoding has derivative 1 with respect to its input, so backward passes the upstream gradient through unchanged.
 
 ## Dropout and fixed operation attributes
 
