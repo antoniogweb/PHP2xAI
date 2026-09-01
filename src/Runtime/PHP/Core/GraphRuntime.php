@@ -258,6 +258,9 @@ class GraphRuntime
 			
 			switch ($name)
 			{
+				case 'reshape':
+					$this->opReshape($inputs[0], $outId);
+					break;
 				case 'transpose':
 					$this->opTranspose($inputs[0], $outId, $attributes);
 					break;
@@ -481,6 +484,14 @@ class GraphRuntime
 				$this->TRANSPOSE_GENERIC($A, $C, $axes);
 				break;
 		}
+	}
+
+	private function opReshape(int $inputId, int $outId): void
+	{
+		$A = $this->tensors[$inputId];
+		$C = $this->tensors[$outId];
+
+		$this->RESHAPE($A, $C);
 	}
 	
 	private function opAdd(int $aId, int $bId, int $outId, array $attributes): void
@@ -1322,6 +1333,9 @@ class GraphRuntime
 			
 			switch ($name)
 			{
+				case 'reshape':
+					$this->backwardReshape($inputs[0], $outId);
+					break;
 				case 'transpose':
 					$this->backwardTranspose($inputs[0], $outId, $attributes);
 					break;
@@ -1564,6 +1578,17 @@ class GraphRuntime
 				$this->BACKWARD_TRANSPOSE_GENERIC($A, $C, $axes);
 				break;
 		}
+	}
+
+	private function backwardReshape(int $inputId, int $outId): void
+	{
+		$A = $this->tensors[$inputId];
+		$C = $this->tensors[$outId];
+
+		if (!$A->requiresGrad)
+			return;
+
+		$this->BACKWARD_RESHAPE($A, $C);
 	}
 	
 	private function backwardAdd(int $aId, int $bId, int $outId, array $attributes): void

@@ -148,6 +148,7 @@ namespace PHP2xAI::Runtime::CPP
 		void opEmbeddings(int xIdsId, int embeddingsId, int outId);
 		void opMeanPooling(int inputId, int maskId, int outId);
 		void opPaddingMask(int inputId, int outId, int padId);
+		void opReshape(int inputId, int outId);
 		void opTranspose(int inputId, int outId, const std::string &kernel, const std::vector<int> &axes);
 		void opAdd(int aId, int bId, int outId, const std::string &kernel);
 		// void opSub(int, int, int);
@@ -165,6 +166,7 @@ namespace PHP2xAI::Runtime::CPP
 		void opCeLogitsLabelInt(int, int, int, const std::string &kernel, const std::vector<int> &axes);
 
 		void backwardMatmul(int, int, int, const std::string &kernel);
+		void backwardReshape(int inputId, int outId);
 		void backwardTranspose(int inputId, int outId, const std::string &kernel, const std::vector<int> &axes);
 		void backwardAdd(int, int, int, const std::string &kernel);
 		void backwardEmbeddings(int xIdsId, int embeddingsId, int outId);
@@ -205,6 +207,9 @@ namespace PHP2xAI::Runtime::CPP
 		void BACKWARD_MATMUL_2B_2D_2D(Tensor &A, Tensor &B, Tensor &C);
 		void BACKWARD_MATMUL_1B_2D_2D_LINEAR(Tensor &A, Tensor &B, Tensor &C);
 		void BACKWARD_MATMUL_GENERIC_B_2D_2D_BROADCAST(Tensor &A, Tensor &B, Tensor &C);
+
+		void RESHAPE(Tensor &A, Tensor &C);
+		void BACKWARD_RESHAPE(Tensor &A, Tensor &C);
 
 		void TRANSPOSE_2D(Tensor &A, Tensor &C);
 		void TRANSPOSE_3D_LAST_TWO(Tensor &A, Tensor &C);

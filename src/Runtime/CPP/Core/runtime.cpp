@@ -309,7 +309,9 @@ namespace PHP2xAI::Runtime::CPP
 			const auto &inputs = op.inputs;
 			const auto outId = op.output;
 
-			if (name == "transpose")
+			if (name == "reshape")
+				opReshape(inputs[0], outId);
+			else if (name == "transpose")
 				opTranspose(inputs[0], outId, op.kernel, op.axes);
 			else if (name == "matmul")
 				opMatmul(inputs[0], inputs[1], outId, op.kernel);
@@ -369,7 +371,9 @@ namespace PHP2xAI::Runtime::CPP
 			const auto &inputs = op.inputs;
 			auto outId = op.output;
 
-			if (name == "transpose")
+			if (name == "reshape")
+				backwardReshape(inputs[0], outId);
+			else if (name == "transpose")
 				backwardTranspose(inputs[0], outId, op.kernel, op.axes);
 			else if (name == "matmul")
 				backwardMatmul(inputs[0], inputs[1], outId, op.kernel);
@@ -715,6 +719,14 @@ namespace PHP2xAI::Runtime::CPP
 			return TRANSPOSE_GENERIC(A, C, axes);
 
 		throw std::runtime_error("transpose: kernel not supported");
+	}
+
+	void GraphRuntime::opReshape(int inputId, int outId)
+	{
+		auto &A = tensors[inputId];
+		auto &C = tensors[outId];
+
+		RESHAPE(A, C);
 	}
 
 	void GraphRuntime::TRANSPOSE_2D(Tensor &A, Tensor &C)
@@ -2283,6 +2295,17 @@ namespace PHP2xAI::Runtime::CPP
 			return BACKWARD_TRANSPOSE_GENERIC(A, C, axes);
 
 		throw std::runtime_error("transpose backward: kernel not supported");
+	}
+
+	void GraphRuntime::backwardReshape(int inputId, int outId)
+	{
+		auto &A = tensors[inputId];
+		auto &C = tensors[outId];
+
+		if (!A.requiresGrad)
+			return;
+
+		BACKWARD_RESHAPE(A, C);
 	}
 
 	void GraphRuntime::BACKWARD_TRANSPOSE_2D(Tensor &A, Tensor &C)
