@@ -258,6 +258,9 @@ class GraphRuntime
 			
 			switch ($name)
 			{
+				case 'positional_encoding':
+					$this->opPositionalEncoding($inputs[0], $outId);
+					break;
 				case 'reshape':
 					$this->opReshape($inputs[0], $outId);
 					break;
@@ -500,6 +503,42 @@ class GraphRuntime
 
 		$C->strides = TensorRuntime::computeStrides($C->shape);
 		$C->data = $A->data;
+	}
+
+	private function opPositionalEncoding(int $inputId, int $outId): void
+	{
+		$A = $this->tensors[$inputId];
+		$C = $this->tensors[$outId];
+
+		if (count($A->shape) !== 3 || $C->shape !== $A->shape)
+			throw new RuntimeException('positional encoding: dimension mismatch');
+
+		if ($A->baseOffset !== 0 || $A->strides !== TensorRuntime::computeStrides($A->shape))
+			throw new RuntimeException('positional encoding: input must be contiguous');
+
+		[$batch, $length, $dim] = $A->shape;
+		$positionEncoding = array_fill(0, $length * $dim, 0.0);
+
+		for ($position = 0; $position < $length; $position++)
+		{
+			for ($d = 0; $d < $dim; $d++)
+			{
+				$pairDimension = $d - ($d % 2);
+				$angle = $position / pow(10000.0, $pairDimension / $dim);
+				$positionEncoding[$position * $dim + $d] = $d % 2 === 0 ? sin($angle) : cos($angle);
+			}
+		}
+
+		$C->strides = TensorRuntime::computeStrides($C->shape);
+		$C->data = $A->data;
+
+		for ($b = 0; $b < $batch; $b++)
+		{
+			$batchOffset = $b * $length * $dim;
+
+			for ($i = 0; $i < $length * $dim; $i++)
+				$C->data[$batchOffset + $i] += $positionEncoding[$i];
+		}
 	}
 	
 	private function opAdd(int $aId, int $bId, int $outId, array $attributes): void
@@ -1341,6 +1380,9 @@ class GraphRuntime
 			
 			switch ($name)
 			{
+				case 'positional_encoding':
+					$this->backwardPositionalEncoding($inputs[0], $outId);
+					break;
 				case 'reshape':
 					$this->backwardReshape($inputs[0], $outId);
 					break;
@@ -1601,6 +1643,21 @@ class GraphRuntime
 
 		if (count($A->grad) !== count($C->grad))
 			throw new RuntimeException('reshape backward: dimension mismatch');
+
+		for ($i = 0; $i < count($A->grad); $i++)
+			$A->grad[$i] += $C->grad[$i];
+	}
+
+	private function backwardPositionalEncoding(int $inputId, int $outId): void
+	{
+		$A = $this->tensors[$inputId];
+		$C = $this->tensors[$outId];
+
+		if (!$A->requiresGrad)
+			return;
+
+		if (count($A->shape) !== 3 || $C->shape !== $A->shape || count($A->grad) !== count($C->grad))
+			throw new RuntimeException('positional encoding backward: dimension mismatch');
 
 		for ($i = 0; $i < count($A->grad); $i++)
 			$A->grad[$i] += $C->grad[$i];

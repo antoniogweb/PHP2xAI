@@ -309,7 +309,9 @@ namespace PHP2xAI::Runtime::CPP
 			const auto &inputs = op.inputs;
 			const auto outId = op.output;
 
-			if (name == "reshape")
+			if (name == "positional_encoding")
+				opPositionalEncoding(inputs[0], outId);
+			else if (name == "reshape")
 				opReshape(inputs[0], outId);
 			else if (name == "transpose")
 				opTranspose(inputs[0], outId, op.kernel, op.axes);
@@ -371,7 +373,9 @@ namespace PHP2xAI::Runtime::CPP
 			const auto &inputs = op.inputs;
 			auto outId = op.output;
 
-			if (name == "reshape")
+			if (name == "positional_encoding")
+				backwardPositionalEncoding(inputs[0], outId);
+			else if (name == "reshape")
 				backwardReshape(inputs[0], outId);
 			else if (name == "transpose")
 				backwardTranspose(inputs[0], outId, op.kernel, op.axes);
@@ -735,6 +739,47 @@ namespace PHP2xAI::Runtime::CPP
 
 		C.strides = Tensor::computeStrides(C.shape);
 		C.data = A.data;
+	}
+
+	void GraphRuntime::opPositionalEncoding(int inputId, int outId)
+	{
+		auto &A = tensors[inputId];
+		auto &C = tensors[outId];
+
+		if (A.shape.size() != 3 || C.shape != A.shape)
+			throw std::runtime_error("positional encoding: dimension mismatch");
+
+		if (!A.isContiguous())
+			throw std::runtime_error("positional encoding: input must be contiguous");
+
+		const int batch = A.shape[0];
+		const int length = A.shape[1];
+		const int dim = A.shape[2];
+		std::vector<Scalar> positionEncoding(static_cast<std::size_t>(length * dim), 0.0f);
+
+		for (int position = 0; position < length; ++position)
+		{
+			for (int d = 0; d < dim; ++d)
+			{
+				const int pairDimension = d - (d % 2);
+				const Scalar exponent = static_cast<Scalar>(pairDimension) / static_cast<Scalar>(dim);
+				const Scalar angle = static_cast<Scalar>(position) / std::pow(10000.0f, exponent);
+				positionEncoding[static_cast<std::size_t>(position * dim + d)] = d % 2 == 0
+					? std::sin(angle)
+					: std::cos(angle);
+			}
+		}
+
+		C.strides = Tensor::computeStrides(C.shape);
+		C.data = A.data;
+
+		for (int b = 0; b < batch; ++b)
+		{
+			const int batchOffset = b * length * dim;
+
+			for (int i = 0; i < length * dim; ++i)
+				C.data[static_cast<std::size_t>(batchOffset + i)] += positionEncoding[static_cast<std::size_t>(i)];
+		}
 	}
 
 	void GraphRuntime::TRANSPOSE_2D(Tensor &A, Tensor &C)
@@ -2318,6 +2363,21 @@ namespace PHP2xAI::Runtime::CPP
 
 		if (A.grad.size() != C.grad.size())
 			throw std::runtime_error("reshape backward: dimension mismatch");
+
+		for (std::size_t i = 0; i < A.grad.size(); ++i)
+			A.grad[i] += C.grad[i];
+	}
+
+	void GraphRuntime::backwardPositionalEncoding(int inputId, int outId)
+	{
+		auto &A = tensors[inputId];
+		auto &C = tensors[outId];
+
+		if (!A.requiresGrad)
+			return;
+
+		if (A.shape.size() != 3 || C.shape != A.shape || A.grad.size() != C.grad.size())
+			throw std::runtime_error("positional encoding backward: dimension mismatch");
 
 		for (std::size_t i = 0; i < A.grad.size(); ++i)
 			A.grad[i] += C.grad[i];
