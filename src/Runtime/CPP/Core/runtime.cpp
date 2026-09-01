@@ -309,7 +309,9 @@ namespace PHP2xAI::Runtime::CPP
 			const auto &inputs = op.inputs;
 			const auto outId = op.output;
 
-			if (name == "positional_encoding")
+			if (name == "gelu")
+				opGelu(inputs[0], outId);
+			else if (name == "positional_encoding")
 				opPositionalEncoding(inputs[0], outId);
 			else if (name == "reshape")
 				opReshape(inputs[0], outId);
@@ -373,7 +375,9 @@ namespace PHP2xAI::Runtime::CPP
 			const auto &inputs = op.inputs;
 			auto outId = op.output;
 
-			if (name == "positional_encoding")
+			if (name == "gelu")
+				backwardGelu(inputs[0], outId);
+			else if (name == "positional_encoding")
 				backwardPositionalEncoding(inputs[0], outId);
 			else if (name == "reshape")
 				backwardReshape(inputs[0], outId);
@@ -779,6 +783,25 @@ namespace PHP2xAI::Runtime::CPP
 
 			for (int i = 0; i < length * dim; ++i)
 				C.data[static_cast<std::size_t>(batchOffset + i)] += positionEncoding[static_cast<std::size_t>(i)];
+		}
+	}
+
+	void GraphRuntime::opGelu(int inputId, int outId)
+	{
+		auto &X = tensors[inputId];
+		auto &Y = tensors[outId];
+		const auto size = X.data.size();
+		const Scalar scale = std::sqrt(2.0f / 3.14159265358979323846f);
+
+		Y.shape = X.shape;
+		Y.strides = Tensor::computeStrides(Y.shape);
+		Y.data.assign(size, 0.0f);
+
+		for (std::size_t i = 0; i < size; ++i)
+		{
+			const Scalar x = X.data[i];
+			const Scalar u = scale * (x + 0.044715f * x * x * x);
+			Y.data[i] = 0.5f * x * (1.0f + std::tanh(u));
 		}
 	}
 
@@ -2381,6 +2404,32 @@ namespace PHP2xAI::Runtime::CPP
 
 		for (std::size_t i = 0; i < A.grad.size(); ++i)
 			A.grad[i] += C.grad[i];
+	}
+
+	void GraphRuntime::backwardGelu(int inputId, int outId)
+	{
+		auto &X = tensors[inputId];
+		auto &Y = tensors[outId];
+
+		if (!X.requiresGrad)
+			return;
+
+		const auto size = X.data.size();
+		if (size != Y.grad.size())
+			throw std::runtime_error("gelu backward: dimension mismatch");
+
+		const Scalar scale = std::sqrt(2.0f / 3.14159265358979323846f);
+
+		for (std::size_t i = 0; i < size; ++i)
+		{
+			const Scalar x = X.data[i];
+			const Scalar u = scale * (x + 0.044715f * x * x * x);
+			const Scalar tanhU = std::tanh(u);
+			const Scalar du = scale * (1.0f + 3.0f * 0.044715f * x * x);
+			const Scalar localGrad = 0.5f * (1.0f + tanhU)
+				+ 0.5f * x * (1.0f - tanhU * tanhU) * du;
+			X.grad[i] += Y.grad[i] * localGrad;
+		}
 	}
 
 	void GraphRuntime::BACKWARD_TRANSPOSE_2D(Tensor &A, Tensor &C)

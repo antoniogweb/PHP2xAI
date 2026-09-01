@@ -492,6 +492,17 @@ class Tensor
 		
 		return $result;
     }
+
+	public function gelu() : Tensor
+	{
+		$context = $this->initContextFrom();
+		$inputId = $this->registerInContext($context, $this);
+
+		$result = self::zeros($this->shape, 'gelu');
+		$context->registerOp('gelu', [$inputId], $result);
+
+		return $result;
+	}
     
     public function ReLU() : Tensor
     {

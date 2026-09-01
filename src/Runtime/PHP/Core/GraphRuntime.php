@@ -258,6 +258,9 @@ class GraphRuntime
 			
 			switch ($name)
 			{
+				case 'gelu':
+					$this->opGelu($inputs[0], $outId);
+					break;
 				case 'positional_encoding':
 					$this->opPositionalEncoding($inputs[0], $outId);
 					break;
@@ -538,6 +541,25 @@ class GraphRuntime
 
 			for ($i = 0; $i < $length * $dim; $i++)
 				$C->data[$batchOffset + $i] += $positionEncoding[$i];
+		}
+	}
+
+	private function opGelu(int $inputId, int $outId): void
+	{
+		$X = $this->tensors[$inputId];
+		$Y = $this->tensors[$outId];
+		$size = count($X->data);
+		$scale = sqrt(2.0 / pi());
+
+		$Y->shape = $X->shape;
+		$Y->strides = TensorRuntime::computeStrides($Y->shape);
+		$Y->data = array_fill(0, $size, 0.0);
+
+		for ($i = 0; $i < $size; $i++)
+		{
+			$x = $X->data[$i];
+			$u = $scale * ($x + 0.044715 * $x * $x * $x);
+			$Y->data[$i] = 0.5 * $x * (1.0 + tanh($u));
 		}
 	}
 	
@@ -1380,6 +1402,9 @@ class GraphRuntime
 			
 			switch ($name)
 			{
+				case 'gelu':
+					$this->backwardGelu($inputs[0], $outId);
+					break;
 				case 'positional_encoding':
 					$this->backwardPositionalEncoding($inputs[0], $outId);
 					break;
@@ -1661,6 +1686,31 @@ class GraphRuntime
 
 		for ($i = 0; $i < count($A->grad); $i++)
 			$A->grad[$i] += $C->grad[$i];
+	}
+
+	private function backwardGelu(int $inputId, int $outId): void
+	{
+		$X = $this->tensors[$inputId];
+		$Y = $this->tensors[$outId];
+
+		if (!$X->requiresGrad)
+			return;
+
+		$size = count($X->data);
+		if ($size !== count($Y->grad))
+			throw new RuntimeException('gelu backward: dimension mismatch');
+
+		$scale = sqrt(2.0 / pi());
+
+		for ($i = 0; $i < $size; $i++)
+		{
+			$x = $X->data[$i];
+			$u = $scale * ($x + 0.044715 * $x * $x * $x);
+			$tanhU = tanh($u);
+			$du = $scale * (1.0 + 3.0 * 0.044715 * $x * $x);
+			$localGrad = 0.5 * (1.0 + $tanhU) + 0.5 * $x * (1.0 - $tanhU * $tanhU) * $du;
+			$X->grad[$i] += $Y->grad[$i] * $localGrad;
+		}
 	}
 	
 	private function backwardAdd(int $aId, int $bId, int $outId, array $attributes): void

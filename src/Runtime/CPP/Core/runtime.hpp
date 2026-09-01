@@ -148,6 +148,7 @@ namespace PHP2xAI::Runtime::CPP
 		void opEmbeddings(int xIdsId, int embeddingsId, int outId);
 		void opMeanPooling(int inputId, int maskId, int outId);
 		void opPaddingMask(int inputId, int outId, int padId);
+		void opGelu(int inputId, int outId);
 		void opPositionalEncoding(int inputId, int outId);
 		void opReshape(int inputId, int outId);
 		void opTranspose(int inputId, int outId, const std::string &kernel, const std::vector<int> &axes);
@@ -167,6 +168,7 @@ namespace PHP2xAI::Runtime::CPP
 		void opCeLogitsLabelInt(int, int, int, const std::string &kernel, const std::vector<int> &axes);
 
 		void backwardMatmul(int, int, int, const std::string &kernel);
+		void backwardGelu(int inputId, int outId);
 		void backwardPositionalEncoding(int inputId, int outId);
 		void backwardReshape(int inputId, int outId);
 		void backwardTranspose(int inputId, int outId, const std::string &kernel, const std::vector<int> &axes);
