@@ -491,7 +491,15 @@ class GraphRuntime
 		$A = $this->tensors[$inputId];
 		$C = $this->tensors[$outId];
 
-		$this->RESHAPE($A, $C);
+		if ($A->baseOffset !== 0 || $A->strides !== TensorRuntime::computeStrides($A->shape))
+			throw new RuntimeException('reshape: input must be contiguous');
+
+		$outputSize = array_product($C->shape) ?: 1;
+		if (count($A->data) !== $outputSize)
+			throw new RuntimeException('reshape: dimension mismatch');
+
+		$C->strides = TensorRuntime::computeStrides($C->shape);
+		$C->data = $A->data;
 	}
 	
 	private function opAdd(int $aId, int $bId, int $outId, array $attributes): void
@@ -1588,7 +1596,14 @@ class GraphRuntime
 		if (!$A->requiresGrad)
 			return;
 
-		$this->BACKWARD_RESHAPE($A, $C);
+		if ($A->baseOffset !== 0 || $A->strides !== TensorRuntime::computeStrides($A->shape))
+			throw new RuntimeException('reshape backward: input must be contiguous');
+
+		if (count($A->grad) !== count($C->grad))
+			throw new RuntimeException('reshape backward: dimension mismatch');
+
+		for ($i = 0; $i < count($A->grad); $i++)
+			$A->grad[$i] += $C->grad[$i];
 	}
 	
 	private function backwardAdd(int $aId, int $bId, int $outId, array $attributes): void

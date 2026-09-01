@@ -340,9 +340,7 @@ class Tensor
 		$context = $this->initContextFrom();
 		$inputId = $this->registerInContext($context, $this);
 		$result = self::zeros($outputShape, 'reshape');
-		$context->registerOp('reshape', [$inputId], $result, [
-			"shape" => $outputShape,
-		]);
+		$context->registerOp('reshape', [$inputId], $result);
 
 		return $result;
 	}

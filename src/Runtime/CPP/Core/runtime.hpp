@@ -208,9 +208,6 @@ namespace PHP2xAI::Runtime::CPP
 		void BACKWARD_MATMUL_1B_2D_2D_LINEAR(Tensor &A, Tensor &B, Tensor &C);
 		void BACKWARD_MATMUL_GENERIC_B_2D_2D_BROADCAST(Tensor &A, Tensor &B, Tensor &C);
 
-		void RESHAPE(Tensor &A, Tensor &C);
-		void BACKWARD_RESHAPE(Tensor &A, Tensor &C);
-
 		void TRANSPOSE_2D(Tensor &A, Tensor &C);
 		void TRANSPOSE_3D_LAST_TWO(Tensor &A, Tensor &C);
 		void TRANSPOSE_4D_LAST_TWO(Tensor &A, Tensor &C);

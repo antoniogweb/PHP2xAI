@@ -726,7 +726,15 @@ namespace PHP2xAI::Runtime::CPP
 		auto &A = tensors[inputId];
 		auto &C = tensors[outId];
 
-		RESHAPE(A, C);
+		if (!A.isContiguous())
+			throw std::runtime_error("reshape: input must be contiguous");
+
+		const int outputSize = std::accumulate(C.shape.begin(), C.shape.end(), 1, std::multiplies<int>());
+		if (static_cast<int>(A.data.size()) != outputSize)
+			throw std::runtime_error("reshape: dimension mismatch");
+
+		C.strides = Tensor::computeStrides(C.shape);
+		C.data = A.data;
 	}
 
 	void GraphRuntime::TRANSPOSE_2D(Tensor &A, Tensor &C)
@@ -2305,7 +2313,14 @@ namespace PHP2xAI::Runtime::CPP
 		if (!A.requiresGrad)
 			return;
 
-		BACKWARD_RESHAPE(A, C);
+		if (!A.isContiguous())
+			throw std::runtime_error("reshape backward: input must be contiguous");
+
+		if (A.grad.size() != C.grad.size())
+			throw std::runtime_error("reshape backward: dimension mismatch");
+
+		for (std::size_t i = 0; i < A.grad.size(); ++i)
+			A.grad[i] += C.grad[i];
 	}
 
 	void GraphRuntime::BACKWARD_TRANSPOSE_2D(Tensor &A, Tensor &C)
