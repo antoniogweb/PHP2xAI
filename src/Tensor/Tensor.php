@@ -291,6 +291,61 @@ class Tensor
 
 		return $result;
 	}
+
+	/**
+	 * Changes the tensor shape without changing the row-major element order.
+	 *
+	 * One -1 dimension is allowed and is inferred from the input size.
+	 */
+	public function reshape(array $shape) : Tensor
+	{
+		$shape = array_values($shape);
+		$inputSize = count($this->data);
+		$inferredAxis = null;
+		$knownSize = 1;
+
+		foreach ($shape as $axis => $dimension)
+		{
+			if (!is_int($dimension))
+				throw new Exception("Reshape dimensions must be integers");
+
+			if ($dimension === -1)
+			{
+				if ($inferredAxis !== null)
+					throw new Exception("Reshape allows only one inferred dimension");
+
+				$inferredAxis = $axis;
+				continue;
+			}
+
+			if ($dimension <= 0)
+				throw new Exception("Reshape dimensions must be positive or -1");
+
+			$knownSize *= $dimension;
+		}
+
+		$outputShape = $shape;
+		if ($inferredAxis !== null)
+		{
+			if ($knownSize === 0 || $inputSize % $knownSize !== 0)
+				throw new Exception("Reshape dimensions mismatch");
+
+			$outputShape[$inferredAxis] = intdiv($inputSize, $knownSize);
+		}
+		else if ($knownSize !== $inputSize)
+		{
+			throw new Exception("Reshape dimensions mismatch");
+		}
+
+		$context = $this->initContextFrom();
+		$inputId = $this->registerInContext($context, $this);
+		$result = self::zeros($outputShape, 'reshape');
+		$context->registerOp('reshape', [$inputId], $result, [
+			"shape" => $outputShape,
+		]);
+
+		return $result;
+	}
 	
 	public function add(Tensor $b) : Tensor
     {
