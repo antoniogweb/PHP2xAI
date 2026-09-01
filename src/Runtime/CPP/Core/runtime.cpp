@@ -309,7 +309,9 @@ namespace PHP2xAI::Runtime::CPP
 			const auto &inputs = op.inputs;
 			const auto outId = op.output;
 
-			if (name == "gelu")
+			if (name == "scale")
+				opScale(inputs[0], outId, op.scale);
+			else if (name == "gelu")
 				opGelu(inputs[0], outId);
 			else if (name == "positional_encoding")
 				opPositionalEncoding(inputs[0], outId);
@@ -375,7 +377,9 @@ namespace PHP2xAI::Runtime::CPP
 			const auto &inputs = op.inputs;
 			auto outId = op.output;
 
-			if (name == "gelu")
+			if (name == "scale")
+				backwardScale(inputs[0], outId, op.scale);
+			else if (name == "gelu")
 				backwardGelu(inputs[0], outId);
 			else if (name == "positional_encoding")
 				backwardPositionalEncoding(inputs[0], outId);
@@ -803,6 +807,19 @@ namespace PHP2xAI::Runtime::CPP
 			const Scalar u = scale * (x + 0.044715f * x * x * x);
 			Y.data[i] = 0.5f * x * (1.0f + std::tanh(u));
 		}
+	}
+
+	void GraphRuntime::opScale(int inputId, int outId, Scalar scale)
+	{
+		auto &X = tensors[inputId];
+		auto &Y = tensors[outId];
+		const auto size = X.data.size();
+
+		Y.shape = X.shape;
+		Y.data.assign(size, 0.0f);
+
+		for (std::size_t i = 0; i < size; ++i)
+			Y.data[i] = X.data[i] * scale;
 	}
 
 	void GraphRuntime::TRANSPOSE_2D(Tensor &A, Tensor &C)
@@ -2432,6 +2449,21 @@ namespace PHP2xAI::Runtime::CPP
 		}
 	}
 
+	void GraphRuntime::backwardScale(int inputId, int outId, Scalar scale)
+	{
+		auto &X = tensors[inputId];
+		auto &Y = tensors[outId];
+
+		if (!X.requiresGrad)
+			return;
+
+		if (X.data.size() != Y.grad.size())
+			throw std::runtime_error("scale backward: dimension mismatch");
+
+		for (std::size_t i = 0; i < X.data.size(); ++i)
+			X.grad[i] += Y.grad[i] * scale;
+	}
+
 	void GraphRuntime::BACKWARD_TRANSPOSE_2D(Tensor &A, Tensor &C)
 	{
 		if (A.shape.size() != 2)
@@ -4045,6 +4077,8 @@ namespace PHP2xAI::Runtime::CPP
 					op.padId = attrs.at("padId").get<int>();
 				if (attrs.contains("dropoutPerc"))
 					op.dropoutPerc = attrs.at("dropoutPerc").get<Scalar>();
+				if (attrs.contains("scale"))
+					op.scale = attrs.at("scale").get<Scalar>();
 			}
 
 			ops.push_back(std::move(op));

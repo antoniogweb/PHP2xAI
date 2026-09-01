@@ -258,6 +258,9 @@ class GraphRuntime
 			
 			switch ($name)
 			{
+				case 'scale':
+					$this->opScale($inputs[0], $outId, $attributes['scale'] ?? 1.0);
+					break;
 				case 'gelu':
 					$this->opGelu($inputs[0], $outId);
 					break;
@@ -561,6 +564,19 @@ class GraphRuntime
 			$u = $scale * ($x + 0.044715 * $x * $x * $x);
 			$Y->data[$i] = 0.5 * $x * (1.0 + tanh($u));
 		}
+	}
+
+	private function opScale(int $inputId, int $outId, float $scale): void
+	{
+		$X = $this->tensors[$inputId];
+		$Y = $this->tensors[$outId];
+		$size = count($X->data);
+
+		$Y->shape = $X->shape;
+		$Y->data = array_fill(0, $size, 0.0);
+
+		for ($i = 0; $i < $size; $i++)
+			$Y->data[$i] = $X->data[$i] * $scale;
 	}
 	
 	private function opAdd(int $aId, int $bId, int $outId, array $attributes): void
@@ -1402,6 +1418,9 @@ class GraphRuntime
 			
 			switch ($name)
 			{
+				case 'scale':
+					$this->backwardScale($inputs[0], $outId, $attributes['scale'] ?? 1.0);
+					break;
 				case 'gelu':
 					$this->backwardGelu($inputs[0], $outId);
 					break;
@@ -1711,6 +1730,22 @@ class GraphRuntime
 			$localGrad = 0.5 * (1.0 + $tanhU) + 0.5 * $x * (1.0 - $tanhU * $tanhU) * $du;
 			$X->grad[$i] += $Y->grad[$i] * $localGrad;
 		}
+	}
+
+	private function backwardScale(int $inputId, int $outId, float $scale): void
+	{
+		$X = $this->tensors[$inputId];
+		$Y = $this->tensors[$outId];
+
+		if (!$X->requiresGrad)
+			return;
+
+		$size = count($X->data);
+		if ($size !== count($Y->grad))
+			throw new RuntimeException('scale backward: dimension mismatch');
+
+		for ($i = 0; $i < $size; $i++)
+			$X->grad[$i] += $Y->grad[$i] * $scale;
 	}
 	
 	private function backwardAdd(int $aId, int $bId, int $outId, array $attributes): void

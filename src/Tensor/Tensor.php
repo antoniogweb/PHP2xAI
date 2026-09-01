@@ -503,6 +503,17 @@ class Tensor
 
 		return $result;
 	}
+
+	public function scale(float $scale) : Tensor
+	{
+		$context = $this->initContextFrom();
+		$inputId = $this->registerInContext($context, $this);
+
+		$result = self::zeros($this->shape, 'scale');
+		$context->registerOp('scale', [$inputId], $result, ['scale' => $scale]);
+
+		return $result;
+	}
     
     public function ReLU() : Tensor
     {

@@ -105,6 +105,7 @@ namespace PHP2xAI::Runtime::CPP
 		int padId{};
 		std::vector<int> axes;
 		Scalar dropoutPerc{50.0f};
+		Scalar scale{1.0f};
 	};
 
 	class GraphRuntime
@@ -148,6 +149,7 @@ namespace PHP2xAI::Runtime::CPP
 		void opEmbeddings(int xIdsId, int embeddingsId, int outId);
 		void opMeanPooling(int inputId, int maskId, int outId);
 		void opPaddingMask(int inputId, int outId, int padId);
+		void opScale(int inputId, int outId, Scalar scale);
 		void opGelu(int inputId, int outId);
 		void opPositionalEncoding(int inputId, int outId);
 		void opReshape(int inputId, int outId);
@@ -168,6 +170,7 @@ namespace PHP2xAI::Runtime::CPP
 		void opCeLogitsLabelInt(int, int, int, const std::string &kernel, const std::vector<int> &axes);
 
 		void backwardMatmul(int, int, int, const std::string &kernel);
+		void backwardScale(int inputId, int outId, Scalar scale);
 		void backwardGelu(int inputId, int outId);
 		void backwardPositionalEncoding(int inputId, int outId);
 		void backwardReshape(int inputId, int outId);
