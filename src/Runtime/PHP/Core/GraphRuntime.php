@@ -258,6 +258,9 @@ class GraphRuntime
 			
 			switch ($name)
 			{
+				case 'transpose':
+					$this->opTranspose($inputs[0], $outId, $attributes);
+					break;
 				case 'matmul':
 					$this->opMatmul($inputs[0], $inputs[1], $outId, $attributes);
 					break;
@@ -448,6 +451,34 @@ class GraphRuntime
 				break;
 			case "MATMUL_GENERIC_B_2D_2D_BROADCAST":
 				$this->MATMUL_GENERIC_B_2D_2D_BROADCAST($A, $B, $C);
+				break;
+		}
+	}
+
+	private function opTranspose(int $inputId, int $outId, array $attributes): void
+	{
+		$A = $this->tensors[$inputId];
+		$C = $this->tensors[$outId];
+
+		$kernel = $attributes["kernel"] ?? "TRANSPOSE_GENERIC";
+		$axes = $attributes["axes"] ?? [-2, -1];
+
+		switch ($kernel)
+		{
+			case "TRANSPOSE_2D":
+				$this->TRANSPOSE_2D($A, $C);
+				break;
+			case "TRANSPOSE_3D_LAST_TWO":
+				$this->TRANSPOSE_3D_LAST_TWO($A, $C);
+				break;
+			case "TRANSPOSE_4D_LAST_TWO":
+				$this->TRANSPOSE_4D_LAST_TWO($A, $C);
+				break;
+			case "TRANSPOSE_4D_AXIS_1_2":
+				$this->TRANSPOSE_4D_AXIS_1_2($A, $C);
+				break;
+			case "TRANSPOSE_GENERIC":
+				$this->TRANSPOSE_GENERIC($A, $C, $axes);
 				break;
 		}
 	}
@@ -1291,6 +1322,9 @@ class GraphRuntime
 			
 			switch ($name)
 			{
+				case 'transpose':
+					$this->backwardTranspose($inputs[0], $outId, $attributes);
+					break;
 				case 'matmul':
 					$this->backwardMatmul($inputs[0], $inputs[1], $outId, $attributes);
 					break;
@@ -1497,6 +1531,37 @@ class GraphRuntime
 				break;
 			case "MATMUL_GENERIC_B_2D_2D_BROADCAST":
 				$this->BACKWARD_MATMUL_GENERIC_B_2D_2D_BROADCAST($A, $B, $C);
+				break;
+		}
+	}
+
+	private function backwardTranspose(int $inputId, int $outId, array $attributes): void
+	{
+		$A = $this->tensors[$inputId];
+		$C = $this->tensors[$outId];
+
+		if (!$A->requiresGrad)
+			return;
+
+		$kernel = $attributes["kernel"] ?? "TRANSPOSE_GENERIC";
+		$axes = $attributes["axes"] ?? [-2, -1];
+
+		switch ($kernel)
+		{
+			case "TRANSPOSE_2D":
+				$this->BACKWARD_TRANSPOSE_2D($A, $C);
+				break;
+			case "TRANSPOSE_3D_LAST_TWO":
+				$this->BACKWARD_TRANSPOSE_3D_LAST_TWO($A, $C);
+				break;
+			case "TRANSPOSE_4D_LAST_TWO":
+				$this->BACKWARD_TRANSPOSE_4D_LAST_TWO($A, $C);
+				break;
+			case "TRANSPOSE_4D_AXIS_1_2":
+				$this->BACKWARD_TRANSPOSE_4D_AXIS_1_2($A, $C);
+				break;
+			case "TRANSPOSE_GENERIC":
+				$this->BACKWARD_TRANSPOSE_GENERIC($A, $C, $axes);
 				break;
 		}
 	}

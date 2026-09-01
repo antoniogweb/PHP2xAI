@@ -309,7 +309,9 @@ namespace PHP2xAI::Runtime::CPP
 			const auto &inputs = op.inputs;
 			const auto outId = op.output;
 
-			if (name == "matmul")
+			if (name == "transpose")
+				opTranspose(inputs[0], outId, op.kernel, op.axes);
+			else if (name == "matmul")
 				opMatmul(inputs[0], inputs[1], outId, op.kernel);
 			else if (name == "add")
 				opAdd(inputs[0], inputs[1], outId, op.kernel);
@@ -367,7 +369,9 @@ namespace PHP2xAI::Runtime::CPP
 			const auto &inputs = op.inputs;
 			auto outId = op.output;
 
-			if (name == "matmul")
+			if (name == "transpose")
+				backwardTranspose(inputs[0], outId, op.kernel, op.axes);
+			else if (name == "matmul")
 				backwardMatmul(inputs[0], inputs[1], outId, op.kernel);
 			else if (name == "add")
 				backwardAdd(inputs[0], inputs[1], outId, op.kernel);
@@ -690,6 +694,27 @@ namespace PHP2xAI::Runtime::CPP
 			return MATMUL_GENERIC_B_2D_2D_BROADCAST(A, B, C);
 
 		throw std::runtime_error("matmul: kernel not supported");
+	}
+
+	void GraphRuntime::opTranspose(int inputId, int outId, const std::string &kernel, const std::vector<int> &axes)
+	{
+		auto &A = tensors[inputId];
+		auto &C = tensors[outId];
+
+		const std::string kernelName = kernel.empty() ? "TRANSPOSE_GENERIC" : kernel;
+
+		if (kernelName == "TRANSPOSE_2D")
+			return TRANSPOSE_2D(A, C);
+		if (kernelName == "TRANSPOSE_3D_LAST_TWO")
+			return TRANSPOSE_3D_LAST_TWO(A, C);
+		if (kernelName == "TRANSPOSE_4D_LAST_TWO")
+			return TRANSPOSE_4D_LAST_TWO(A, C);
+		if (kernelName == "TRANSPOSE_4D_AXIS_1_2")
+			return TRANSPOSE_4D_AXIS_1_2(A, C);
+		if (kernelName == "TRANSPOSE_GENERIC")
+			return TRANSPOSE_GENERIC(A, C, axes);
+
+		throw std::runtime_error("transpose: kernel not supported");
 	}
 
 	void GraphRuntime::MATMUL_2D_2D(Tensor &A, Tensor &B, Tensor &C)
@@ -2078,6 +2103,30 @@ namespace PHP2xAI::Runtime::CPP
 			return BACKWARD_MATMUL_GENERIC_B_2D_2D_BROADCAST(A, B, C);
 
 		throw std::runtime_error("matmul backward: kernel not supported");
+	}
+
+	void GraphRuntime::backwardTranspose(int inputId, int outId, const std::string &kernel, const std::vector<int> &axes)
+	{
+		auto &A = tensors[inputId];
+		auto &C = tensors[outId];
+
+		if (!A.requiresGrad)
+			return;
+
+		const std::string kernelName = kernel.empty() ? "TRANSPOSE_GENERIC" : kernel;
+
+		if (kernelName == "TRANSPOSE_2D")
+			return BACKWARD_TRANSPOSE_2D(A, C);
+		if (kernelName == "TRANSPOSE_3D_LAST_TWO")
+			return BACKWARD_TRANSPOSE_3D_LAST_TWO(A, C);
+		if (kernelName == "TRANSPOSE_4D_LAST_TWO")
+			return BACKWARD_TRANSPOSE_4D_LAST_TWO(A, C);
+		if (kernelName == "TRANSPOSE_4D_AXIS_1_2")
+			return BACKWARD_TRANSPOSE_4D_AXIS_1_2(A, C);
+		if (kernelName == "TRANSPOSE_GENERIC")
+			return BACKWARD_TRANSPOSE_GENERIC(A, C, axes);
+
+		throw std::runtime_error("transpose backward: kernel not supported");
 	}
 
 	void GraphRuntime::BACKWARD_MATMUL_2D_2D(Tensor &A, Tensor &B, Tensor &C)
