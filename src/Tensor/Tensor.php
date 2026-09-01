@@ -229,6 +229,68 @@ class Tensor
 		
 		return $result;
 	}
+
+	/**
+	 * Swaps two axes of this tensor.
+	 *
+	 * Negative axes are accepted and are resolved relative to the tensor rank.
+	 * For example, transpose([-2, -1]) swaps the last two dimensions.
+	 */
+	public function transpose(array $axes = [-2, -1]) : Tensor
+	{
+		if (count($axes) !== 2)
+			throw new Exception("Transpose requires exactly two axes");
+
+		$rank = $this->getRank();
+		if ($rank < 2)
+			throw new Exception("Transpose only for rank >= 2");
+
+		$normalizedAxes = [];
+		foreach ($axes as $axis)
+		{
+			if (!is_int($axis))
+				throw new Exception("Transpose axes must be integers");
+
+			if ($axis < 0)
+				$axis += $rank;
+
+			if ($axis < 0 || $axis >= $rank)
+				throw new Exception("Transpose axis out of range");
+
+			$normalizedAxes[] = $axis;
+		}
+
+		[$axisA, $axisB] = $normalizedAxes;
+		if ($axisA === $axisB)
+			throw new Exception("Transpose axes must be different");
+
+		$outputShape = $this->shape;
+		[$outputShape[$axisA], $outputShape[$axisB]] = [$outputShape[$axisB], $outputShape[$axisA]];
+
+		$axisPair = [$axisA, $axisB];
+		sort($axisPair);
+
+		if ($rank === 2 && $axisPair === [0, 1])
+			$kernel = "TRANSPOSE_2D";
+		else if ($rank === 3 && $axisPair === [1, 2])
+			$kernel = "TRANSPOSE_3D_LAST_TWO";
+		else if ($rank === 4 && $axisPair === [2, 3])
+			$kernel = "TRANSPOSE_4D_LAST_TWO";
+		else if ($rank === 4 && $axisPair === [1, 2])
+			$kernel = "TRANSPOSE_4D_AXIS_1_2";
+		else
+			$kernel = "TRANSPOSE_GENERIC";
+
+		$context = $this->initContextFrom();
+		$inputId = $this->registerInContext($context, $this);
+		$result = self::zeros($outputShape, 'transpose');
+		$context->registerOp('transpose', [$inputId], $result, [
+			"kernel" => $kernel,
+			"axes" => $normalizedAxes,
+		]);
+
+		return $result;
+	}
 	
 	public function add(Tensor $b) : Tensor
     {
