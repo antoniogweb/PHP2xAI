@@ -30,7 +30,7 @@ Available operations include:
 - `softmax()` for probabilities;
 - `CE()`, `CELogits()`, and `CELogitsLabelInt()` for cross entropy;
 - `mean()` for reducing batch losses;
-- `embeddings()`, `paddingMask()`, and `meanPooling()` for sequences;
+- `embeddings()`, `paddingMask()`, `applyPaddingMask()`, and `meanPooling()` for sequences;
 - `dropout()` for regularization.
 
 ## Batch shapes
@@ -256,7 +256,26 @@ embeddings: [B, T, D]
 pooled:     [B, D]
 ```
 
-`paddingMask()` marks valid positions, `embeddings()` maps integer token identifiers to rows in an embedding table, and `meanPooling()` combines valid token representations while ignoring padding. The mask is part of the computation and must have a shape compatible with the sequence representation.
+`paddingMask()` marks valid positions, `embeddings()` maps integer token identifiers to rows in an embedding table, and `meanPooling()` combines valid token representations while ignoring padding. The mask is part of the computation and must have a shape compatible with the sequence representation. Current tokenizer examples use padding ID `0`:
+
+```php
+$mask = $tokenIds->paddingMask(0); // 1 = valid token, 0 = padding
+```
+
+### Applying a padding mask to attention scores
+
+`applyPaddingMask()` uses a binary mask `[B, Lkv]` to mask the final dimension of a tensor with shape `[B, ..., Lkv]`. It is intended for attention scores, for example:
+
+```php
+$mask = $tokenIds->paddingMask(0);       // [B, L]
+$scores = $queries->matmul($keysT);      // [B, H, Lq, L]
+$scores = $scores->applyPaddingMask($mask);
+$weights = $scores->softmax();
+```
+
+For every batch item, every score whose key position has mask value `0` is replaced by negative infinity before softmax. A nonzero mask value preserves the original score. The mask is broadcast over all dimensions between `B` and the final key dimension, so `[B, L]` applies naturally to `[B, H, Lq, L]`.
+
+The operation does not carry a `padId`: it consumes the already generated binary mask. Its contiguous generic-last-axis path uses `outer = numel / Lkv` rows and selects the mask row from the corresponding batch. Backward passes the upstream gradient to the input scores only for valid positions; masked positions and the mask itself receive no gradient.
 
 ### Sinusoidal positional encoding
 
