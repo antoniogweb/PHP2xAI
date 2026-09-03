@@ -29,6 +29,7 @@ The complete technical guide is available below. Each chapter is linked directly
 13. [Debugging](PHP2XAI/13-debugging.md)
 14. [Tokenizer](PHP2XAI/14-tokenizer.md)
 15. [SIMD and Eigen migration](PHP2XAI/15-simd-and-eigen.md)
+16. [Exercises and example projects](PHP2XAI/16-exercises-and-example-projects.md)
 
 ## Quick start
 
