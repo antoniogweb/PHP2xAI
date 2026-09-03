@@ -2,6 +2,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <fstream>
+#include <limits>
 #include <utility>
 #include "runtime.hpp"
 
@@ -309,7 +310,9 @@ namespace PHP2xAI::Runtime::CPP
 			const auto &inputs = op.inputs;
 			const auto outId = op.output;
 
-			if (name == "layer_norm")
+			if (name == "apply_padding_mask")
+				opApplyPaddingMask(inputs[0], inputs[1], outId);
+			else if (name == "layer_norm")
 				opLayerNorm(inputs[0], inputs[1], inputs[2], outId, op.kernel, op.axes);
 			else if (name == "scale")
 				opScale(inputs[0], outId, op.scale);
@@ -379,7 +382,9 @@ namespace PHP2xAI::Runtime::CPP
 			const auto &inputs = op.inputs;
 			auto outId = op.output;
 
-			if (name == "layer_norm")
+			if (name == "apply_padding_mask")
+				backwardApplyPaddingMask(inputs[0], inputs[1], outId);
+			else if (name == "layer_norm")
 				backwardLayerNorm(inputs[0], inputs[1], inputs[2], outId, op.kernel, op.axes);
 			else if (name == "scale")
 				backwardScale(inputs[0], outId, op.scale);
@@ -603,6 +608,44 @@ namespace PHP2xAI::Runtime::CPP
 				throw std::runtime_error("padding_mask: token ID must be an integer");
 
 			out.data[static_cast<std::size_t>(i)] = (tokenId == padId) ? 0.0f : 1.0f;
+		}
+	}
+
+	void GraphRuntime::opApplyPaddingMask(int inputId, int maskId, int outId)
+	{
+		auto &scores = tensors[inputId];
+		auto &mask = tensors[maskId];
+		auto &out = tensors[outId];
+
+		const int rank = static_cast<int>(scores.shape.size());
+		if (rank < 2 || mask.shape.size() != 2 || out.shape != scores.shape)
+			throw std::runtime_error("apply_padding_mask: dimension mismatch");
+
+		const int batch = scores.shape[0];
+		const int lastDim = scores.shape.back();
+		if (batch <= 0 || lastDim <= 0 || mask.shape != std::vector<int>{batch, lastDim})
+			throw std::runtime_error("apply_padding_mask: mask must have shape [B, L]");
+
+		if (!scores.isContiguous() || !mask.isContiguous() || !out.isContiguous())
+			throw std::runtime_error("apply_padding_mask: tensors must be contiguous");
+
+		const int total = std::accumulate(scores.shape.begin(), scores.shape.end(), 1, std::multiplies<int>());
+		const int outer = total / lastDim;
+		const int rowsPerBatch = outer / batch;
+		const Scalar negativeInfinity = -std::numeric_limits<Scalar>::infinity();
+		out.data = scores.data;
+
+		for (int row = 0; row < outer; ++row)
+		{
+			const int b = row / rowsPerBatch;
+			const int scoreOffset = row * lastDim;
+			const int maskOffset = b * lastDim;
+
+			for (int k = 0; k < lastDim; ++k)
+			{
+				if (mask.data[static_cast<std::size_t>(maskOffset + k)] == 0.0f)
+					out.data[static_cast<std::size_t>(scoreOffset + k)] = negativeInfinity;
+			}
 		}
 	}
 	void GraphRuntime::opEmbeddings(int xIdsId, int embeddingsId, int outId)
@@ -2547,6 +2590,45 @@ namespace PHP2xAI::Runtime::CPP
 	void GraphRuntime::backwardPaddingMask(int inputId, int outId)
 	{
 		return;
+	}
+
+	void GraphRuntime::backwardApplyPaddingMask(int inputId, int maskId, int outId)
+	{
+		auto &scores = tensors[inputId];
+		auto &mask = tensors[maskId];
+		auto &out = tensors[outId];
+
+		if (!scores.requiresGrad)
+			return;
+
+		const int rank = static_cast<int>(scores.shape.size());
+		if (rank < 2 || mask.shape.size() != 2 || out.shape != scores.shape)
+			throw std::runtime_error("apply_padding_mask backward: dimension mismatch");
+
+		const int batch = scores.shape[0];
+		const int lastDim = scores.shape.back();
+		if (batch <= 0 || lastDim <= 0 || mask.shape != std::vector<int>{batch, lastDim})
+			throw std::runtime_error("apply_padding_mask backward: mask must have shape [B, L]");
+
+		if (!scores.isContiguous() || !mask.isContiguous() || !out.isContiguous())
+			throw std::runtime_error("apply_padding_mask backward: tensors must be contiguous");
+
+		const int total = std::accumulate(scores.shape.begin(), scores.shape.end(), 1, std::multiplies<int>());
+		const int outer = total / lastDim;
+		const int rowsPerBatch = outer / batch;
+
+		for (int row = 0; row < outer; ++row)
+		{
+			const int b = row / rowsPerBatch;
+			const int scoreOffset = row * lastDim;
+			const int maskOffset = b * lastDim;
+
+			for (int k = 0; k < lastDim; ++k)
+			{
+				if (mask.data[static_cast<std::size_t>(maskOffset + k)] != 0.0f)
+					scores.grad[static_cast<std::size_t>(scoreOffset + k)] += out.grad[static_cast<std::size_t>(scoreOffset + k)];
+			}
+		}
 	}
 
 	void GraphRuntime::backwardEmbeddings(int xIdsId, int embeddingsId, int outId)

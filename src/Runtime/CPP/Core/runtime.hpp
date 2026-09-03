@@ -150,6 +150,7 @@ namespace PHP2xAI::Runtime::CPP
 		void opEmbeddings(int xIdsId, int embeddingsId, int outId);
 		void opMeanPooling(int inputId, int maskId, int outId);
 		void opPaddingMask(int inputId, int outId, int padId);
+		void opApplyPaddingMask(int inputId, int maskId, int outId);
 		void opScale(int inputId, int outId, Scalar scale);
 		void opGelu(int inputId, int outId);
 		void opPositionalEncoding(int inputId, int outId);
@@ -181,6 +182,7 @@ namespace PHP2xAI::Runtime::CPP
 		void backwardEmbeddings(int xIdsId, int embeddingsId, int outId);
 		void backwardMeanPooling(int inputId, int maskId, int outId);
 		void backwardPaddingMask(int inputId, int outId);
+		void backwardApplyPaddingMask(int inputId, int maskId, int outId);
 		// void backwardSub(int, int, int);
 		// void backwardDot(int, int, int);
 		void backwardDropout(int, int);

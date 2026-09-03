@@ -430,6 +430,37 @@ class Tensor
 	}
 
 	/**
+	 * Applies a [B, L] padding mask to the last axis of this tensor.
+	 *
+	 * The mask is normally produced by paddingMask() from token IDs, where a
+	 * value of 1 marks a valid key position and 0 marks padding. For example,
+	 * it applies [B, L] to attention scores [B, H, L, L]. The runtime will set
+	 * masked values to negative infinity before softmax.
+	 */
+	public function applyPaddingMask(Tensor $mask) : Tensor
+	{
+		$rank = $this->getRank();
+		if ($rank < 2)
+			throw new Exception("Input must have rank >= 2 [B, ..., L]");
+
+		if ($mask->getRank() !== 2)
+			throw new Exception("Mask must have rank 2 [B, L]");
+
+		$lastAxis = $rank - 1;
+		if ($this->shape[0] !== $mask->shape[0] || $this->shape[$lastAxis] !== $mask->shape[1])
+			throw new Exception("Input and mask dimensions mismatch");
+
+		$context = $this->initContextFrom($mask);
+		$inputId = $this->registerInContext($context, $this);
+		$maskId = $this->registerInContext($context, $mask);
+
+		$result = self::zeros($this->shape, 'applyPaddingMask');
+		$context->registerOp('apply_padding_mask', [$inputId, $maskId], $result);
+
+		return $result;
+	}
+
+	/**
 	 * Mean-pools token representations in a training batch, excluding padding.
 	 *
 	 * $this is X [B, L, D] and $mask is [B, L], with 1 for a valid token and

@@ -258,6 +258,9 @@ class GraphRuntime
 			
 			switch ($name)
 			{
+				case 'apply_padding_mask':
+					$this->opApplyPaddingMask($inputs[0], $inputs[1], $outId);
+					break;
 				case 'layer_norm':
 					$this->opLayerNorm($inputs[0], $inputs[1], $inputs[2], $outId, $attributes);
 					break;
@@ -361,6 +364,48 @@ class GraphRuntime
 				throw new RuntimeException('padding_mask: token ID must be an integer');
 
 			$out->data[$i] = ($tokenId === $padId) ? 0.0 : 1.0;
+		}
+	}
+
+	private function opApplyPaddingMask(int $inputId, int $maskId, int $outId): void
+	{
+		$scores = $this->tensors[$inputId];
+		$mask = $this->tensors[$maskId];
+		$out = $this->tensors[$outId];
+
+		$rank = count($scores->shape);
+		if ($rank < 2 || count($mask->shape) !== 2 || $out->shape !== $scores->shape)
+			throw new RuntimeException('apply_padding_mask: dimension mismatch');
+
+		$batch = $scores->shape[0];
+		$lastDim = $scores->shape[$rank - 1];
+		if ($batch <= 0 || $lastDim <= 0 || $mask->shape !== [$batch, $lastDim])
+			throw new RuntimeException('apply_padding_mask: mask must have shape [B, L]');
+
+		if (
+			$scores->baseOffset !== 0 || $mask->baseOffset !== 0 || $out->baseOffset !== 0 ||
+			$scores->strides !== TensorRuntime::computeStrides($scores->shape) ||
+			$mask->strides !== TensorRuntime::computeStrides($mask->shape) ||
+			$out->strides !== TensorRuntime::computeStrides($out->shape)
+		)
+			throw new RuntimeException('apply_padding_mask: tensors must be contiguous');
+
+		$total = array_product($scores->shape);
+		$outer = intdiv($total, $lastDim);
+		$rowsPerBatch = intdiv($outer, $batch);
+		$out->data = $scores->data;
+
+		for ($row = 0; $row < $outer; $row++)
+		{
+			$b = intdiv($row, $rowsPerBatch);
+			$scoreOffset = $row * $lastDim;
+			$maskOffset = $b * $lastDim;
+
+			for ($k = 0; $k < $lastDim; $k++)
+			{
+				if ($mask->data[$maskOffset + $k] == 0.0)
+					$out->data[$scoreOffset + $k] = -INF;
+			}
 		}
 	}
 	private function opEmbeddings(int $xIdsId, int $embeddingsId, int $outId, array $attributes): void
@@ -1442,6 +1487,9 @@ class GraphRuntime
 			
 			switch ($name)
 			{
+				case 'apply_padding_mask':
+					$this->backwardApplyPaddingMask($inputs[0], $inputs[1], $outId);
+					break;
 				case 'layer_norm':
 					$this->backwardLayerNorm($inputs[0], $inputs[1], $inputs[2], $outId, $attributes);
 					break;
@@ -1524,6 +1572,50 @@ class GraphRuntime
 	private function backwardPaddingMask(int $inputId, int $outId, array $attributes): void
 	{
 		return;
+	}
+
+	private function backwardApplyPaddingMask(int $inputId, int $maskId, int $outId): void
+	{
+		$scores = $this->tensors[$inputId];
+		$mask = $this->tensors[$maskId];
+		$out = $this->tensors[$outId];
+
+		if (!$scores->requiresGrad)
+			return;
+
+		$rank = count($scores->shape);
+		if ($rank < 2 || count($mask->shape) !== 2 || $out->shape !== $scores->shape)
+			throw new RuntimeException('apply_padding_mask backward: dimension mismatch');
+
+		$batch = $scores->shape[0];
+		$lastDim = $scores->shape[$rank - 1];
+		if ($batch <= 0 || $lastDim <= 0 || $mask->shape !== [$batch, $lastDim])
+			throw new RuntimeException('apply_padding_mask backward: mask must have shape [B, L]');
+
+		if (
+			$scores->baseOffset !== 0 || $mask->baseOffset !== 0 || $out->baseOffset !== 0 ||
+			$scores->strides !== TensorRuntime::computeStrides($scores->shape) ||
+			$mask->strides !== TensorRuntime::computeStrides($mask->shape) ||
+			$out->strides !== TensorRuntime::computeStrides($out->shape)
+		)
+			throw new RuntimeException('apply_padding_mask backward: tensors must be contiguous');
+
+		$total = array_product($scores->shape);
+		$outer = intdiv($total, $lastDim);
+		$rowsPerBatch = intdiv($outer, $batch);
+
+		for ($row = 0; $row < $outer; $row++)
+		{
+			$b = intdiv($row, $rowsPerBatch);
+			$scoreOffset = $row * $lastDim;
+			$maskOffset = $b * $lastDim;
+
+			for ($k = 0; $k < $lastDim; $k++)
+			{
+				if ($mask->data[$maskOffset + $k] != 0.0)
+					$scores->grad[$scoreOffset + $k] += $out->grad[$scoreOffset + $k];
+			}
+		}
 	}
 
 	private function backwardEmbeddings(int $xIdsId, int $embeddingsId, int $outId, array $attributes): void
