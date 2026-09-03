@@ -146,6 +146,7 @@ namespace PHP2xAI::Runtime::CPP
 		json graphDef_;
 
 		void opMatmul(int, int, int, const std::string &kernel);
+		void opLayerNorm(int inputId, int gammaId, int betaId, int outId, const std::string &kernel, const std::vector<int> &axes);
 		void opEmbeddings(int xIdsId, int embeddingsId, int outId);
 		void opMeanPooling(int inputId, int maskId, int outId);
 		void opPaddingMask(int inputId, int outId, int padId);
@@ -170,6 +171,7 @@ namespace PHP2xAI::Runtime::CPP
 		void opCeLogitsLabelInt(int, int, int, const std::string &kernel, const std::vector<int> &axes);
 
 		void backwardMatmul(int, int, int, const std::string &kernel);
+		void backwardLayerNorm(int inputId, int gammaId, int betaId, int outId, const std::string &kernel, const std::vector<int> &axes);
 		void backwardScale(int inputId, int outId, Scalar scale);
 		void backwardGelu(int inputId, int outId);
 		void backwardPositionalEncoding(int inputId, int outId);
@@ -214,6 +216,11 @@ namespace PHP2xAI::Runtime::CPP
 		void BACKWARD_MATMUL_2B_2D_2D(Tensor &A, Tensor &B, Tensor &C);
 		void BACKWARD_MATMUL_1B_2D_2D_LINEAR(Tensor &A, Tensor &B, Tensor &C);
 		void BACKWARD_MATMUL_GENERIC_B_2D_2D_BROADCAST(Tensor &A, Tensor &B, Tensor &C);
+
+		void LAYER_NORM_LAST_AXIS(Tensor &X, Tensor &Gamma, Tensor &Beta, Tensor &Y);
+		void LAYER_NORM_GENERIC(Tensor &X, Tensor &Gamma, Tensor &Beta, Tensor &Y, const std::vector<int> &axes);
+		void BACKWARD_LAYER_NORM_LAST_AXIS(Tensor &X, Tensor &Gamma, Tensor &Beta, Tensor &Y);
+		void BACKWARD_LAYER_NORM_GENERIC(Tensor &X, Tensor &Gamma, Tensor &Beta, Tensor &Y, const std::vector<int> &axes);
 
 		void TRANSPOSE_2D(Tensor &A, Tensor &C);
 		void TRANSPOSE_3D_LAST_TWO(Tensor &A, Tensor &C);

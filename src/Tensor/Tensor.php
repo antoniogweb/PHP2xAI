@@ -514,6 +514,47 @@ class Tensor
 
 		return $result;
 	}
+
+	/**
+	 * Applies Layer Normalization over one axis.
+	 *
+	 * gamma and beta must be rank-1 tensors with one value for every
+	 * element along the normalized axis. By default LayerNorm operates on
+	 * the last axis, which covers [D], [B, D], [B, L, D], and [B, H, L, D].
+	 */
+	public function layerNorm(Tensor $gamma, Tensor $beta, int $axis = -1) : Tensor
+	{
+		$rank = $this->getRank();
+		if ($rank === 0)
+			throw new Exception("LayerNorm requires rank >= 1");
+
+		if ($axis < -$rank || $axis >= $rank)
+			throw new Exception("LayerNorm axis out of range");
+
+		$normalizedAxis = $axis < 0 ? $axis + $rank : $axis;
+		$axisSize = $this->shape[$normalizedAxis];
+
+		if ($gamma->getRank() !== 1 || $gamma->shape[0] !== $axisSize)
+			throw new Exception("LayerNorm gamma must have shape [" . $axisSize . "]");
+
+		if ($beta->getRank() !== 1 || $beta->shape[0] !== $axisSize)
+			throw new Exception("LayerNorm beta must have shape [" . $axisSize . "]");
+
+		$kernel = $axis === -1 ? "LAYER_NORM_LAST_AXIS" : "LAYER_NORM_GENERIC";
+
+		$context = $this->initContextFrom($gamma, $beta);
+		$inputId = $this->registerInContext($context, $this);
+		$gammaId = $this->registerInContext($context, $gamma);
+		$betaId = $this->registerInContext($context, $beta);
+
+		$result = self::zeros($this->shape, 'layerNorm');
+		$context->registerOp('layer_norm', [$inputId, $gammaId, $betaId], $result, [
+			"kernel" => $kernel,
+			"axes" => [$normalizedAxis],
+		]);
+
+		return $result;
+	}
     
     public function ReLU() : Tensor
     {

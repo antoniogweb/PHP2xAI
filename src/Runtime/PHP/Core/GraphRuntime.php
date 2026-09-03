@@ -258,6 +258,9 @@ class GraphRuntime
 			
 			switch ($name)
 			{
+				case 'layer_norm':
+					$this->opLayerNorm($inputs[0], $inputs[1], $inputs[2], $outId, $attributes);
+					break;
 				case 'scale':
 					$this->opScale($inputs[0], $outId, $attributes['scale'] ?? 1.0);
 					break;
@@ -463,6 +466,27 @@ class GraphRuntime
 				break;
 			case "MATMUL_GENERIC_B_2D_2D_BROADCAST":
 				$this->MATMUL_GENERIC_B_2D_2D_BROADCAST($A, $B, $C);
+				break;
+		}
+	}
+
+	private function opLayerNorm(int $inputId, int $gammaId, int $betaId, int $outId, array $attributes): void
+	{
+		$X = $this->tensors[$inputId];
+		$Gamma = $this->tensors[$gammaId];
+		$Beta = $this->tensors[$betaId];
+		$Y = $this->tensors[$outId];
+
+		$kernel = $attributes["kernel"] ?? "LAYER_NORM_LAST_AXIS";
+		$axes = $attributes["axes"] ?? [-1];
+
+		switch ($kernel)
+		{
+			case "LAYER_NORM_LAST_AXIS":
+				$this->LAYER_NORM_LAST_AXIS($X, $Gamma, $Beta, $Y);
+				break;
+			case "LAYER_NORM_GENERIC":
+				$this->LAYER_NORM_GENERIC($X, $Gamma, $Beta, $Y, $axes);
 				break;
 		}
 	}
@@ -1418,6 +1442,9 @@ class GraphRuntime
 			
 			switch ($name)
 			{
+				case 'layer_norm':
+					$this->backwardLayerNorm($inputs[0], $inputs[1], $inputs[2], $outId, $attributes);
+					break;
 				case 'scale':
 					$this->backwardScale($inputs[0], $outId, $attributes['scale'] ?? 1.0);
 					break;
@@ -1639,6 +1666,30 @@ class GraphRuntime
 				break;
 			case "MATMUL_GENERIC_B_2D_2D_BROADCAST":
 				$this->BACKWARD_MATMUL_GENERIC_B_2D_2D_BROADCAST($A, $B, $C);
+				break;
+		}
+	}
+
+	private function backwardLayerNorm(int $inputId, int $gammaId, int $betaId, int $outId, array $attributes): void
+	{
+		$X = $this->tensors[$inputId];
+		$Gamma = $this->tensors[$gammaId];
+		$Beta = $this->tensors[$betaId];
+		$Y = $this->tensors[$outId];
+
+		if (!$X->requiresGrad && !$Gamma->requiresGrad && !$Beta->requiresGrad)
+			return;
+
+		$kernel = $attributes["kernel"] ?? "LAYER_NORM_LAST_AXIS";
+		$axes = $attributes["axes"] ?? [-1];
+
+		switch ($kernel)
+		{
+			case "LAYER_NORM_LAST_AXIS":
+				$this->BACKWARD_LAYER_NORM_LAST_AXIS($X, $Gamma, $Beta, $Y);
+				break;
+			case "LAYER_NORM_GENERIC":
+				$this->BACKWARD_LAYER_NORM_GENERIC($X, $Gamma, $Beta, $Y, $axes);
 				break;
 		}
 	}
@@ -2722,6 +2773,22 @@ class GraphRuntime
 	}
 
 	// KERNELS MATMUL
+	private function LAYER_NORM_LAST_AXIS(TensorRuntime $X, TensorRuntime $Gamma, TensorRuntime $Beta, TensorRuntime $Y): void
+	{
+	}
+
+	private function LAYER_NORM_GENERIC(TensorRuntime $X, TensorRuntime $Gamma, TensorRuntime $Beta, TensorRuntime $Y, array $axes): void
+	{
+	}
+
+	private function BACKWARD_LAYER_NORM_LAST_AXIS(TensorRuntime $X, TensorRuntime $Gamma, TensorRuntime $Beta, TensorRuntime $Y): void
+	{
+	}
+
+	private function BACKWARD_LAYER_NORM_GENERIC(TensorRuntime $X, TensorRuntime $Gamma, TensorRuntime $Beta, TensorRuntime $Y, array $axes): void
+	{
+	}
+
 	private function MATMUL_2D_2D(TensorRuntime $A, TensorRuntime $B, TensorRuntime $C)
 	{
 		// N: hidden layer dimension

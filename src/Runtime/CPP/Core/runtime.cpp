@@ -309,7 +309,9 @@ namespace PHP2xAI::Runtime::CPP
 			const auto &inputs = op.inputs;
 			const auto outId = op.output;
 
-			if (name == "scale")
+			if (name == "layer_norm")
+				opLayerNorm(inputs[0], inputs[1], inputs[2], outId, op.kernel, op.axes);
+			else if (name == "scale")
 				opScale(inputs[0], outId, op.scale);
 			else if (name == "gelu")
 				opGelu(inputs[0], outId);
@@ -377,7 +379,9 @@ namespace PHP2xAI::Runtime::CPP
 			const auto &inputs = op.inputs;
 			auto outId = op.output;
 
-			if (name == "scale")
+			if (name == "layer_norm")
+				backwardLayerNorm(inputs[0], inputs[1], inputs[2], outId, op.kernel, op.axes);
+			else if (name == "scale")
 				backwardScale(inputs[0], outId, op.scale);
 			else if (name == "gelu")
 				backwardGelu(inputs[0], outId);
@@ -712,6 +716,23 @@ namespace PHP2xAI::Runtime::CPP
 		throw std::runtime_error("matmul: kernel not supported");
 	}
 
+	void GraphRuntime::opLayerNorm(int inputId, int gammaId, int betaId, int outId, const std::string &kernel, const std::vector<int> &axes)
+	{
+		auto &X = tensors[inputId];
+		auto &Gamma = tensors[gammaId];
+		auto &Beta = tensors[betaId];
+		auto &Y = tensors[outId];
+
+		const std::string kernelName = kernel.empty() ? "LAYER_NORM_LAST_AXIS" : kernel;
+
+		if (kernelName == "LAYER_NORM_LAST_AXIS")
+			return LAYER_NORM_LAST_AXIS(X, Gamma, Beta, Y);
+		if (kernelName == "LAYER_NORM_GENERIC")
+			return LAYER_NORM_GENERIC(X, Gamma, Beta, Y, axes);
+
+		throw std::runtime_error("layer_norm: kernel not supported");
+	}
+
 	void GraphRuntime::opTranspose(int inputId, int outId, const std::string &kernel, const std::vector<int> &axes)
 	{
 		auto &A = tensors[inputId];
@@ -976,6 +997,22 @@ namespace PHP2xAI::Runtime::CPP
 
 			C.data[static_cast<std::size_t>(cOffset)] = A.data[static_cast<std::size_t>(aOffset)];
 		}
+	}
+
+	void GraphRuntime::LAYER_NORM_LAST_AXIS(Tensor &X, Tensor &Gamma, Tensor &Beta, Tensor &Y)
+	{
+	}
+
+	void GraphRuntime::LAYER_NORM_GENERIC(Tensor &X, Tensor &Gamma, Tensor &Beta, Tensor &Y, const std::vector<int> &axes)
+	{
+	}
+
+	void GraphRuntime::BACKWARD_LAYER_NORM_LAST_AXIS(Tensor &X, Tensor &Gamma, Tensor &Beta, Tensor &Y)
+	{
+	}
+
+	void GraphRuntime::BACKWARD_LAYER_NORM_GENERIC(Tensor &X, Tensor &Gamma, Tensor &Beta, Tensor &Y, const std::vector<int> &axes)
+	{
 	}
 
 	void GraphRuntime::MATMUL_2D_2D(Tensor &A, Tensor &B, Tensor &C)
@@ -2364,6 +2401,26 @@ namespace PHP2xAI::Runtime::CPP
 			return BACKWARD_MATMUL_GENERIC_B_2D_2D_BROADCAST(A, B, C);
 
 		throw std::runtime_error("matmul backward: kernel not supported");
+	}
+
+	void GraphRuntime::backwardLayerNorm(int inputId, int gammaId, int betaId, int outId, const std::string &kernel, const std::vector<int> &axes)
+	{
+		auto &X = tensors[inputId];
+		auto &Gamma = tensors[gammaId];
+		auto &Beta = tensors[betaId];
+		auto &Y = tensors[outId];
+
+		if (!X.requiresGrad && !Gamma.requiresGrad && !Beta.requiresGrad)
+			return;
+
+		const std::string kernelName = kernel.empty() ? "LAYER_NORM_LAST_AXIS" : kernel;
+
+		if (kernelName == "LAYER_NORM_LAST_AXIS")
+			return BACKWARD_LAYER_NORM_LAST_AXIS(X, Gamma, Beta, Y);
+		if (kernelName == "LAYER_NORM_GENERIC")
+			return BACKWARD_LAYER_NORM_GENERIC(X, Gamma, Beta, Y, axes);
+
+		throw std::runtime_error("layer_norm backward: kernel not supported");
 	}
 
 	void GraphRuntime::backwardTranspose(int inputId, int outId, const std::string &kernel, const std::vector<int> &axes)
