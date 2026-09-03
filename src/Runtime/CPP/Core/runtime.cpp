@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <fstream>
 #include <limits>
@@ -4417,22 +4418,7 @@ namespace PHP2xAI::Runtime::CPP
 			tensor.baseOffset = 0;
 			tensor.strides = Tensor::computeStrides(tensor.shape);
 
-			// Initialize data/grad; use graph data when present and non-empty,
-			// otherwise allocate zeros from the tensor shape.
-			if (t.contains("data") && !t.at("data").empty())
-			{
-				tensor.data = t.at("data").get<std::vector<Scalar>>();
-			}
-			else
-			{
-				auto size = std::accumulate(
-					tensor.shape.begin(),
-					tensor.shape.end(),
-					1,
-					std::multiplies<int>());
-				tensor.data.assign(size, 0.0f);
-			}
-
+			bool loadedWeights = false;
 			if (weightsDef != nullptr && tensor.kind == "param" && weightsDef->contains("tensors"))
 			{
 				const auto &weightsTensors = weightsDef->at("tensors");
@@ -4444,7 +4430,47 @@ namespace PHP2xAI::Runtime::CPP
 					const auto weightsShape = weightsTensor.at("shape").get<std::vector<int>>();
 
 					if (weightsShape == tensor.shape)
+					{
 						tensor.data = weightsTensor.at("data").get<std::vector<Scalar>>();
+						loadedWeights = true;
+					}
+				}
+			}
+
+			if (!loadedWeights)
+			{
+				if (t.contains("data") && !t.at("data").empty())
+				{
+					tensor.data = t.at("data").get<std::vector<Scalar>>();
+				}
+				else
+				{
+					const std::size_t size = shapeElementCount(tensor.shape);
+					tensor.data.assign(size, 0.0f);
+
+					if (t.contains("init_type"))
+					{
+						const std::string initType = t.at("init_type").get<std::string>();
+
+						if (initType == "rand")
+						{
+							const Scalar scale = t.value("init_scale", 0.05f);
+							if (scale < 0.0f)
+								throw std::invalid_argument("Tensor init scale must be >= 0");
+
+							std::uint32_t state = t.value("init_seed", std::uint32_t{0});
+							for (Scalar &value : tensor.data)
+							{
+								state = std::uint32_t{1664525} * state + std::uint32_t{1013904223};
+								const double uniform = static_cast<double>(state) / 4294967296.0;
+								value = static_cast<Scalar>((uniform * 2.0 - 1.0) * scale);
+							}
+						}
+						else if (initType != "zeros")
+						{
+							throw std::invalid_argument("Unsupported tensor init type: " + initType);
+						}
+					}
 				}
 			}
 

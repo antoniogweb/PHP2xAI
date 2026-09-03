@@ -74,6 +74,14 @@ class GraphContext
 
 		if ($tensor->data !== [])
 			$definition['data'] = $tensor->data;
+		else if ($tensor->initType !== null)
+		{
+			$definition['init_type'] = $tensor->initType;
+			$definition['init_scale'] = $tensor->initScale;
+
+			if ($tensor->initSeed !== null)
+				$definition['init_seed'] = $tensor->initSeed;
+		}
 
 		$this->tensors[] = $definition;
 		

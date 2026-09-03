@@ -45,12 +45,22 @@ class GraphRuntime
 				$t['name'] ?? null
 			);
 			
-			// TensorRuntime already allocates zeros from shape. Replace them only
-			// when graph JSON carries actual tensor data (inputs or parameters).
-			if (isset($t['data']) && $t['data'] !== [])
+			$loadedWeights = isset($weigths)
+				&& $t["kind"] == "param"
+				&& isset($weigths["tensors"][$id])
+				&& $weigths["tensors"][$id]["shape"] == $t['shape'];
+
+			if ($loadedWeights)
 			{
-				$data = array_values($t['data']);
-				$this->tensors[$id]->data = $data;
+				$this->tensors[$id]->data = array_values($weigths["tensors"][$id]["data"]);
+			}
+			else if (isset($t['data']) && $t['data'] !== [])
+			{
+				$this->tensors[$id]->data = array_values($t['data']);
+			}
+			else
+			{
+				$this->initializeTensor($this->tensors[$id], $t);
 			}
 			
 			if (!array_key_exists('requiresGrad', $t))
@@ -65,10 +75,6 @@ class GraphRuntime
 			if ($t["kind"] == "target")
 				$this->targetId = $id;
 			
-			if (isset($weigths) && $t["kind"] == "param" && isset($weigths["tensors"][$id]) && $weigths["tensors"][$id]["shape"] == $t['shape'])
-			{
-				$this->tensors[$id]->data = $weigths["tensors"][$id]["data"];
-			}
 		}
 
 		$this->ops = $graphDef['ops'];
@@ -79,6 +85,33 @@ class GraphRuntime
 		if (isset($graphDef['output']))
 			$this->outputId = $graphDef['output'];
 		
+	}
+
+	private function initializeTensor(TensorRuntime $tensor, array $definition) : void
+	{
+		$initType = $definition['init_type'] ?? null;
+
+		if ($initType === null || $initType === 'zeros')
+			return;
+
+		if ($initType !== 'rand')
+			throw new InvalidArgumentException("Unsupported tensor init type: {$initType}");
+
+		$scale = (float)($definition['init_scale'] ?? 0.05);
+		if ($scale < 0.0)
+			throw new InvalidArgumentException('Tensor init scale must be >= 0');
+
+		$state = (int)($definition['init_seed'] ?? 0);
+		if ($state < 0 || $state > 0xFFFFFFFF)
+			throw new InvalidArgumentException('Tensor init seed must be between 0 and 4294967295');
+
+		$count = count($tensor->data);
+		for ($i = 0; $i < $count; $i++)
+		{
+			$state = (1664525 * $state + 1013904223) & 0xFFFFFFFF;
+			$uniform = $state / 4294967296.0;
+			$tensor->data[$i] = ($uniform * 2.0 - 1.0) * $scale;
+		}
 	}
 	public function setTraining(bool $training): void
 	{

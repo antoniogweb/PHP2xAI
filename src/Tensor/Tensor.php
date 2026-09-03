@@ -28,6 +28,12 @@ class Tensor
 	public array $shape = [];
 	
 	public array $data = []; // tensor data in row-major
+
+	public ?string $initType = null;
+
+	public float $initScale = 0.0;
+
+	public ?int $initSeed = null;
 	
 	public array $grad = []; // tensor grad in row-major
 	
@@ -46,11 +52,33 @@ class Tensor
 	*/
 	public ?GraphContext $context = null;
 	
-	public function __construct(array $shape, array $data, ?string $name = null)
+	public function __construct(
+		array $shape,
+		array $data,
+		?string $name = null,
+		?string $initType = null,
+		float $initScale = 0.05,
+		?int $initSeed = null
+	)
 	{
+		if ($initType !== null && !in_array($initType, ['zeros', 'rand'], true))
+			throw new Exception("Unsupported tensor init type: {$initType}");
+
+		if ($initScale < 0.0)
+			throw new Exception('Tensor init scale must be >= 0');
+
+		if ($initSeed !== null && ($initSeed < 0 || $initSeed > 0xFFFFFFFF))
+			throw new Exception('Tensor init seed must be between 0 and 4294967295');
+
+		if ($initType === 'rand' && $initSeed === null)
+			$initSeed = random_int(0, 0xFFFFFFFF);
+
 		$this->shape = $shape;
 		$this->data = $data;
 		$this->name = $name;
+		$this->initType = $initType;
+		$this->initScale = $initScale;
+		$this->initSeed = $initSeed;
 		$this->grad = array_fill(0, count($data), 0.0);
 		
 		$this->strides = self::computeStrides($shape);
@@ -128,22 +156,17 @@ class Tensor
 	
 	public static function zeros(array $shape, ?string $name = null) : Tensor
 	{
-		$data = array_fill(0, array_product($shape), 0);
-		
-		return new Tensor($shape, $data, $name);
+		return new Tensor($shape, [], $name, 'zeros', 0.0);
 	}
 	
-	public static function init(array $shape, float $scale = 0.05, ?string $name = null) : Tensor
+	public static function init(
+		array $shape,
+		float $scale = 0.05,
+		?string $name = null,
+		?int $seed = null
+	) : Tensor
 	{
-		$tensor = self::random($shape, $name);
-		
-		for ($i = 0; $i < count($tensor->data); $i++)
-		{
-			$val = ($tensor->data[$i] - 0.5) * 2 * $scale;
-			$tensor->data[$i] = $val;
-		}
-		
-		return $tensor;
+		return new Tensor($shape, [], $name, 'rand', $scale, $seed);
 	}
 	
 	public function setTrainable(bool $trainable) : void
