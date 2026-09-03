@@ -2772,22 +2772,292 @@ class GraphRuntime
 		}
 	}
 
-	// KERNELS MATMUL
 	private function LAYER_NORM_LAST_AXIS(TensorRuntime $X, TensorRuntime $Gamma, TensorRuntime $Beta, TensorRuntime $Y): void
 	{
+		$rank = count($X->shape);
+		if ($rank === 0 || $Y->shape !== $X->shape)
+			throw new RuntimeException('layer_norm: dimension mismatch');
+
+		$dim = $X->shape[$rank - 1];
+		if ($dim <= 0 || $Gamma->shape !== [$dim] || $Beta->shape !== [$dim])
+			throw new RuntimeException('layer_norm: gamma and beta dimension mismatch');
+
+		if (
+			$X->baseOffset !== 0 || $Y->baseOffset !== 0 ||
+			$Gamma->baseOffset !== 0 || $Beta->baseOffset !== 0 ||
+			$X->strides !== TensorRuntime::computeStrides($X->shape) ||
+			$Y->strides !== TensorRuntime::computeStrides($Y->shape) ||
+			$Gamma->strides !== [1] || $Beta->strides !== [1]
+		)
+			throw new RuntimeException('layer_norm last axis: tensors must be contiguous');
+
+		$total = array_product($X->shape);
+		$outer = intdiv($total, $dim);
+		$epsilon = 1.0e-5;
+
+		for ($o = 0; $o < $outer; $o++)
+		{
+			$row = $o * $dim;
+			$mean = 0.0;
+
+			for ($i = 0; $i < $dim; $i++)
+				$mean += $X->data[$row + $i];
+
+			$mean /= $dim;
+			$variance = 0.0;
+
+			for ($i = 0; $i < $dim; $i++)
+			{
+				$centered = $X->data[$row + $i] - $mean;
+				$variance += $centered * $centered;
+			}
+
+			$invStd = 1.0 / sqrt($variance / $dim + $epsilon);
+
+			for ($i = 0; $i < $dim; $i++)
+			{
+				$xHat = ($X->data[$row + $i] - $mean) * $invStd;
+				$Y->data[$row + $i] = $Gamma->data[$i] * $xHat + $Beta->data[$i];
+			}
+		}
 	}
 
 	private function LAYER_NORM_GENERIC(TensorRuntime $X, TensorRuntime $Gamma, TensorRuntime $Beta, TensorRuntime $Y, array $axes): void
 	{
+		$rank = count($X->shape);
+		if ($rank === 0 || count($axes) !== 1 || $Y->shape !== $X->shape)
+			throw new RuntimeException('layer_norm: dimension mismatch');
+
+		$axis = $axes[0];
+		$axis = $axis < 0 ? $axis + $rank : $axis;
+		if ($axis < 0 || $axis >= $rank)
+			throw new RuntimeException('layer_norm: axis out of range');
+
+		$dim = $X->shape[$axis];
+		if ($dim <= 0 || $Gamma->shape !== [$dim] || $Beta->shape !== [$dim])
+			throw new RuntimeException('layer_norm: gamma and beta dimension mismatch');
+
+		$epsilon = 1.0e-5;
+
+		$this->forEachSliceAlongAxisIncremental(
+			$X->shape,
+			$X->strides,
+			$axis,
+			function(int $base, int $strideAxis, int $axisLen, array $idxNoAxis) use ($X, $Gamma, $Beta, $Y, $axis, $epsilon)
+			{
+				$xBase = $X->baseOffset + $base;
+				$yBase = $Y->baseOffset;
+
+				foreach ($idxNoAxis as $dimension => $index)
+				{
+					if ($dimension !== $axis)
+						$yBase += $index * $Y->strides[$dimension];
+				}
+
+				$mean = 0.0;
+				$xOffset = $xBase;
+				for ($i = 0; $i < $axisLen; $i++)
+				{
+					$mean += $X->data[$xOffset];
+					$xOffset += $strideAxis;
+				}
+
+				$mean /= $axisLen;
+				$variance = 0.0;
+				$xOffset = $xBase;
+				for ($i = 0; $i < $axisLen; $i++)
+				{
+					$centered = $X->data[$xOffset] - $mean;
+					$variance += $centered * $centered;
+					$xOffset += $strideAxis;
+				}
+
+				$invStd = 1.0 / sqrt($variance / $axisLen + $epsilon);
+				$xOffset = $xBase;
+				$yOffset = $yBase;
+				for ($i = 0; $i < $axisLen; $i++)
+				{
+					$gammaOffset = $Gamma->baseOffset + $i * $Gamma->strides[0];
+					$betaOffset = $Beta->baseOffset + $i * $Beta->strides[0];
+					$xHat = ($X->data[$xOffset] - $mean) * $invStd;
+					$Y->data[$yOffset] = $Gamma->data[$gammaOffset] * $xHat + $Beta->data[$betaOffset];
+					$xOffset += $strideAxis;
+					$yOffset += $Y->strides[$axis];
+				}
+			}
+		);
 	}
 
 	private function BACKWARD_LAYER_NORM_LAST_AXIS(TensorRuntime $X, TensorRuntime $Gamma, TensorRuntime $Beta, TensorRuntime $Y): void
 	{
+		$rank = count($X->shape);
+		if ($rank === 0 || $Y->shape !== $X->shape)
+			throw new RuntimeException('layer_norm backward: dimension mismatch');
+
+		$dim = $X->shape[$rank - 1];
+		if ($dim <= 0 || $Gamma->shape !== [$dim] || $Beta->shape !== [$dim])
+			throw new RuntimeException('layer_norm backward: gamma and beta dimension mismatch');
+
+		if (
+			$X->baseOffset !== 0 || $Y->baseOffset !== 0 ||
+			$Gamma->baseOffset !== 0 || $Beta->baseOffset !== 0 ||
+			$X->strides !== TensorRuntime::computeStrides($X->shape) ||
+			$Y->strides !== TensorRuntime::computeStrides($Y->shape) ||
+			$Gamma->strides !== [1] || $Beta->strides !== [1]
+		)
+			throw new RuntimeException('layer_norm last axis backward: tensors must be contiguous');
+
+		$total = array_product($X->shape);
+		$outer = intdiv($total, $dim);
+		$epsilon = 1.0e-5;
+
+		for ($o = 0; $o < $outer; $o++)
+		{
+			$row = $o * $dim;
+			$mean = 0.0;
+
+			for ($i = 0; $i < $dim; $i++)
+				$mean += $X->data[$row + $i];
+
+			$mean /= $dim;
+			$variance = 0.0;
+
+			for ($i = 0; $i < $dim; $i++)
+			{
+				$centered = $X->data[$row + $i] - $mean;
+				$variance += $centered * $centered;
+			}
+
+			$invStd = 1.0 / sqrt($variance / $dim + $epsilon);
+			$sumDyGamma = 0.0;
+			$sumDyGammaXHat = 0.0;
+
+			for ($i = 0; $i < $dim; $i++)
+			{
+				$xHat = ($X->data[$row + $i] - $mean) * $invStd;
+				$dy = $Y->grad[$row + $i];
+				$dyGamma = $dy * $Gamma->data[$i];
+				$sumDyGamma += $dyGamma;
+				$sumDyGammaXHat += $dyGamma * $xHat;
+
+				if ($Gamma->requiresGrad)
+					$Gamma->grad[$i] += $dy * $xHat;
+				if ($Beta->requiresGrad)
+					$Beta->grad[$i] += $dy;
+			}
+
+			if ($X->requiresGrad)
+			{
+				$factor = $invStd / $dim;
+				for ($i = 0; $i < $dim; $i++)
+				{
+					$xHat = ($X->data[$row + $i] - $mean) * $invStd;
+					$dyGamma = $Y->grad[$row + $i] * $Gamma->data[$i];
+					$X->grad[$row + $i] += $factor * (
+						$dim * $dyGamma - $sumDyGamma - $xHat * $sumDyGammaXHat
+					);
+				}
+			}
+		}
 	}
 
 	private function BACKWARD_LAYER_NORM_GENERIC(TensorRuntime $X, TensorRuntime $Gamma, TensorRuntime $Beta, TensorRuntime $Y, array $axes): void
 	{
+		$rank = count($X->shape);
+		if ($rank === 0 || count($axes) !== 1 || $Y->shape !== $X->shape)
+			throw new RuntimeException('layer_norm backward: dimension mismatch');
+
+		$axis = $axes[0];
+		$axis = $axis < 0 ? $axis + $rank : $axis;
+		if ($axis < 0 || $axis >= $rank)
+			throw new RuntimeException('layer_norm backward: axis out of range');
+
+		$dim = $X->shape[$axis];
+		if ($dim <= 0 || $Gamma->shape !== [$dim] || $Beta->shape !== [$dim])
+			throw new RuntimeException('layer_norm backward: gamma and beta dimension mismatch');
+
+		$epsilon = 1.0e-5;
+
+		$this->forEachSliceAlongAxisIncremental(
+			$X->shape,
+			$X->strides,
+			$axis,
+			function(int $base, int $strideAxis, int $axisLen, array $idxNoAxis) use ($X, $Gamma, $Beta, $Y, $axis, $epsilon)
+			{
+				$xBase = $X->baseOffset + $base;
+				$yBase = $Y->baseOffset;
+
+				foreach ($idxNoAxis as $dimension => $index)
+				{
+					if ($dimension !== $axis)
+						$yBase += $index * $Y->strides[$dimension];
+				}
+
+				$mean = 0.0;
+				$xOffset = $xBase;
+				for ($i = 0; $i < $axisLen; $i++)
+				{
+					$mean += $X->data[$xOffset];
+					$xOffset += $strideAxis;
+				}
+
+				$mean /= $axisLen;
+				$variance = 0.0;
+				$xOffset = $xBase;
+				for ($i = 0; $i < $axisLen; $i++)
+				{
+					$centered = $X->data[$xOffset] - $mean;
+					$variance += $centered * $centered;
+					$xOffset += $strideAxis;
+				}
+
+				$invStd = 1.0 / sqrt($variance / $axisLen + $epsilon);
+				$sumDyGamma = 0.0;
+				$sumDyGammaXHat = 0.0;
+				$xOffset = $xBase;
+				$yOffset = $yBase;
+
+				for ($i = 0; $i < $axisLen; $i++)
+				{
+					$gammaOffset = $Gamma->baseOffset + $i * $Gamma->strides[0];
+					$betaOffset = $Beta->baseOffset + $i * $Beta->strides[0];
+					$xHat = ($X->data[$xOffset] - $mean) * $invStd;
+					$dy = $Y->grad[$yOffset];
+					$dyGamma = $dy * $Gamma->data[$gammaOffset];
+					$sumDyGamma += $dyGamma;
+					$sumDyGammaXHat += $dyGamma * $xHat;
+
+					if ($Gamma->requiresGrad)
+						$Gamma->grad[$gammaOffset] += $dy * $xHat;
+					if ($Beta->requiresGrad)
+						$Beta->grad[$betaOffset] += $dy;
+
+					$xOffset += $strideAxis;
+					$yOffset += $Y->strides[$axis];
+				}
+
+				if (!$X->requiresGrad)
+					return;
+
+				$factor = $invStd / $axisLen;
+				$xOffset = $xBase;
+				$yOffset = $yBase;
+				for ($i = 0; $i < $axisLen; $i++)
+				{
+					$gammaOffset = $Gamma->baseOffset + $i * $Gamma->strides[0];
+					$xHat = ($X->data[$xOffset] - $mean) * $invStd;
+					$dyGamma = $Y->grad[$yOffset] * $Gamma->data[$gammaOffset];
+					$X->grad[$xOffset] += $factor * (
+						$axisLen * $dyGamma - $sumDyGamma - $xHat * $sumDyGammaXHat
+					);
+					$xOffset += $strideAxis;
+					$yOffset += $Y->strides[$axis];
+				}
+			}
+		);
 	}
+
+	// KERNELS MATMUL
 
 	private function MATMUL_2D_2D(TensorRuntime $A, TensorRuntime $B, TensorRuntime $C)
 	{

@@ -1001,18 +1001,283 @@ namespace PHP2xAI::Runtime::CPP
 
 	void GraphRuntime::LAYER_NORM_LAST_AXIS(Tensor &X, Tensor &Gamma, Tensor &Beta, Tensor &Y)
 	{
+		const int rank = static_cast<int>(X.shape.size());
+		if (rank == 0 || Y.shape != X.shape)
+			throw std::runtime_error("layer_norm: dimension mismatch");
+
+		const int dim = X.shape.back();
+		if (dim <= 0 || Gamma.shape != std::vector<int>{dim} || Beta.shape != std::vector<int>{dim})
+			throw std::runtime_error("layer_norm: gamma and beta dimension mismatch");
+
+		if (!X.isContiguous() || !Y.isContiguous() || !Gamma.isContiguous() || !Beta.isContiguous())
+			throw std::runtime_error("layer_norm last axis: tensors must be contiguous");
+
+		const int total = std::accumulate(X.shape.begin(), X.shape.end(), 1, std::multiplies<int>());
+		const int outer = total / dim;
+		constexpr Scalar epsilon = 1.0e-5f;
+
+		for (int o = 0; o < outer; ++o)
+		{
+			const int row = o * dim;
+			Scalar mean = 0.0f;
+
+			for (int i = 0; i < dim; ++i)
+				mean += X.data[static_cast<std::size_t>(row + i)];
+
+			mean /= static_cast<Scalar>(dim);
+			Scalar variance = 0.0f;
+
+			for (int i = 0; i < dim; ++i)
+			{
+				const Scalar centered = X.data[static_cast<std::size_t>(row + i)] - mean;
+				variance += centered * centered;
+			}
+
+			const Scalar invStd = 1.0f / std::sqrt(variance / static_cast<Scalar>(dim) + epsilon);
+
+			for (int i = 0; i < dim; ++i)
+			{
+				const Scalar xHat = (X.data[static_cast<std::size_t>(row + i)] - mean) * invStd;
+				Y.data[static_cast<std::size_t>(row + i)] =
+					Gamma.data[static_cast<std::size_t>(i)] * xHat + Beta.data[static_cast<std::size_t>(i)];
+			}
+		}
 	}
 
 	void GraphRuntime::LAYER_NORM_GENERIC(Tensor &X, Tensor &Gamma, Tensor &Beta, Tensor &Y, const std::vector<int> &axes)
 	{
+		const int rank = static_cast<int>(X.shape.size());
+		if (rank == 0 || axes.size() != 1 || Y.shape != X.shape)
+			throw std::runtime_error("layer_norm: dimension mismatch");
+
+		int axis = axes[0];
+		if (axis < 0)
+			axis += rank;
+		if (axis < 0 || axis >= rank)
+			throw std::runtime_error("layer_norm: axis out of range");
+
+		const int dim = X.shape[static_cast<std::size_t>(axis)];
+		if (dim <= 0 || Gamma.shape != std::vector<int>{dim} || Beta.shape != std::vector<int>{dim})
+			throw std::runtime_error("layer_norm: gamma and beta dimension mismatch");
+		if (Y.strides.size() != X.shape.size() || Gamma.strides.size() != 1 || Beta.strides.size() != 1)
+			throw std::runtime_error("layer_norm: shape/strides rank mismatch");
+
+		constexpr Scalar epsilon = 1.0e-5f;
+
+		forEachSliceAlongAxisIncremental(
+			X.shape,
+			X.strides,
+			axis,
+			[&](int base, int strideAxis, int axisLen, const std::vector<int> &idxNoAxis)
+			{
+				const int xBase = X.baseOffset + base;
+				int yBase = Y.baseOffset;
+
+				for (int dimension = 0; dimension < rank; ++dimension)
+				{
+					if (dimension != axis)
+						yBase += idxNoAxis[static_cast<std::size_t>(dimension)] * Y.strides[static_cast<std::size_t>(dimension)];
+				}
+
+				Scalar mean = 0.0f;
+				int xOffset = xBase;
+				for (int i = 0; i < axisLen; ++i)
+				{
+					mean += X.data[static_cast<std::size_t>(xOffset)];
+					xOffset += strideAxis;
+				}
+
+				mean /= static_cast<Scalar>(axisLen);
+				Scalar variance = 0.0f;
+				xOffset = xBase;
+				for (int i = 0; i < axisLen; ++i)
+				{
+					const Scalar centered = X.data[static_cast<std::size_t>(xOffset)] - mean;
+					variance += centered * centered;
+					xOffset += strideAxis;
+				}
+
+				const Scalar invStd = 1.0f / std::sqrt(variance / static_cast<Scalar>(axisLen) + epsilon);
+				xOffset = xBase;
+				int yOffset = yBase;
+				for (int i = 0; i < axisLen; ++i)
+				{
+					const int gammaOffset = Gamma.baseOffset + i * Gamma.strides[0];
+					const int betaOffset = Beta.baseOffset + i * Beta.strides[0];
+					const Scalar xHat = (X.data[static_cast<std::size_t>(xOffset)] - mean) * invStd;
+					Y.data[static_cast<std::size_t>(yOffset)] =
+						Gamma.data[static_cast<std::size_t>(gammaOffset)] * xHat + Beta.data[static_cast<std::size_t>(betaOffset)];
+					xOffset += strideAxis;
+					yOffset += Y.strides[static_cast<std::size_t>(axis)];
+				}
+			});
 	}
 
 	void GraphRuntime::BACKWARD_LAYER_NORM_LAST_AXIS(Tensor &X, Tensor &Gamma, Tensor &Beta, Tensor &Y)
 	{
+		const int rank = static_cast<int>(X.shape.size());
+		if (rank == 0 || Y.shape != X.shape)
+			throw std::runtime_error("layer_norm backward: dimension mismatch");
+
+		const int dim = X.shape.back();
+		if (dim <= 0 || Gamma.shape != std::vector<int>{dim} || Beta.shape != std::vector<int>{dim})
+			throw std::runtime_error("layer_norm backward: gamma and beta dimension mismatch");
+
+		if (!X.isContiguous() || !Y.isContiguous() || !Gamma.isContiguous() || !Beta.isContiguous())
+			throw std::runtime_error("layer_norm last axis backward: tensors must be contiguous");
+
+		const int total = std::accumulate(X.shape.begin(), X.shape.end(), 1, std::multiplies<int>());
+		const int outer = total / dim;
+		constexpr Scalar epsilon = 1.0e-5f;
+
+		for (int o = 0; o < outer; ++o)
+		{
+			const int row = o * dim;
+			Scalar mean = 0.0f;
+
+			for (int i = 0; i < dim; ++i)
+				mean += X.data[static_cast<std::size_t>(row + i)];
+
+			mean /= static_cast<Scalar>(dim);
+			Scalar variance = 0.0f;
+
+			for (int i = 0; i < dim; ++i)
+			{
+				const Scalar centered = X.data[static_cast<std::size_t>(row + i)] - mean;
+				variance += centered * centered;
+			}
+
+			const Scalar invStd = 1.0f / std::sqrt(variance / static_cast<Scalar>(dim) + epsilon);
+			Scalar sumDyGamma = 0.0f;
+			Scalar sumDyGammaXHat = 0.0f;
+
+			for (int i = 0; i < dim; ++i)
+			{
+				const std::size_t index = static_cast<std::size_t>(row + i);
+				const Scalar xHat = (X.data[index] - mean) * invStd;
+				const Scalar dy = Y.grad[index];
+				const Scalar dyGamma = dy * Gamma.data[static_cast<std::size_t>(i)];
+				sumDyGamma += dyGamma;
+				sumDyGammaXHat += dyGamma * xHat;
+
+				if (Gamma.requiresGrad)
+					Gamma.grad[static_cast<std::size_t>(i)] += dy * xHat;
+				if (Beta.requiresGrad)
+					Beta.grad[static_cast<std::size_t>(i)] += dy;
+			}
+
+			if (X.requiresGrad)
+			{
+				const Scalar factor = invStd / static_cast<Scalar>(dim);
+				for (int i = 0; i < dim; ++i)
+				{
+					const std::size_t index = static_cast<std::size_t>(row + i);
+					const Scalar xHat = (X.data[index] - mean) * invStd;
+					const Scalar dyGamma = Y.grad[index] * Gamma.data[static_cast<std::size_t>(i)];
+					X.grad[index] += factor * (
+						static_cast<Scalar>(dim) * dyGamma - sumDyGamma - xHat * sumDyGammaXHat
+					);
+				}
+			}
+		}
 	}
 
 	void GraphRuntime::BACKWARD_LAYER_NORM_GENERIC(Tensor &X, Tensor &Gamma, Tensor &Beta, Tensor &Y, const std::vector<int> &axes)
 	{
+		const int rank = static_cast<int>(X.shape.size());
+		if (rank == 0 || axes.size() != 1 || Y.shape != X.shape)
+			throw std::runtime_error("layer_norm backward: dimension mismatch");
+
+		int axis = axes[0];
+		if (axis < 0)
+			axis += rank;
+		if (axis < 0 || axis >= rank)
+			throw std::runtime_error("layer_norm backward: axis out of range");
+
+		const int dim = X.shape[static_cast<std::size_t>(axis)];
+		if (dim <= 0 || Gamma.shape != std::vector<int>{dim} || Beta.shape != std::vector<int>{dim})
+			throw std::runtime_error("layer_norm backward: gamma and beta dimension mismatch");
+		if (Y.strides.size() != X.shape.size() || Gamma.strides.size() != 1 || Beta.strides.size() != 1)
+			throw std::runtime_error("layer_norm backward: shape/strides rank mismatch");
+
+		constexpr Scalar epsilon = 1.0e-5f;
+
+		forEachSliceAlongAxisIncremental(
+			X.shape,
+			X.strides,
+			axis,
+			[&](int base, int strideAxis, int axisLen, const std::vector<int> &idxNoAxis)
+			{
+				const int xBase = X.baseOffset + base;
+				int yBase = Y.baseOffset;
+
+				for (int dimension = 0; dimension < rank; ++dimension)
+				{
+					if (dimension != axis)
+						yBase += idxNoAxis[static_cast<std::size_t>(dimension)] * Y.strides[static_cast<std::size_t>(dimension)];
+				}
+
+				Scalar mean = 0.0f;
+				int xOffset = xBase;
+				for (int i = 0; i < axisLen; ++i)
+				{
+					mean += X.data[static_cast<std::size_t>(xOffset)];
+					xOffset += strideAxis;
+				}
+
+				mean /= static_cast<Scalar>(axisLen);
+				Scalar variance = 0.0f;
+				xOffset = xBase;
+				for (int i = 0; i < axisLen; ++i)
+				{
+					const Scalar centered = X.data[static_cast<std::size_t>(xOffset)] - mean;
+					variance += centered * centered;
+					xOffset += strideAxis;
+				}
+
+				const Scalar invStd = 1.0f / std::sqrt(variance / static_cast<Scalar>(axisLen) + epsilon);
+				Scalar sumDyGamma = 0.0f;
+				Scalar sumDyGammaXHat = 0.0f;
+				xOffset = xBase;
+				int yOffset = yBase;
+
+				for (int i = 0; i < axisLen; ++i)
+				{
+					const int gammaOffset = Gamma.baseOffset + i * Gamma.strides[0];
+					const int betaOffset = Beta.baseOffset + i * Beta.strides[0];
+					const Scalar xHat = (X.data[static_cast<std::size_t>(xOffset)] - mean) * invStd;
+					const Scalar dy = Y.grad[static_cast<std::size_t>(yOffset)];
+					const Scalar dyGamma = dy * Gamma.data[static_cast<std::size_t>(gammaOffset)];
+					sumDyGamma += dyGamma;
+					sumDyGammaXHat += dyGamma * xHat;
+
+					if (Gamma.requiresGrad)
+						Gamma.grad[static_cast<std::size_t>(gammaOffset)] += dy * xHat;
+					if (Beta.requiresGrad)
+						Beta.grad[static_cast<std::size_t>(betaOffset)] += dy;
+
+					xOffset += strideAxis;
+					yOffset += Y.strides[static_cast<std::size_t>(axis)];
+				}
+
+				if (!X.requiresGrad)
+					return;
+
+				const Scalar factor = invStd / static_cast<Scalar>(axisLen);
+				xOffset = xBase;
+				yOffset = yBase;
+				for (int i = 0; i < axisLen; ++i)
+				{
+					const int gammaOffset = Gamma.baseOffset + i * Gamma.strides[0];
+					const Scalar xHat = (X.data[static_cast<std::size_t>(xOffset)] - mean) * invStd;
+					const Scalar dyGamma = Y.grad[static_cast<std::size_t>(yOffset)] * Gamma.data[static_cast<std::size_t>(gammaOffset)];
+					X.grad[static_cast<std::size_t>(xOffset)] += factor * (
+						static_cast<Scalar>(axisLen) * dyGamma - sumDyGamma - xHat * sumDyGammaXHat
+					);
+					xOffset += strideAxis;
+					yOffset += Y.strides[static_cast<std::size_t>(axis)];
+				}
+			});
 	}
 
 	void GraphRuntime::MATMUL_2D_2D(Tensor &A, Tensor &B, Tensor &C)
