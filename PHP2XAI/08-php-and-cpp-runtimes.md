@@ -23,3 +23,5 @@ The C++ runtime reads the configuration, loads graph and weights, constructs the
 The `training` flag defaults to `false`, which means evaluation mode. `Core::train()` sets it to `true`; validation sets it back to `false`.
 
 Both runtimes implement the same forward and backward behavior for `transpose()`, contiguous `reshape()`, sinusoidal `positionalEncoding()`, `gelu()` with the tanh approximation, `scale()`, and `layerNorm()`. LayerNorm has an optimized contiguous last-axis kernel and a stride-aware generic-axis kernel; both implementations use `epsilon = 1e-5` and accumulate gradients for the input, `gamma`, and `beta`.
+
+For the status and migration plan of SIMD/Eigen-accelerated C++ kernels, see [SIMD and Eigen migration](15-simd-and-eigen.md).

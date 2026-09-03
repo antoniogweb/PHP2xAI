@@ -12,20 +12,23 @@ composer require antoniogweb/php2xai
 
 ## Technical documentation
 
-The complete technical guide is available in the [PHP2XAI documentation](PHP2XAI/01-introduction.md).
+The complete technical guide is available below. Each chapter is linked directly from this README.
 
-It covers:
-
-- architecture and runtime design;
-- installation and first model creation;
-- tensors, shapes, and operations;
-- computational graph construction;
-- datasets and batch training;
-- PHP and C++ runtimes;
-- inference and model serialization;
-- dropout and training/evaluation modes;
-- custom models and runtime extensions;
-- debugging and troubleshooting.
+1. [Introduction and architecture](PHP2XAI/01-introduction.md)
+2. [Installation](PHP2XAI/02-installation.md)
+3. [First model](PHP2XAI/03-first-model.md)
+4. [Tensors and operations](PHP2XAI/04-tensors-and-operations.md)
+5. [Computational graph](PHP2XAI/05-computational-graph.md)
+6. [Datasets and batches](PHP2XAI/06-datasets-and-batches.md)
+7. [Training](PHP2XAI/07-training.md)
+8. [PHP and C++ runtimes](PHP2XAI/08-php-and-cpp-runtimes.md)
+9. [Inference and model serialization](PHP2XAI/09-inference.md)
+10. [Dropout and training mode](PHP2XAI/10-dropout-and-training-mode.md)
+11. [Custom models](PHP2XAI/11-custom-model.md)
+12. [Extending the runtime](PHP2XAI/12-extending-the-runtime.md)
+13. [Debugging](PHP2XAI/13-debugging.md)
+14. [Tokenizer](PHP2XAI/14-tokenizer.md)
+15. [SIMD and Eigen migration](PHP2XAI/15-simd-and-eigen.md)
 
 ## Quick start
 
