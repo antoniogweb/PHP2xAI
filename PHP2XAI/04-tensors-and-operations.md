@@ -24,6 +24,7 @@ Available operations include:
 - `add()` for biases and supported broadcasting;
 - `sig()`, `ReLU()`, and `gelu()` for activations;
 - `scale()` for elementwise multiplication by a fixed scalar;
+- `layerNorm()` for feature normalization with trainable scale and bias;
 - `transpose()` and `reshape()` for layout changes;
 - `positionalEncoding()` for sinusoidal sequence positions;
 - `softmax()` for probabilities;
@@ -140,6 +141,36 @@ For example, reshape does not transpose data:
 [ [1, 2, 3], [4, 5, 6] ]  shape [2, 3]
 becomes [ [1, 2], [3, 4], [5, 6] ]  shape [3, 2]
 ```
+
+## Layer normalization
+
+`layerNorm()` normalizes one axis and then applies a trainable scale `gamma` and bias `beta`:
+
+```php
+$gamma = Tensor::createFromData(array_fill(0, $D, 1.0));
+$beta = Tensor::zeros([$D]);
+$normalized = $x->layerNorm($gamma, $beta); // axis = -1
+```
+
+`gamma` and `beta` must both have shape `[D]`, where `D` is the size of the normalized axis. The default is the final axis, so it is the usual Transformer operation for `[B, L, D]` and also works for `[D]`, `[B, D]`, and `[B, H, L, D]`. For example, every token independently normalizes its `D` features in `[B, L, D]`.
+
+For a slice `x` of `D` values, the forward pass uses population variance and `epsilon = 1e-5`:
+
+```text
+mean     = (1 / D) * sum_i x_i
+variance = (1 / D) * sum_i (x_i - mean)^2
+xHat_i   = (x_i - mean) / sqrt(variance + epsilon)
+y_i      = gamma_i * xHat_i + beta_i
+```
+
+An explicit non-final axis selects the generic path:
+
+```php
+// For every fixed [B, :, L, D] slice, normalize over H.
+$normalized = $x->layerNorm($gammaH, $betaH, 1); // x: [B, H, L, D]
+```
+
+The default `axis = -1` selects `LAYER_NORM_LAST_AXIS`, a contiguous fast path that treats the tensor as `outer = numel / D` independent rows. Any other axis selects `LAYER_NORM_GENERIC`, which iterates slices using shape and strides. Both backward paths accumulate gradients for `X`, `gamma`, and `beta`; `gamma` and `beta` remain ordinary trainable parameter tensors.
 
 ## Addition and broadcasting
 
