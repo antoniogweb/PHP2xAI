@@ -13,7 +13,7 @@ When a model performs operations on a `Tensor` associated with a `GraphContext`,
 }
 ```
 
-Attributes are fixed operation values, such as the selected kernel, dropout percentage, or the scalar used by `scale()`. They are not trainable Tensors. For example, `layer_norm` records `kernel` and `axes`, while its trainable `gamma` and `beta` are normal tensor inputs. `apply_padding_mask` receives its score tensor and binary mask as inputs and needs no attributes because it does not carry a padding ID. Operations such as `reshape()`, whose output shape is already stored in the output tensor definition, do not need to duplicate that shape in their attributes.
+Attributes are fixed operation values, such as the selected kernel, dropout percentage, or the scalar used by `scale()`. They are not trainable Tensors. For example, `layer_norm` records `kernel` and `axes`, while its trainable `gamma` and `beta` are normal tensor inputs. `apply_padding_mask` receives its score tensor and binary mask as inputs and needs no attributes because it does not carry a padding ID, assumed equal to 0. Operations such as `reshape()`, whose output shape is already stored in the output tensor definition, do not need to duplicate that shape in their attributes.
 
 ## Training graph
 
