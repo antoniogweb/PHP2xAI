@@ -63,15 +63,19 @@ class GraphContext
 		$requiresGrad = $tensor->requiresGrad() || ($kind === 'param' && $tensor->isTrainable());
 		$tensor->setRequiresGrad($requiresGrad);
 
-		$this->tensors[] = [
+		$definition = [
 			'id' => $id,
 			'kind' => $kind,
 			'name' => $name ?? $tensor->getName(),
 			'shape' => $shape,
-			'data'	=>	$tensor->data,
 			'trainable' => $tensor->isTrainable(),
 			'requiresGrad' => $requiresGrad,
 		];
+
+		if ($tensor->data !== [])
+			$definition['data'] = $tensor->data;
+
+		$this->tensors[] = $definition;
 		
 		$tensor->setContext($this);
 		

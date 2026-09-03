@@ -45,8 +45,9 @@ class GraphRuntime
 				$t['name'] ?? null
 			);
 			
-			// Initialize with provided data (e.g., parameters) when available
-			if (isset($t['data']))
+			// TensorRuntime already allocates zeros from shape. Replace them only
+			// when graph JSON carries actual tensor data (inputs or parameters).
+			if (isset($t['data']) && $t['data'] !== [])
 			{
 				$data = array_values($t['data']);
 				$this->tensors[$id]->data = $data;

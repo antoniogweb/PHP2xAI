@@ -4417,8 +4417,9 @@ namespace PHP2xAI::Runtime::CPP
 			tensor.baseOffset = 0;
 			tensor.strides = Tensor::computeStrides(tensor.shape);
 
-			// Initialize data/grad; if data provided, use it, otherwise fill zeros with shape product (or 1).
-			if (t.contains("data"))
+			// Initialize data/grad; use graph data when present and non-empty,
+			// otherwise allocate zeros from the tensor shape.
+			if (t.contains("data") && !t.at("data").empty())
 			{
 				tensor.data = t.at("data").get<std::vector<Scalar>>();
 			}
