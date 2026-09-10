@@ -691,14 +691,28 @@ class Tensor
 //     }
     
     // Cross Entropy
-    public function CE(Tensor $target) : Tensor
+    public function CE(Tensor $target, int $axis = -1) : Tensor
     {
 		$context = $this->initContextFrom($target);
 		$logitsId = $this->registerInContext($context, $this);
 		$targetId = $this->registerInContext($context, $target);
 		
-		$result = new Tensor($this->shapeReduced(-1), [], 'CE');
-		$context->registerOp('CE', [$logitsId, $targetId], $result);
+		if (count($this->shape) === 1)
+			$kernel = "CE_1D_LAST";
+		else if (count($this->shape) === 2 && $axis === -1)
+			$kernel = "CE_2D_LAST";
+		else if (count($this->shape) === 3 && $axis === -1)
+			$kernel = "CE_3D_LAST";
+		else
+			$kernel = "CE_GENERIC_AXIS";
+
+		$attributes = array(
+			"kernel"	=>	$kernel,
+			"axes"		=>	array($axis),
+		);
+
+		$result = new Tensor($this->shapeReduced($axis), [], 'CE');
+		$context->registerOp('CE', [$logitsId, $targetId], $result, $attributes);
 		
 		return $result;
     }
@@ -733,14 +747,28 @@ class Tensor
      * Cross Entropy computed directly from logits (numerically stable and no softmax graph).
      * Derivative: dL/dz_i = (softmax_i - target_i) / n
      */
-    public function CELogits(Tensor $target) : Tensor
+    public function CELogits(Tensor $target, int $axis = -1) : Tensor
     {
 		$context = $this->initContextFrom($target);
 		$logitsId = $this->registerInContext($context, $this);
 		$targetId = $this->registerInContext($context, $target);
 		
-		$result = new Tensor($this->shapeReduced(-1), [], 'CELogits');
-		$context->registerOp('softmax_ce_logits', [$logitsId, $targetId], $result);
+		if (count($this->shape) === 1)
+			$kernel = "CE_LOGITS_1D_LAST";
+		else if (count($this->shape) === 2 && $axis === -1)
+			$kernel = "CE_LOGITS_2D_LAST";
+		else if (count($this->shape) === 3 && $axis === -1)
+			$kernel = "CE_LOGITS_3D_LAST";
+		else
+			$kernel = "CE_LOGITS_GENERIC_AXIS";
+
+		$attributes = array(
+			"kernel"	=>	$kernel,
+			"axes"		=>	array($axis),
+		);
+
+		$result = new Tensor($this->shapeReduced($axis), [], 'CELogits');
+		$context->registerOp('softmax_ce_logits', [$logitsId, $targetId], $result, $attributes);
 		
 		return $result;
     }

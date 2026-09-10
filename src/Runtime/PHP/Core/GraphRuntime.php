@@ -991,11 +991,97 @@ class GraphRuntime
 		}
 	}
 
-	private function opCe(int $predId, int $targetId, int $outId): void
+	private function opCe(int $predId, int $targetId, int $outId, array $attributes): void
 	{
 		$pred = $this->tensors[$predId];
 		$target = $this->tensors[$targetId];
 		$out = $this->tensors[$outId];
+		$kernel = $attributes['kernel'] ?? 'CE_GENERIC_AXIS';
+		$axis = $attributes['axes'][0] ?? -1;
+
+		switch ($kernel)
+		{
+			case 'CE_1D_LAST':
+				$this->CE_1D_LAST($pred, $target, $out);
+				break;
+			case 'CE_2D_LAST':
+				$this->CE_2D_LAST($pred, $target, $out);
+				break;
+			case 'CE_3D_LAST':
+				$this->CE_3D_LAST($pred, $target, $out);
+				break;
+			case 'CE_GENERIC_AXIS':
+				$this->CE_GENERIC_AXIS($pred, $target, $out, $axis);
+				break;
+			default:
+				throw new RuntimeException('CE: kernel not supported');
+		}
+	}
+
+	private function CE_1D_LAST(TensorRuntime $pred, TensorRuntime $target, TensorRuntime $out): void
+	{
+		if (count($pred->shape) !== 1 || $target->shape !== $pred->shape)
+			throw new RuntimeException('CE 1D: dimension mismatch');
+
+		$classes = count($pred->data);
+
+		if ($classes === 0 || $classes !== count($target->data))
+		{
+			$out->shape = [];
+			$out->data = [0.0];
+			return;
+		}
+
+		$out->shape = [];
+		$out->strides = [];
+		$activeIndex = null;
+		$isOneHot = true;
+
+		for ($i = 0; $i < $classes; $i++)
+		{
+			$val = $target->data[$i];
+
+			if ($val > 0.5)
+			{
+				if ($activeIndex !== null)
+				{
+					$isOneHot = false;
+					break;
+				}
+
+				$activeIndex = $i;
+			}
+			else if (\abs($val) > 1.0e-9)
+			{
+				$isOneHot = false;
+				break;
+			}
+		}
+
+		$eps = 1.0e-12;
+
+		if ($isOneHot && $activeIndex !== null)
+		{
+			$prob = $pred->data[$activeIndex] ?? 0.0;
+			$out->data = [-\log($prob + $eps)];
+			return;
+		}
+
+		$loss = 0.0;
+
+		for ($i = 0; $i < $classes; $i++)
+		{
+			$loss += $target->data[$i] * \log(($pred->data[$i] ?? 0.0) + $eps);
+		}
+
+		$out->data = [-$loss];
+	}
+
+	private function CE_2D_LAST(TensorRuntime $pred, TensorRuntime $target, TensorRuntime $out): void
+	{
+		if (count($pred->shape) !== 2 || $target->shape !== $pred->shape)
+			throw new RuntimeException('CE 2D: dimension mismatch');
+
 		$classes = count($pred->data);
 
 		if ($classes === 0 || $classes !== count($target->data))
@@ -1013,6 +1099,7 @@ class GraphRuntime
 				throw new RuntimeException('CE: dimension mismatch');
 			
 			$out->shape = [$batch];
+			$out->strides = TensorRuntime::computeStrides($out->shape);
 			$out->data = array_fill(0, $batch, 0.0);
 			$eps = 1.0e-12;
 			
@@ -1063,55 +1150,164 @@ class GraphRuntime
 			return;
 		}
 
-		$out->shape = [];
-		$activeIndex = null;
-		$isOneHot = true;
-
-		for ($i = 0; $i < $classes; $i++)
-		{
-			$val = $target->data[$i];
-			
-			if ($val > 0.5)
-			{
-				if ($activeIndex !== null)
-				{
-					$isOneHot = false;
-					break;
-				}
-				
-				$activeIndex = $i;
-			}
-			else if (\abs($val) > 1.0e-9)
-			{
-				$isOneHot = false;
-				break;
-			}
-		}
-
-		$eps = 1.0e-12;
-
-		if ($isOneHot && $activeIndex !== null)
-		{
-			$prob = $pred->data[$activeIndex] ?? 0.0;
-			$out->data = [-\log($prob + $eps)];
-			return;
-		}
-
-		$loss = 0.0;
-
-		for ($i = 0; $i < $classes; $i++)
-		{
-			$loss += $target->data[$i] * \log(($pred->data[$i] ?? 0.0) + $eps);
-		}
-
-		$out->data = [-$loss];
 	}
 
-	private function opCeLogits(int $logitsId, int $targetId, int $outId): void
+	private function CE_3D_LAST(TensorRuntime $pred, TensorRuntime $target, TensorRuntime $out): void
+	{
+		if (count($pred->shape) !== 3 || $target->shape !== $pred->shape)
+			throw new RuntimeException('CE 3D: dimension mismatch');
+
+		[$batch, $steps, $dim] = $pred->shape;
+		$out->shape = [$batch, $steps];
+		$out->strides = TensorRuntime::computeStrides($out->shape);
+		$out->data = array_fill(0, $batch * $steps, 0.0);
+		$eps = 1.0e-12;
+		for ($b = 0; $b < $batch; $b++)
+		{
+			$batchBase = $b * $steps * $dim;
+			$outBase = $b * $steps;
+			for ($s = 0; $s < $steps; $s++)
+			{
+				$rowStart = $batchBase + $s * $dim;
+				$loss = 0.0;
+				for ($i = 0; $i < $dim; $i++)
+				{
+					$offset = $rowStart + $i;
+					$loss += $target->data[$offset] * \log($pred->data[$offset] + $eps);
+				}
+				$out->data[$outBase + $s] = -$loss;
+			}
+		}
+	}
+
+	private function CE_GENERIC_AXIS(TensorRuntime $pred, TensorRuntime $target, TensorRuntime $out, int $axis): void
+	{
+		$rank = count($pred->shape);
+		if ($rank === 0)
+			throw new RuntimeException('CE: prediction rank must be >= 1');
+		if ($axis < 0) $axis += $rank;
+		if ($axis < 0 || $axis >= $rank)
+			throw new InvalidArgumentException('axis out of range');
+		if ($target->shape !== $pred->shape)
+			throw new RuntimeException('CE: dimension mismatch');
+
+		$out->shape = $pred->shape;
+		array_splice($out->shape, $axis, 1);
+		$out->strides = TensorRuntime::computeStrides($out->shape);
+		$out->data = array_fill(0, array_product($out->shape) ?: 1, 0.0);
+		$outPos = 0;
+		$eps = 1.0e-12;
+
+		$this->forEachSliceAlongAxisIncremental(
+			$pred->shape, $pred->strides, $axis,
+			function(int $base, int $strideAxis, int $axisLen, array $idxNoAxis) use (
+				$pred, $target, &$out, &$outPos, $axis, $rank, $eps
+			) {
+				$targetBase = 0;
+				for ($d = 0; $d < $rank; $d++)
+					if ($d !== $axis) $targetBase += $idxNoAxis[$d] * $target->strides[$d];
+
+				$loss = 0.0;
+				$predOffset = $base;
+				$targetOffset = $targetBase;
+				for ($i = 0; $i < $axisLen; $i++)
+				{
+					$loss += $target->data[$targetOffset] * \log($pred->data[$predOffset] + $eps);
+					$predOffset += $strideAxis;
+					$targetOffset += $target->strides[$axis];
+				}
+				$out->data[$outPos++] = -$loss;
+			}
+		);
+	}
+
+	private function opCeLogits(int $logitsId, int $targetId, int $outId, array $attributes): void
 	{
 		$logits = $this->tensors[$logitsId];
 		$target = $this->tensors[$targetId];
 		$out = $this->tensors[$outId];
+		$kernel = $attributes['kernel'] ?? 'CE_LOGITS_GENERIC_AXIS';
+		$axis = $attributes['axes'][0] ?? -1;
+
+		switch ($kernel)
+		{
+			case 'CE_LOGITS_1D_LAST':
+				$this->CE_LOGITS_1D_LAST($logits, $target, $out);
+				break;
+			case 'CE_LOGITS_2D_LAST':
+				$this->CE_LOGITS_2D_LAST($logits, $target, $out);
+				break;
+			case 'CE_LOGITS_3D_LAST':
+				$this->CE_LOGITS_3D_LAST($logits, $target, $out);
+				break;
+			case 'CE_LOGITS_GENERIC_AXIS':
+				$this->CE_LOGITS_GENERIC_AXIS($logits, $target, $out, $axis);
+				break;
+			default:
+				throw new RuntimeException('CE logits: kernel not supported');
+		}
+	}
+
+	private function CE_LOGITS_1D_LAST(TensorRuntime $logits, TensorRuntime $target, TensorRuntime $out): void
+	{
+		if (count($logits->shape) !== 1 || $target->shape !== $logits->shape)
+			throw new RuntimeException('CE logits 1D: dimension mismatch');
+
+		$classes = count($logits->data);
+
+		if ($classes === 0 || $classes !== count($target->data))
+		{
+			$out->shape = [];
+			$out->data = [0.0];
+			return;
+		}
+
+		$out->shape = [];
+		$out->strides = [];
+		$max = $logits->data[0];
+
+		for ($i = 1; $i < $classes; $i++)
+		{
+			if ($logits->data[$i] > $max)
+				$max = $logits->data[$i];
+		}
+
+		$probs = [];
+		$sumExp = 0.0;
+
+		for ($i = 0; $i < $classes; $i++)
+		{
+			$expVal = \exp($logits->data[$i] - $max);
+			$probs[$i] = $expVal;
+			$sumExp += $expVal;
+		}
+
+		$invSum = $sumExp > 0.0 ? 1 / $sumExp : 0.0;
+
+		for ($i = 0; $i < $classes; $i++)
+		{
+			$probs[$i] *= $invSum;
+		}
+
+		$loss = 0.0;
+		$eps = 1.0e-12;
+
+		for ($i = 0; $i < $classes; $i++)
+		{
+			$t = $target->data[$i];
+
+			if ($t > 0.0)
+				$loss += -$t * \log($probs[$i] + $eps);
+		}
+
+		$out->data = [$loss];
+	}
+
+	private function CE_LOGITS_2D_LAST(TensorRuntime $logits, TensorRuntime $target, TensorRuntime $out): void
+	{
+		if (count($logits->shape) !== 2 || $target->shape !== $logits->shape)
+			throw new RuntimeException('CE logits 2D: dimension mismatch');
+
 		$classes = count($logits->data);
 
 		if ($classes === 0 || $classes !== count($target->data))
@@ -1129,6 +1325,7 @@ class GraphRuntime
 				throw new RuntimeException('CE logits: dimension mismatch');
 			
 			$out->shape = [$batch];
+			$out->strides = TensorRuntime::computeStrides($out->shape);
 			$out->data = array_fill(0, $batch, 0.0);
 			$eps = 1.0e-12;
 			
@@ -1177,44 +1374,108 @@ class GraphRuntime
 			return;
 		}
 
-		$out->shape = [];
-		$max = $logits->data[0];
-		
-		for ($i = 1; $i < $classes; $i++)
-		{
-			if ($logits->data[$i] > $max)
-				$max = $logits->data[$i];
-		}
-		
-		$probs = [];
-		$sumExp = 0.0;
-		
-		for ($i = 0; $i < $classes; $i++)
-		{
-			$expVal = \exp($logits->data[$i] - $max);
-			$probs[$i] = $expVal;
-			$sumExp += $expVal;
-		}
-		
-		$invSum = $sumExp > 0.0 ? 1 / $sumExp : 0.0;
-		
-		for ($i = 0; $i < $classes; $i++)
-		{
-			$probs[$i] *= $invSum;
-		}
-		
-		$loss = 0.0;
+	}
+
+	private function CE_LOGITS_3D_LAST(TensorRuntime $logits, TensorRuntime $target, TensorRuntime $out): void
+	{
+		if (count($logits->shape) !== 3 || $target->shape !== $logits->shape)
+			throw new RuntimeException('CE logits 3D: dimension mismatch');
+
+		[$batch, $steps, $dim] = $logits->shape;
+		$out->shape = [$batch, $steps];
+		$out->strides = TensorRuntime::computeStrides($out->shape);
+		$out->data = array_fill(0, $batch * $steps, 0.0);
 		$eps = 1.0e-12;
-		
-		for ($i = 0; $i < $classes; $i++)
+
+		for ($b = 0; $b < $batch; $b++)
 		{
-			$t = $target->data[$i];
-			
-			if ($t > 0.0)
-				$loss += -$t * \log($probs[$i] + $eps);
+			$batchBase = $b * $steps * $dim;
+			$outBase = $b * $steps;
+			for ($s = 0; $s < $steps; $s++)
+			{
+				$rowStart = $batchBase + $s * $dim;
+				$max = $logits->data[$rowStart];
+				for ($i = 1; $i < $dim; $i++) $max = \max($max, $logits->data[$rowStart + $i]);
+
+				$sumExp = 0.0;
+				for ($i = 0; $i < $dim; $i++) $sumExp += \exp($logits->data[$rowStart + $i] - $max);
+
+				$invSum = $sumExp > 0.0 ? 1 / $sumExp : 0.0;
+				$loss = 0.0;
+				for ($i = 0; $i < $dim; $i++)
+				{
+					$t = $target->data[$rowStart + $i];
+					if ($t > 0.0)
+					{
+						$prob = \exp($logits->data[$rowStart + $i] - $max) * $invSum;
+						$loss += -$t * \log($prob + $eps);
+					}
+				}
+				$out->data[$outBase + $s] = $loss;
+			}
 		}
-		
-		$out->data = [$loss];
+	}
+
+	private function CE_LOGITS_GENERIC_AXIS(TensorRuntime $logits, TensorRuntime $target, TensorRuntime $out, int $axis): void
+	{
+		$rank = count($logits->shape);
+		if ($rank === 0)
+			throw new RuntimeException('CE logits: logits rank must be >= 1');
+		if ($axis < 0) $axis += $rank;
+		if ($axis < 0 || $axis >= $rank)
+			throw new InvalidArgumentException('axis out of range');
+		if ($target->shape !== $logits->shape)
+			throw new RuntimeException('CE logits: dimension mismatch');
+
+		$out->shape = $logits->shape;
+		array_splice($out->shape, $axis, 1);
+		$out->strides = TensorRuntime::computeStrides($out->shape);
+		$out->data = array_fill(0, array_product($out->shape) ?: 1, 0.0);
+		$outPos = 0;
+
+		$this->forEachSliceAlongAxisIncremental(
+			$logits->shape, $logits->strides, $axis,
+			function(int $base, int $strideAxis, int $axisLen, array $idxNoAxis) use (
+				$logits, $target, &$out, &$outPos, $axis, $rank
+			) {
+				$targetBase = 0;
+				for ($d = 0; $d < $rank; $d++)
+					if ($d !== $axis) $targetBase += $idxNoAxis[$d] * $target->strides[$d];
+
+				$max = $logits->data[$base];
+				$offset = $base + $strideAxis;
+				for ($i = 1; $i < $axisLen; $i++)
+				{
+					$max = \max($max, $logits->data[$offset]);
+					$offset += $strideAxis;
+				}
+
+				$sumExp = 0.0;
+				$offset = $base;
+				for ($i = 0; $i < $axisLen; $i++)
+				{
+					$sumExp += \exp($logits->data[$offset] - $max);
+					$offset += $strideAxis;
+				}
+
+				$invSum = $sumExp > 0.0 ? 1 / $sumExp : 0.0;
+				$loss = 0.0;
+				$logitsOffset = $base;
+				$targetOffset = $targetBase;
+				for ($i = 0; $i < $axisLen; $i++)
+				{
+					$t = $target->data[$targetOffset];
+					if ($t > 0.0)
+					{
+						$prob = \exp($logits->data[$logitsOffset] - $max) * $invSum;
+						$loss += -$t * \log($prob + 1.0e-12);
+					}
+					$logitsOffset += $strideAxis;
+					$targetOffset += $target->strides[$axis];
+				}
+				$out->data[$outPos++] = $loss;
+			}
+		);
 	}
 	
 	private function CE_LOGITS_LABEL_INT_1D_LAST(int $logitsId, int $targetId, int $outId)
@@ -2201,14 +2462,62 @@ class GraphRuntime
 		}
 	}
 
-	private function backwardCe(int $predId, int $targetId, int $outId): void
+	private function backwardCe(int $predId, int $targetId, int $outId, array $attributes): void
 	{
 		$pred = $this->tensors[$predId];
-
 		if (!$pred->requiresGrad)
 			return;
+
 		$target = $this->tensors[$targetId];
 		$out = $this->tensors[$outId];
+		$kernel = $attributes['kernel'] ?? 'CE_GENERIC_AXIS';
+		$axis = $attributes['axes'][0] ?? -1;
+
+		switch ($kernel)
+		{
+			case 'CE_1D_LAST':
+				$this->BACKWORD_CE_1D_LAST($pred, $target, $out);
+				break;
+			case 'CE_2D_LAST':
+				$this->BACKWORD_CE_2D_LAST($pred, $target, $out);
+				break;
+			case 'CE_3D_LAST':
+				$this->BACKWORD_CE_3D_LAST($pred, $target, $out);
+				break;
+			case 'CE_GENERIC_AXIS':
+				$this->BACKWORD_CE_GENERIC_AXIS($pred, $target, $out, $axis);
+				break;
+			default:
+				throw new RuntimeException('CE backward: kernel not supported');
+		}
+	}
+
+	private function BACKWORD_CE_1D_LAST(TensorRuntime $pred, TensorRuntime $target, TensorRuntime $out): void
+	{
+		if (count($pred->shape) !== 1 || $target->shape !== $pred->shape)
+			throw new RuntimeException('CE 1D backward: dimension mismatch');
+
+		$classes = count($pred->data);
+		if ($classes === 0 || $classes !== count($target->data))
+			return;
+
+		$gradOut = $out->grad[0] ?? 0.0;
+		$eps = 1.0e-12;
+		$scale = $gradOut;
+
+		for ($i = 0; $i < $classes; $i++)
+		{
+			$p = $pred->data[$i];
+			$t = $target->data[$i];
+			$pred->grad[$i] += -$scale * ($t / ($p + $eps));
+		}
+	}
+
+
+	private function BACKWORD_CE_2D_LAST(TensorRuntime $pred, TensorRuntime $target, TensorRuntime $out): void
+	{
+		if (count($pred->shape) !== 2 || $target->shape !== $pred->shape)
+			throw new RuntimeException('CE 2D backward: dimension mismatch');
 
 		$classes = count($pred->data);
 		if ($classes === 0 || $classes !== count($target->data))
@@ -2240,26 +2549,146 @@ class GraphRuntime
 			return;
 		}
 
-		$gradOut = $out->grad[0] ?? 0.0;
+	}
+
+	private function BACKWORD_CE_3D_LAST(TensorRuntime $pred, TensorRuntime $target, TensorRuntime $out): void
+	{
+		if (count($pred->shape) !== 3 || $target->shape !== $pred->shape)
+			throw new RuntimeException('CE 3D backward: dimension mismatch');
+
+		[$batch, $steps, $dim] = $pred->shape;
 		$eps = 1.0e-12;
+		for ($b = 0; $b < $batch; $b++)
+		{
+			$batchBase = $b * $steps * $dim;
+			$outBase = $b * $steps;
+			for ($s = 0; $s < $steps; $s++)
+			{
+				$rowStart = $batchBase + $s * $dim;
+				$scale = $out->grad[$outBase + $s] ?? 0.0;
+				for ($i = 0; $i < $dim; $i++)
+				{
+					$offset = $rowStart + $i;
+					$pred->grad[$offset] += -$scale * $target->data[$offset] / ($pred->data[$offset] + $eps);
+				}
+			}
+		}
+	}
+
+	private function BACKWORD_CE_GENERIC_AXIS(TensorRuntime $pred, TensorRuntime $target, TensorRuntime $out, int $axis): void
+	{
+		$rank = count($pred->shape);
+		if ($rank === 0)
+			throw new RuntimeException('CE backward: prediction rank must be >= 1');
+		if ($axis < 0) $axis += $rank;
+		if ($axis < 0 || $axis >= $rank)
+			throw new InvalidArgumentException('axis out of range');
+		if ($target->shape !== $pred->shape)
+			throw new RuntimeException('CE backward: dimension mismatch');
+
+		$outPos = 0;
+		$this->forEachSliceAlongAxisIncremental(
+			$pred->shape, $pred->strides, $axis,
+			function(int $base, int $strideAxis, int $axisLen, array $idxNoAxis) use (
+				$pred, $target, $out, &$outPos, $axis, $rank
+			) {
+				$targetBase = 0;
+				for ($d = 0; $d < $rank; $d++)
+					if ($d !== $axis) $targetBase += $idxNoAxis[$d] * $target->strides[$d];
+
+				$scale = $out->grad[$outPos++] ?? 0.0;
+				$predOffset = $base;
+				$targetOffset = $targetBase;
+				for ($i = 0; $i < $axisLen; $i++)
+				{
+					$pred->grad[$predOffset] += -$scale * $target->data[$targetOffset]
+						/ ($pred->data[$predOffset] + 1.0e-12);
+					$predOffset += $strideAxis;
+					$targetOffset += $target->strides[$axis];
+				}
+			}
+		);
+	}
+
+	private function backwardCeLogits(int $logitsId, int $targetId, int $outId, array $attributes): void
+	{
+		$logits = $this->tensors[$logitsId];
+		if (!$logits->requiresGrad)
+			return;
+
+		$target = $this->tensors[$targetId];
+		$out = $this->tensors[$outId];
+		$kernel = $attributes['kernel'] ?? 'CE_LOGITS_GENERIC_AXIS';
+		$axis = $attributes['axes'][0] ?? -1;
+
+		switch ($kernel)
+		{
+			case 'CE_LOGITS_1D_LAST':
+				$this->BACKWORD_CE_LOGITS_1D_LAST($logits, $target, $out);
+				break;
+			case 'CE_LOGITS_2D_LAST':
+				$this->BACKWORD_CE_LOGITS_2D_LAST($logits, $target, $out);
+				break;
+			case 'CE_LOGITS_3D_LAST':
+				$this->BACKWORD_CE_LOGITS_3D_LAST($logits, $target, $out);
+				break;
+			case 'CE_LOGITS_GENERIC_AXIS':
+				$this->BACKWORD_CE_LOGITS_GENERIC_AXIS($logits, $target, $out, $axis);
+				break;
+			default:
+				throw new RuntimeException('CE logits backward: kernel not supported');
+		}
+	}
+
+	private function BACKWORD_CE_LOGITS_1D_LAST(TensorRuntime $logits, TensorRuntime $target, TensorRuntime $out): void
+	{
+		if (count($logits->shape) !== 1 || $target->shape !== $logits->shape)
+			throw new RuntimeException('CE logits 1D backward: dimension mismatch');
+
+		$classes = count($logits->data);
+		if ($classes === 0 || $classes !== count($target->data))
+			return;
+
+		$gradOut = $out->grad[0] ?? 0.0;
+		$max = $logits->data[0];
+
+		for ($i = 1; $i < $classes; $i++)
+		{
+			if ($logits->data[$i] > $max)
+				$max = $logits->data[$i];
+		}
+
+		$probs = [];
+		$sumExp = 0.0;
+
+		for ($i = 0; $i < $classes; $i++)
+		{
+			$expVal = \exp($logits->data[$i] - $max);
+			$probs[$i] = $expVal;
+			$sumExp += $expVal;
+		}
+
+		$invSum = $sumExp > 0.0 ? 1 / $sumExp : 0.0;
+
+		for ($i = 0; $i < $classes; $i++)
+		{
+			$probs[$i] *= $invSum;
+		}
+
 		$scale = $gradOut;
 
 		for ($i = 0; $i < $classes; $i++)
 		{
-			$p = $pred->data[$i];
 			$t = $target->data[$i];
-			$pred->grad[$i] += -$scale * ($t / ($p + $eps));
+			$logits->grad[$i] += $scale * ($probs[$i] - $t);
 		}
 	}
 
-	private function backwardCeLogits(int $logitsId, int $targetId, int $outId): void
-	{
-		$logits = $this->tensors[$logitsId];
 
-		if (!$logits->requiresGrad)
-			return;
-		$target = $this->tensors[$targetId];
-		$out = $this->tensors[$outId];
+	private function BACKWORD_CE_LOGITS_2D_LAST(TensorRuntime $logits, TensorRuntime $target, TensorRuntime $out): void
+	{
+		if (count($logits->shape) !== 2 || $target->shape !== $logits->shape)
+			throw new RuntimeException('CE logits 2D backward: dimension mismatch');
 
 		$classes = count($logits->data);
 		if ($classes === 0 || $classes !== count($target->data))
@@ -2314,39 +2743,89 @@ class GraphRuntime
 			return;
 		}
 
-		$gradOut = $out->grad[0] ?? 0.0;
-		$max = $logits->data[0];
-		
-		for ($i = 1; $i < $classes; $i++)
-		{
-			if ($logits->data[$i] > $max)
-				$max = $logits->data[$i];
-		}
-		
-		$probs = [];
-		$sumExp = 0.0;
-		
-		for ($i = 0; $i < $classes; $i++)
-		{
-			$expVal = \exp($logits->data[$i] - $max);
-			$probs[$i] = $expVal;
-			$sumExp += $expVal;
-		}
-		
-		$invSum = $sumExp > 0.0 ? 1 / $sumExp : 0.0;
-		
-		for ($i = 0; $i < $classes; $i++)
-		{
-			$probs[$i] *= $invSum;
-		}
+	}
 
-		$scale = $gradOut;
+	private function BACKWORD_CE_LOGITS_3D_LAST(TensorRuntime $logits, TensorRuntime $target, TensorRuntime $out): void
+	{
+		if (count($logits->shape) !== 3 || $target->shape !== $logits->shape)
+			throw new RuntimeException('CE logits 3D backward: dimension mismatch');
 
-		for ($i = 0; $i < $classes; $i++)
+		[$batch, $steps, $dim] = $logits->shape;
+		for ($b = 0; $b < $batch; $b++)
 		{
-			$t = $target->data[$i];
-			$logits->grad[$i] += $scale * ($probs[$i] - $t);
+			$batchBase = $b * $steps * $dim;
+			$outBase = $b * $steps;
+			for ($s = 0; $s < $steps; $s++)
+			{
+				$rowStart = $batchBase + $s * $dim;
+				$max = $logits->data[$rowStart];
+				for ($i = 1; $i < $dim; $i++) $max = \max($max, $logits->data[$rowStart + $i]);
+
+				$sumExp = 0.0;
+				for ($i = 0; $i < $dim; $i++) $sumExp += \exp($logits->data[$rowStart + $i] - $max);
+
+				$invSum = $sumExp > 0.0 ? 1 / $sumExp : 0.0;
+				$scale = $out->grad[$outBase + $s] ?? 0.0;
+				for ($i = 0; $i < $dim; $i++)
+				{
+					$offset = $rowStart + $i;
+					$prob = \exp($logits->data[$offset] - $max) * $invSum;
+					$logits->grad[$offset] += $scale * ($prob - $target->data[$offset]);
+				}
+			}
 		}
+	}
+
+	private function BACKWORD_CE_LOGITS_GENERIC_AXIS(TensorRuntime $logits, TensorRuntime $target, TensorRuntime $out, int $axis): void
+	{
+		$rank = count($logits->shape);
+		if ($rank === 0)
+			throw new RuntimeException('CE logits backward: logits rank must be >= 1');
+		if ($axis < 0) $axis += $rank;
+		if ($axis < 0 || $axis >= $rank)
+			throw new InvalidArgumentException('axis out of range');
+		if ($target->shape !== $logits->shape)
+			throw new RuntimeException('CE logits backward: dimension mismatch');
+
+		$outPos = 0;
+		$this->forEachSliceAlongAxisIncremental(
+			$logits->shape, $logits->strides, $axis,
+			function(int $base, int $strideAxis, int $axisLen, array $idxNoAxis) use (
+				$logits, $target, $out, &$outPos, $axis, $rank
+			) {
+				$targetBase = 0;
+				for ($d = 0; $d < $rank; $d++)
+					if ($d !== $axis) $targetBase += $idxNoAxis[$d] * $target->strides[$d];
+
+				$max = $logits->data[$base];
+				$offset = $base + $strideAxis;
+				for ($i = 1; $i < $axisLen; $i++)
+				{
+					$max = \max($max, $logits->data[$offset]);
+					$offset += $strideAxis;
+				}
+
+				$sumExp = 0.0;
+				$offset = $base;
+				for ($i = 0; $i < $axisLen; $i++)
+				{
+					$sumExp += \exp($logits->data[$offset] - $max);
+					$offset += $strideAxis;
+				}
+
+				$invSum = $sumExp > 0.0 ? 1 / $sumExp : 0.0;
+				$scale = $out->grad[$outPos++] ?? 0.0;
+				$logitsOffset = $base;
+				$targetOffset = $targetBase;
+				for ($i = 0; $i < $axisLen; $i++)
+				{
+					$prob = \exp($logits->data[$logitsOffset] - $max) * $invSum;
+					$logits->grad[$logitsOffset] += $scale * ($prob - $target->data[$targetOffset]);
+					$logitsOffset += $strideAxis;
+					$targetOffset += $target->strides[$axis];
+				}
+			}
+		);
 	}
 
 	private function BACKWORD_CE_LOGITS_LABEL_INT_1D_LAST(int $logitsId, int $targetId, int $outId)

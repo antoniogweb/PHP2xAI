@@ -167,8 +167,8 @@ namespace PHP2xAI::Runtime::CPP
 		// void opMae(int, int);
 		void opMean(int, int, const std::string &kernel, const std::vector<int> &axes);
 		void opSoftmax(int, int, const std::string &kernel, const std::vector<int> &axes);
-		void opCe(int, int, int);
-		void opCeLogits(int, int, int);
+		void opCe(int, int, int, const std::string &kernel, const std::vector<int> &axes);
+		void opCeLogits(int, int, int, const std::string &kernel, const std::vector<int> &axes);
 		void opCeLogitsLabelInt(int, int, int, const std::string &kernel, const std::vector<int> &axes);
 
 		void backwardMatmul(int, int, int, const std::string &kernel);
@@ -193,8 +193,8 @@ namespace PHP2xAI::Runtime::CPP
 		// void backwardMae(int, int);
 		void backwardMean(int, int, const std::string &kernel, const std::vector<int> &axes);
 		void backwardSoftmax(int, int, const std::string &kernel, const std::vector<int> &axes);
-		void backwardCe(int, int, int);
-		void backwardCeLogits(int, int, int);
+		void backwardCe(int, int, int, const std::string &kernel, const std::vector<int> &axes);
+		void backwardCeLogits(int, int, int, const std::string &kernel, const std::vector<int> &axes);
 		void backwardCeLogitsLabelInt(int, int, int, const std::string &kernel, const std::vector<int> &axes);
 
 		void ADD_1D_LAST(Tensor &A, Tensor &B, Tensor &C);
@@ -243,6 +243,23 @@ namespace PHP2xAI::Runtime::CPP
 		void BACKWORD_SOFTMAX_2D_LAST(Tensor &X, Tensor &Y);
 		void BACKWORD_SOFTMAX_3D_LAST(Tensor &X, Tensor &Y);
 		void BACKWORD_SOFTMAX_GENERIC_AXIS(Tensor &X, Tensor &Y, int axis);
+
+		void CE_1D_LAST(Tensor &pred, Tensor &target, Tensor &out);
+		void CE_2D_LAST(Tensor &pred, Tensor &target, Tensor &out);
+		void CE_3D_LAST(Tensor &pred, Tensor &target, Tensor &out);
+		void CE_GENERIC_AXIS(Tensor &pred, Tensor &target, Tensor &out, int axis);
+		void CE_LOGITS_1D_LAST(Tensor &logits, Tensor &target, Tensor &out);
+		void CE_LOGITS_2D_LAST(Tensor &logits, Tensor &target, Tensor &out);
+		void CE_LOGITS_3D_LAST(Tensor &logits, Tensor &target, Tensor &out);
+		void CE_LOGITS_GENERIC_AXIS(Tensor &logits, Tensor &target, Tensor &out, int axis);
+		void BACKWORD_CE_1D_LAST(Tensor &pred, Tensor &target, Tensor &out);
+		void BACKWORD_CE_2D_LAST(Tensor &pred, Tensor &target, Tensor &out);
+		void BACKWORD_CE_3D_LAST(Tensor &pred, Tensor &target, Tensor &out);
+		void BACKWORD_CE_GENERIC_AXIS(Tensor &pred, Tensor &target, Tensor &out, int axis);
+		void BACKWORD_CE_LOGITS_1D_LAST(Tensor &logits, Tensor &target, Tensor &out);
+		void BACKWORD_CE_LOGITS_2D_LAST(Tensor &logits, Tensor &target, Tensor &out);
+		void BACKWORD_CE_LOGITS_3D_LAST(Tensor &logits, Tensor &target, Tensor &out);
+		void BACKWORD_CE_LOGITS_GENERIC_AXIS(Tensor &logits, Tensor &target, Tensor &out, int axis);
 
 		void CE_LOGITS_LABEL_INT_1D_LAST(Tensor &logits, Tensor &target, Tensor &out);
 		void CE_LOGITS_LABEL_INT_2D_LAST(Tensor &logits, Tensor &target, Tensor &out);
