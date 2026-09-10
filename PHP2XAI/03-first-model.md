@@ -27,7 +27,7 @@ class BinaryModel extends Model
 
     public function loss(Tensor $x, Tensor $y): Tensor
     {
-        return $this->forward($x)->sig()->CE($y)->mean();
+        return $this->forward($x)->sig()->CELogits($y)->mean();
     }
 }
 ```
