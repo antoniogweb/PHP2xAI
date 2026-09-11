@@ -132,20 +132,21 @@ abstract class Model
 	{
 		if (!is_file($modelPath))
 			throw new \RuntimeException("model path does not exist");
-		
+
 		if (!is_file($weightsPath))
 			throw new \RuntimeException("weights path does not exist");
-		
+
 		if ($this->runtime == "CPP")
 		{
+			$platform = Utility::getPlatform();
 			if ($this->provider == "EIGEN")
-				$soPath = realpath(__DIR__ . '/../Runtime/CPP/php2xai_runtime_eigen.so');
+				$soPath = realpath(__DIR__ . '/../Runtime/CPP/Bin/'.$platform.'/php2xai_runtime_eigen.so');
 			else
-				$soPath = realpath(__DIR__ . '/../Runtime/CPP/php2xai_runtime.so');
-			
+				$soPath = realpath(__DIR__ . '/../Runtime/CPP/Bin/'.$platform.'/php2xai_runtime.so');
+
 			if ($soPath === false)
 				throw new \RuntimeException("CPP runtime library not found");
-			
+
 			$this->cppRuntime = new CoreFFI($modelPath, $weightsPath, $soPath);
 			$this->predictRuntime = null;
 			return;
@@ -207,10 +208,11 @@ abstract class Model
 		}
 		
 		// run_train.php
+		$platform = Utility::getPlatform();
 		if ($this->provider == "EIGEN")
-			$bin = realpath(__DIR__ . '/../Runtime/CPP/php2xai_runtime_eigen');
+			$bin = realpath(__DIR__ . '/../Runtime/CPP/Bin/'.$platform.'/php2xai_runtime_eigen');
 		else
-			$bin = realpath(__DIR__ . '/../Runtime/CPP/php2xai_runtime');
+			$bin = realpath(__DIR__ . '/../Runtime/CPP/Bin/'.$platform.'/php2xai_runtime');
 		
 		$jsonPath = realpath($this->configSavePath);
 		

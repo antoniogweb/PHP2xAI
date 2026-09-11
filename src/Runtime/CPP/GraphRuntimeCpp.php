@@ -5,6 +5,7 @@ namespace PHP2xAI\Runtime\CPP;
 use FFI;
 use RuntimeException;
 use PHP2xAI\Runtime\PHP\Core\GraphRuntime;
+use PHP2xAI\Utility\Utility;
 
 class GraphRuntimeCpp extends GraphRuntime
 {
@@ -18,12 +19,13 @@ class GraphRuntimeCpp extends GraphRuntime
 	public function __construct(array $graphDef)
 	{
 		$graphJson = json_encode($graphDef);
-		
+
 		if (!extension_loaded('ffi'))
 			throw new RuntimeException("FFI extension is not enabled");
 
-		$soPath = realpath(__DIR__ . '/php2xai_runtime.so');
-		
+		$platform = Utility::getPlatform();
+		$soPath = realpath(__DIR__ . '/Bin/'.$platform.'/php2xai_runtime.so');
+
 		if (!is_file($soPath))
 			throw new RuntimeException("FFI library not found: ".$soPath);
 
