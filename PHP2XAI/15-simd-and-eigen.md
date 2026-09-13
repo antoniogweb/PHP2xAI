@@ -44,7 +44,3 @@ Each operation is migrated one kernel at a time:
 6. Benchmark realistic batch and sequence shapes before making the Eigen path the preferred dispatch target.
 
 Priority is given to matrix multiplication, batched matrix multiplication, reductions and normalization, and common elementwise activation paths. Operations with arbitrary strides or complex broadcasting continue to need dedicated generic kernels even after common contiguous paths gain Eigen acceleration.
-
-## SIMD is an optimization, not a semantic change
-
-SIMD and Eigen may alter evaluation order and therefore produce small floating-point differences from scalar code. Tests should use an appropriate tolerance, while requiring identical output shapes, compatible gradients, and the same graph behavior. The PHP runtime remains useful as a readable reference implementation during this migration.
