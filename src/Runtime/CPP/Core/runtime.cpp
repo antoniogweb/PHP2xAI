@@ -349,6 +349,8 @@ namespace PHP2xAI::Runtime::CPP
 				opMean(inputs[0], outId, op.kernel, op.axes);
 			else if (name == "embeddings")
 				opEmbeddings(inputs[0], inputs[1], outId);
+			else if (name == "embeddings_mean_pooling")
+				opEmbeddingsMeanPooling(inputs[0], inputs[1], outId, op.padId);
 			else if (name == "mean_pooling")
 				opMeanPooling(inputs[0], inputs[1], outId);
 			else if (name == "padding_mask")
@@ -421,6 +423,8 @@ namespace PHP2xAI::Runtime::CPP
 				backwardMean(inputs[0], outId, op.kernel, op.axes);
 			else if (name == "embeddings")
 				backwardEmbeddings(inputs[0], inputs[1], outId);
+			else if (name == "embeddings_mean_pooling")
+				backwardEmbeddingsMeanPooling(inputs[0], inputs[1], outId, op.padId);
 			else if (name == "mean_pooling")
 				backwardMeanPooling(inputs[0], inputs[1], outId);
 			else if (name == "padding_mask")
@@ -678,6 +682,57 @@ namespace PHP2xAI::Runtime::CPP
 			const std::size_t outOffset = static_cast<std::size_t>(i * dim);
 
 			std::copy_n(embeddings.data.begin() + embeddingOffset, dim, out.data.begin() + outOffset);
+		}
+	}
+
+	void GraphRuntime::opEmbeddingsMeanPooling(int xIdsId, int embeddingsId, int outId, int padId)
+	{
+		auto &xIds = tensors[xIdsId];
+		auto &embeddings = tensors[embeddingsId];
+		auto &out = tensors[outId];
+
+		if (xIds.shape.size() != 2 || embeddings.shape.size() != 2 || out.shape.size() != 2)
+			throw std::runtime_error("embeddings_mean_pooling: dimension mismatch");
+
+		const int batch = xIds.shape[0];
+		const int length = xIds.shape[1];
+		const int vocabulary = embeddings.shape[0];
+		const int dim = embeddings.shape[1];
+
+		if (out.shape != std::vector<int>{batch, dim})
+			throw std::runtime_error("embeddings_mean_pooling: dimension mismatch");
+
+		out.data.assign(static_cast<std::size_t>(batch * dim), 0.0f);
+
+		for (int b = 0; b < batch; ++b)
+		{
+			int validTokens = 0;
+			const int outOffset = b * dim;
+
+			for (int l = 0; l < length; ++l)
+			{
+				const Scalar tokenIdValue = xIds.data[static_cast<std::size_t>(b * length + l)];
+				const int tokenId = static_cast<int>(tokenIdValue);
+
+				if (tokenIdValue != static_cast<Scalar>(tokenId) || tokenId < 0 || tokenId >= vocabulary)
+					throw std::runtime_error("embeddings_mean_pooling: token ID out of range or not an integer");
+				if (tokenId == padId)
+					continue;
+
+				++validTokens;
+				const int embeddingOffset = tokenId * dim;
+
+				for (int d = 0; d < dim; ++d)
+					out.data[static_cast<std::size_t>(outOffset + d)]
+						+= embeddings.data[static_cast<std::size_t>(embeddingOffset + d)];
+			}
+
+			if (validTokens == 0)
+				continue;
+
+			const Scalar scale = 1.0f / static_cast<Scalar>(validTokens);
+			for (int d = 0; d < dim; ++d)
+				out.data[static_cast<std::size_t>(outOffset + d)] *= scale;
 		}
 	}
 
@@ -2899,6 +2954,61 @@ namespace PHP2xAI::Runtime::CPP
 
 			for (int d = 0; d < dim; ++d)
 				embeddings.grad[static_cast<std::size_t>(embeddingOffset + d)] += out.grad[static_cast<std::size_t>(outOffset + d)];
+		}
+	}
+
+	void GraphRuntime::backwardEmbeddingsMeanPooling(int xIdsId, int embeddingsId, int outId, int padId)
+	{
+		auto &xIds = tensors[xIdsId];
+		auto &embeddings = tensors[embeddingsId];
+		auto &out = tensors[outId];
+
+		if (!embeddings.requiresGrad)
+			return;
+
+		if (xIds.shape.size() != 2 || embeddings.shape.size() != 2 || out.shape.size() != 2)
+			throw std::runtime_error("embeddings_mean_pooling backward: dimension mismatch");
+
+		const int batch = xIds.shape[0];
+		const int length = xIds.shape[1];
+		const int vocabulary = embeddings.shape[0];
+		const int dim = embeddings.shape[1];
+
+		if (out.shape != std::vector<int>{batch, dim})
+			throw std::runtime_error("embeddings_mean_pooling backward: dimension mismatch");
+
+		for (int b = 0; b < batch; ++b)
+		{
+			int validTokens = 0;
+
+			for (int l = 0; l < length; ++l)
+			{
+				const Scalar tokenIdValue = xIds.data[static_cast<std::size_t>(b * length + l)];
+				const int tokenId = static_cast<int>(tokenIdValue);
+
+				if (tokenIdValue != static_cast<Scalar>(tokenId) || tokenId < 0 || tokenId >= vocabulary)
+					throw std::runtime_error("embeddings_mean_pooling backward: token ID out of range or not an integer");
+				if (tokenId != padId)
+					++validTokens;
+			}
+
+			if (validTokens == 0)
+				continue;
+
+			const Scalar scale = 1.0f / static_cast<Scalar>(validTokens);
+			const int outOffset = b * dim;
+
+			for (int l = 0; l < length; ++l)
+			{
+				const int tokenId = static_cast<int>(xIds.data[static_cast<std::size_t>(b * length + l)]);
+				if (tokenId == padId)
+					continue;
+
+				const int embeddingOffset = tokenId * dim;
+				for (int d = 0; d < dim; ++d)
+					embeddings.grad[static_cast<std::size_t>(embeddingOffset + d)]
+						+= out.grad[static_cast<std::size_t>(outOffset + d)] * scale;
+			}
 		}
 	}
 

@@ -362,6 +362,9 @@ class GraphRuntime
 				case 'embeddings':
 					$this->opEmbeddings($inputs[0], $inputs[1], $outId, $attributes);
 					break;
+				case 'embeddings_mean_pooling':
+					$this->opEmbeddingsMeanPooling($inputs[0], $inputs[1], $outId, $attributes);
+					break;
 				case 'mean_pooling':
 					$this->opMeanPooling($inputs[0], $inputs[1], $outId, $attributes);
 					break;
@@ -472,6 +475,55 @@ class GraphRuntime
 				$out->data[$outOffset + $d] = $embeddings->data[$embeddingOffset + $d];
 		}
 	}
+
+	private function opEmbeddingsMeanPooling(int $xIdsId, int $embeddingsId, int $outId, array $attributes): void
+	{
+		$xIds = $this->tensors[$xIdsId];
+		$embeddings = $this->tensors[$embeddingsId];
+		$out = $this->tensors[$outId];
+
+		if (count($xIds->shape) !== 2 || count($embeddings->shape) !== 2 || count($out->shape) !== 2)
+			throw new RuntimeException('embeddings_mean_pooling: dimension mismatch');
+
+		[$batch, $length] = $xIds->shape;
+		[$vocabulary, $dim] = $embeddings->shape;
+
+		if ($out->shape !== [$batch, $dim])
+			throw new RuntimeException('embeddings_mean_pooling: dimension mismatch');
+
+		$padId = (int)($attributes['padId'] ?? 0);
+		$out->data = array_fill(0, $batch * $dim, 0.0);
+
+		for ($b = 0; $b < $batch; $b++)
+		{
+			$validTokens = 0;
+			$outOffset = $b * $dim;
+
+			for ($l = 0; $l < $length; $l++)
+			{
+				$tokenIdValue = $xIds->data[$b * $length + $l];
+				$tokenId = (int)$tokenIdValue;
+
+				if ($tokenIdValue != $tokenId || $tokenId < 0 || $tokenId >= $vocabulary)
+					throw new RuntimeException('embeddings_mean_pooling: token ID out of range or not an integer');
+				if ($tokenId === $padId)
+					continue;
+
+				$validTokens++;
+				$embeddingOffset = $tokenId * $dim;
+				for ($d = 0; $d < $dim; $d++)
+					$out->data[$outOffset + $d] += $embeddings->data[$embeddingOffset + $d];
+			}
+
+			if ($validTokens === 0)
+				continue;
+
+			$scale = 1.0 / $validTokens;
+			for ($d = 0; $d < $dim; $d++)
+				$out->data[$outOffset + $d] *= $scale;
+		}
+	}
+
 
 	private function opMeanPooling(int $inputId, int $maskId, int $outId, array $attributes): void
 	{
@@ -1852,6 +1904,9 @@ class GraphRuntime
 				case 'embeddings':
 					$this->backwardEmbeddings($inputs[0], $inputs[1], $outId, $attributes);
 					break;
+				case 'embeddings_mean_pooling':
+					$this->backwardEmbeddingsMeanPooling($inputs[0], $inputs[1], $outId, $attributes);
+					break;
 				case 'mean_pooling':
 					$this->backwardMeanPooling($inputs[0], $inputs[1], $outId, $attributes);
 					break;
@@ -1946,6 +2001,61 @@ class GraphRuntime
 				$embeddings->grad[$embeddingOffset + $d] += $out->grad[$outOffset + $d];
 		}
 	}
+
+	private function backwardEmbeddingsMeanPooling(int $xIdsId, int $embeddingsId, int $outId, array $attributes): void
+	{
+		$xIds = $this->tensors[$xIdsId];
+		$embeddings = $this->tensors[$embeddingsId];
+		$out = $this->tensors[$outId];
+
+		if (!$embeddings->requiresGrad)
+			return;
+
+		if (count($xIds->shape) !== 2 || count($embeddings->shape) !== 2 || count($out->shape) !== 2)
+			throw new RuntimeException('embeddings_mean_pooling backward: dimension mismatch');
+
+		[$batch, $length] = $xIds->shape;
+		[$vocabulary, $dim] = $embeddings->shape;
+
+		if ($out->shape !== [$batch, $dim])
+			throw new RuntimeException('embeddings_mean_pooling backward: dimension mismatch');
+
+		$padId = (int)($attributes['padId'] ?? 0);
+
+		for ($b = 0; $b < $batch; $b++)
+		{
+			$validTokens = 0;
+
+			for ($l = 0; $l < $length; $l++)
+			{
+				$tokenIdValue = $xIds->data[$b * $length + $l];
+				$tokenId = (int)$tokenIdValue;
+
+				if ($tokenIdValue != $tokenId || $tokenId < 0 || $tokenId >= $vocabulary)
+					throw new RuntimeException('embeddings_mean_pooling backward: token ID out of range or not an integer');
+				if ($tokenId !== $padId)
+					$validTokens++;
+			}
+
+			if ($validTokens === 0)
+				continue;
+
+			$scale = 1.0 / $validTokens;
+			$outOffset = $b * $dim;
+
+			for ($l = 0; $l < $length; $l++)
+			{
+				$tokenId = (int)$xIds->data[$b * $length + $l];
+				if ($tokenId === $padId)
+					continue;
+
+				$embeddingOffset = $tokenId * $dim;
+				for ($d = 0; $d < $dim; $d++)
+					$embeddings->grad[$embeddingOffset + $d] += $out->grad[$outOffset + $d] * $scale;
+			}
+		}
+	}
+
 
 	private function backwardMeanPooling(int $inputId, int $maskId, int $outId, array $attributes): void
 	{

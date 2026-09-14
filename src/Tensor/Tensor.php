@@ -434,6 +434,33 @@ class Tensor
 	}
     
 	/**
+	 * Looks up token embeddings and mean-pools them in one operation.
+	 *
+	 * $this is x_ids [B, L]; $embeddings is the embedding table [V, D].
+	 * Token IDs equal to $padId are excluded from the mean. The result has
+	 * shape [B, D], without materializing an intermediate [B, L, D] tensor.
+	 */
+	public function embeddingsMeanPooling(Tensor $embeddings, int $padId = 0) : Tensor
+	{
+		if ($this->getRank() !== 2)
+			throw new Exception("x_ids must have rank 2 [B, L]");
+
+		if ($embeddings->getRank() !== 2)
+			throw new Exception("Embeddings must have rank 2 [V, D]");
+
+		$context = $this->initContextFrom($embeddings);
+		$inputId = $this->registerInContext($context, $this);
+		$embeddingsId = $this->registerInContext($context, $embeddings);
+
+		$result = new Tensor([$this->shape[0], $embeddings->shape[1]], [], "embeddingsMeanPooling");
+		$context->registerOp("embeddings_mean_pooling", [$inputId, $embeddingsId], $result, [
+			"padId" => $padId,
+		]);
+
+		return $result;
+	}
+
+	/**
 	 * Builds a binary padding mask for a training batch.
 	 *
 	 * $this is x_ids [B, L]. The result has shape [B, L], with 1 for each
