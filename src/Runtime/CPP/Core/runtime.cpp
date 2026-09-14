@@ -1580,6 +1580,7 @@ namespace PHP2xAI::Runtime::CPP
 		using ConstMatMap = Eigen::Map<const RowMajorMat>;
 		using MatMap = Eigen::Map<RowMajorMat>;
 
+		#pragma omp parallel for schedule(static)
 		for (int b = 0; b < batch; ++b)
 		{
 			const ConstMatMap aMap(A.data.data() + static_cast<std::size_t>(b * time * dim), time, dim);
@@ -1614,6 +1615,7 @@ namespace PHP2xAI::Runtime::CPP
 		using MatMap = Eigen::Map<RowMajorMat>;
 
 		const int matrixBatch = batch * heads;
+		#pragma omp parallel for schedule(static)
 		for (int bh = 0; bh < matrixBatch; ++bh)
 		{
 			const ConstMatMap aMap(A.data.data() + static_cast<std::size_t>(bh * time * dim), time, dim);
@@ -3566,6 +3568,7 @@ namespace PHP2xAI::Runtime::CPP
 		using ConstMatMap = Eigen::Map<const RowMajorMat>;
 		using MatMap = Eigen::Map<RowMajorMat>;
 
+		#pragma omp parallel for schedule(static)
 		for (int b = 0; b < batch; ++b)
 		{
 			const ConstMatMap aMap(A.data.data() + static_cast<std::size_t>(b * time * dim), time, dim);
@@ -3602,6 +3605,7 @@ namespace PHP2xAI::Runtime::CPP
 		using MatMap = Eigen::Map<RowMajorMat>;
 
 		const int matrixBatch = batch * heads;
+		#pragma omp parallel for schedule(static)
 		for (int bh = 0; bh < matrixBatch; ++bh)
 		{
 			const ConstMatMap aMap(A.data.data() + static_cast<std::size_t>(bh * time * dim), time, dim);

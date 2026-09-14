@@ -2,8 +2,9 @@
 # Compila i binari C++ nella cartella Bin/<platform> corretta
 
 CXX := g++
-CXXFLAGS := -std=c++17 -O3 -DNDEBUG -march=native -flto -pipe
-SHFLAGS := -std=c++17 -O3 -fPIC -shared
+OMPFLAGS := -fopenmp
+CXXFLAGS := -std=c++17 -O3 -DNDEBUG -march=native -flto -pipe $(OMPFLAGS)
+SHFLAGS := -std=c++17 -O3 -fPIC -shared $(OMPFLAGS)
 INCLUDES := -I./ -I./ThirdParty/nlohmann -I./ThirdParty/eigen
 
 ARCH ?= $(shell uname -m)
