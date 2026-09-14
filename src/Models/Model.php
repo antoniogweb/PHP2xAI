@@ -40,7 +40,149 @@ abstract class Model
 	
 	abstract public function output(Tensor $x) : Tensor;
 	abstract public function loss(Tensor $x, Tensor $y) : Tensor;
+	
+	public function __construct(?Optimizer $optimizer = null)
+	{
+		if (isset($optimizer))
+			$this->optimizer = $optimizer;
+		
+		// $this->optimizer->addTensors(array_values($this->p));
+	}
+	
+	public function __set(string $name, Tensor $value)
+    {
+		if ($value instanceof Tensor && $value->getName() === null)
+			$value->setName($name);
+		
+        $this->p[$name] = $value;
+    }
+    
+    public function __get(string $name) : Tensor
+    {
+        return $this->p[$name] ?? null;
+    }
+    
+	public function createParam(Tensor $tensor) : Tensor
+	{
+		do
+		{
+			$name = "param_".bin2hex(random_bytes(8));
+		}
+		while (array_key_exists($name, $this->p));
 
+		$tensor->setName($name);
+		$this->__set($name, $tensor);
+
+
+		return $tensor;
+	}
+
+	public function setRuntime($runtime = "CPP")
+	{
+		$this->runtime = $runtime;
+	}
+	
+	public function setProvider($provider = "")
+	{
+		$this->provider = $provider;
+	}
+	
+	public function setModelSavePath($modelSavePath = "./model.json")
+	{
+		$this->modelSavePath = $modelSavePath;
+	}
+    
+    public function getParameters()
+    {
+		return $this->p;
+    }
+    
+	// change the parameters
+	public function step(GraphRuntime $graph)
+	{
+		return $this->optimizer->step($graph);
+	}
+	
+	public function exportGrapf(TrainValidateDataset $dataset = null)
+	{
+		return $this->generateGraph($dataset->train);
+	}
+
+	/**
+	 * Builds one post-LayerNorm BERT encoder block for an input [B, L, D].
+	 */
+	public function bertEncoder(
+		Tensor $x,
+		int $numHeads,
+		int $dff,
+		?Tensor $mask = null,
+		float $dropout = 0.1
+	) : Tensor
+	{
+		if ($x->getRank() !== 3)
+			throw new RuntimeException("bertEncoder expects x with shape [B, L, D]");
+
+		[$batchSize, $sequenceLength, $d] = $x->getShape();
+
+		if ($numHeads <= 0 || $d % $numHeads !== 0)
+			throw new RuntimeException("Embedding dimension D must be divisible by numHeads");
+
+		if ($dff <= 0)
+			throw new RuntimeException("dff must be positive");
+
+		if ($dropout < 0.0 || $dropout > 1.0)
+			throw new RuntimeException("dropout must be a probability between 0 and 1");
+
+		$headDim = intdiv($d, $numHeads);
+
+		if ($mask !== null && ($mask->getRank() !== 2
+			|| $mask->shape[0] !== $batchSize
+			|| $mask->shape[1] !== $sequenceLength))
+			throw new RuntimeException("mask must have shape [B, L]");
+
+		if ($mask === null)
+		{
+			$mask = Tensor::createFromData(
+				array_fill(0, $batchSize, array_fill(0, $sequenceLength, 1.0))
+			);
+			$mask->setTrainable(false);
+		}
+
+		$wq = $this->createParam(Tensor::init([$d, $d], 0.05));
+		$wk = $this->createParam(Tensor::init([$d, $d], 0.05));
+		$wv = $this->createParam(Tensor::init([$d, $d], 0.05));
+		$bq = $this->createParam(Tensor::zeros([$d]));
+		$bk = $this->createParam(Tensor::zeros([$d]));
+		$bv = $this->createParam(Tensor::zeros([$d]));
+		$wo = $this->createParam(Tensor::init([$d, $d], 0.05));
+		$bo = $this->createParam(Tensor::zeros([$d]));
+		$w1 = $this->createParam(Tensor::init([$d, $dff], 0.05));
+		$b1 = $this->createParam(Tensor::zeros([$dff]));
+		$w2 = $this->createParam(Tensor::init([$dff, $d], 0.05));
+		$b2 = $this->createParam(Tensor::zeros([$d]));
+		$gamma1 = $this->createParam(Tensor::createFromData(array_fill(0, $d, 1.0)));
+		$beta1 = $this->createParam(Tensor::zeros([$d]));
+		$gamma2 = $this->createParam(Tensor::createFromData(array_fill(0, $d, 1.0)));
+		$beta2 = $this->createParam(Tensor::zeros([$d]));
+
+		$q = $x->matMul($wq)->add($bq);
+		$k = $x->matMul($wk)->add($bk);
+		$v = $x->matMul($wv)->add($bv);
+
+		$attention = self::attention($q, $k, $v, $mask, $numHeads, "PADDING");
+		$attentionOutput = $attention->matMul($wo)->add($bo);
+		if ($dropout > 0.0)
+			$attentionOutput = $attentionOutput->dropout($dropout * 100.0);
+
+		$y = $x->add($attentionOutput)->layerNorm($gamma1, $beta1);
+
+		$feedForward = $y->matMul($w1)->add($b1)->gelu()->matMul($w2)->add($b2);
+		if ($dropout > 0.0)
+			$feedForward = $feedForward->dropout($dropout * 100.0);
+
+		return $y->add($feedForward)->layerNorm($gamma2, $beta2);
+	}
+	
 	/**
 	 * Multi-head attention mechanism.
 	 *
@@ -135,63 +277,6 @@ abstract class Model
 		$output = $merged->reshape([$Q->shape[0], $Q->shape[1], $D]);
 
 		return $output;
-	}
-	
-	public function __construct(?Optimizer $optimizer = null)
-	{
-		if (isset($optimizer))
-			$this->optimizer = $optimizer;
-		
-		// $this->optimizer->addTensors(array_values($this->p));
-	}
-	
-	public function __set(string $name, Tensor $value)
-    {
-		if ($value instanceof Tensor && $value->getName() === null)
-			$value->setName($name);
-		
-        $this->p[$name] = $value;
-    }
-    
-    public function __get(string $name) : Tensor
-    {
-        return $this->p[$name] ?? null;
-    }
-    
-    public function setRuntime($runtime = "CPP")
-	{
-		$this->runtime = $runtime;
-	}
-	
-	public function setProvider($provider = "")
-	{
-		$this->provider = $provider;
-	}
-	
-	public function setModelSavePath($modelSavePath = "./model.json")
-	{
-		$this->modelSavePath = $modelSavePath;
-	}
-    
-    public function getParameters()
-    {
-		return $this->p;
-    }
-    
- //    public function addError(float $error)
-	// {
-	// 	$this->optimizer->addError($error);
-	// }
-    
-	// change the parameters
-	public function step(GraphRuntime $graph)
-	{
-		return $this->optimizer->step($graph);
-	}
-	
-	public function exportGrapf(TrainValidateDataset $dataset = null)
-	{
-		return $this->generateGraph($dataset->train);
 	}
 	
 	public function getTrainingConfig(TrainValidateDataset $dataset = null, int $epochsNumber = 10, string $savePath = null, int $logOnEachXBatch = 10) : string
@@ -512,7 +597,6 @@ abstract class Model
 		
 		// --- create ops
 		$x->setContext($context);
-		
 		$output = $this->output($x);
 		
 		$graph = $context->export();
@@ -556,7 +640,6 @@ abstract class Model
 		// --- create ops
 		$x->setContext($context);
 		$y->setContext($context);
-		
 		$loss = $this->loss($x, $y);
 		
 		$graph = $context->export();

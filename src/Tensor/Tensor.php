@@ -390,10 +390,11 @@ class Tensor
 		$leftId = $this->registerInContext($context, $this);
 		$rightId = $this->registerInContext($context, $b);
 		
-		if ($b->getRank() !== 1)
-			throw new Exception("BIAS must have rank 1");
-		
-		if (count($this->shape) === 1)
+		if ($this->shape === $b->shape)
+			$kernel = "ADD_1D_LAST";
+		else if ($b->getRank() !== 1)
+			throw new Exception("add requires equal shapes or a rank-1 bias");
+		else if (count($this->shape) === 1)
 			$kernel = "ADD_1D_LAST";
 		else if (count($this->shape) === 2)
 			$kernel = "ADD_2D_LAST";
