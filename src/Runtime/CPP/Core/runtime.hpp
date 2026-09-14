@@ -233,10 +233,12 @@ namespace PHP2xAI::Runtime::CPP
 		void SOFTMAX_1D_LAST(Tensor &X, Tensor &Y);
 		void SOFTMAX_2D_LAST(Tensor &X, Tensor &Y);
 		void SOFTMAX_3D_LAST(Tensor &X, Tensor &Y);
+		void SOFTMAX_4D_LAST(Tensor &X, Tensor &Y);
 		void SOFTMAX_GENERIC_AXIS(Tensor &X, Tensor &Y, int axis);
 		void BACKWORD_SOFTMAX_1D_LAST(Tensor &X, Tensor &Y);
 		void BACKWORD_SOFTMAX_2D_LAST(Tensor &X, Tensor &Y);
 		void BACKWORD_SOFTMAX_3D_LAST(Tensor &X, Tensor &Y);
+		void BACKWORD_SOFTMAX_4D_LAST(Tensor &X, Tensor &Y);
 		void BACKWORD_SOFTMAX_GENERIC_AXIS(Tensor &X, Tensor &Y, int axis);
 
 		void CE_1D_LAST(Tensor &pred, Tensor &target, Tensor &out);

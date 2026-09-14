@@ -1037,6 +1037,9 @@ class GraphRuntime
 			case "SOFTMAX_3D_LAST":
 				$this->SOFTMAX_3D_LAST($X, $Y);
 				break;
+			case "SOFTMAX_4D_LAST":
+				$this->SOFTMAX_4D_LAST($X, $Y);
+				break;
 			case "SOFTMAX_GENERIC_AXIS":
 				$this->SOFTMAX_GENERIC_AXIS($X, $Y, $axis);
 				break;
@@ -2565,6 +2568,9 @@ class GraphRuntime
 				break;
 			case "SOFTMAX_3D_LAST":
 				$this->BACKWORD_SOFTMAX_3D_LAST($X, $Y);
+				break;
+			case "SOFTMAX_4D_LAST":
+				$this->BACKWORD_SOFTMAX_4D_LAST($X, $Y);
 				break;
 			case "SOFTMAX_GENERIC_AXIS":
 				$this->BACKWORD_SOFTMAX_GENERIC_AXIS($X, $Y, $axis);
@@ -4599,6 +4605,46 @@ class GraphRuntime
 		}
 	}
 	
+	private function SOFTMAX_4D_LAST(TensorRuntime $X, TensorRuntime $Y)
+	{
+		if (count($X->shape) !== 4 || $Y->shape !== $X->shape)
+			throw new RuntimeException("softmax 4D last: dimension mismatch");
+
+		[$batch, $heads, $time, $dim] = $X->shape;
+		$rows = $batch * $heads * $time;
+		$Y->data = array_fill(0, $rows * $dim, 0.0);
+
+		for ($row = 0; $row < $rows; $row++)
+		{
+			$rowStart = $row * $dim;
+			$max = $X->data[$rowStart];
+
+			for ($i = 1; $i < $dim; $i++)
+			{
+				$value = $X->data[$rowStart + $i];
+				if ($value > $max)
+					$max = $value;
+			}
+
+			if ($max === -INF)
+				continue;
+
+			$sum = 0.0;
+			for ($i = 0; $i < $dim; $i++)
+			{
+				$index = $rowStart + $i;
+				$value = \exp($X->data[$index] - $max);
+				$Y->data[$index] = $value;
+				$sum += $value;
+			}
+
+			$invSum = $sum === 0.0 ? 0.0 : 1.0 / $sum;
+			for ($i = 0; $i < $dim; $i++)
+				$Y->data[$rowStart + $i] *= $invSum;
+		}
+	}
+
+
 	private function SOFTMAX_GENERIC_AXIS(TensorRuntime $X, TensorRuntime $Y, int $axis)
 	{
 		$Y->shape = $X->shape;
@@ -4711,6 +4757,34 @@ class GraphRuntime
 		}
 	}
 	
+	private function BACKWORD_SOFTMAX_4D_LAST(TensorRuntime $X, TensorRuntime $Y)
+	{
+		if (count($Y->shape) !== 4 || $X->shape !== $Y->shape)
+			throw new RuntimeException("softmax 4D last backward: dimension mismatch");
+
+		[$batch, $heads, $time, $dim] = $Y->shape;
+		$rows = $batch * $heads * $time;
+
+		for ($row = 0; $row < $rows; $row++)
+		{
+			$rowStart = $row * $dim;
+			$dot = 0.0;
+
+			for ($i = 0; $i < $dim; $i++)
+			{
+				$index = $rowStart + $i;
+				$dot += $Y->grad[$index] * $Y->data[$index];
+			}
+
+			for ($i = 0; $i < $dim; $i++)
+			{
+				$index = $rowStart + $i;
+				$X->grad[$index] += $Y->data[$index] * ($Y->grad[$index] - $dot);
+			}
+		}
+	}
+
+
 	private function BACKWORD_SOFTMAX_GENERIC_AXIS(TensorRuntime $X, TensorRuntime $Y, int $axis)
 	{
 		$rank = count($Y->shape);

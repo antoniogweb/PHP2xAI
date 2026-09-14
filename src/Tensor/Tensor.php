@@ -672,6 +672,8 @@ class Tensor
 			$kernel = "SOFTMAX_2D_LAST";
 		else if (count($this->shape) === 3 && $axis === -1)
 			$kernel = "SOFTMAX_3D_LAST";
+		else if (count($this->shape) === 4 && $axis === -1)
+			$kernel = "SOFTMAX_4D_LAST";
 		else
 			$kernel = "SOFTMAX_GENERIC_AXIS";
 		

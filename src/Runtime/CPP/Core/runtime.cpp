@@ -1944,6 +1944,8 @@ namespace PHP2xAI::Runtime::CPP
 			return SOFTMAX_2D_LAST(X, Y);
 		if (kernelName == "SOFTMAX_3D_LAST")
 			return SOFTMAX_3D_LAST(X, Y);
+		if (kernelName == "SOFTMAX_4D_LAST")
+			return SOFTMAX_4D_LAST(X, Y);
 		if (kernelName == "SOFTMAX_GENERIC_AXIS")
 			return SOFTMAX_GENERIC_AXIS(X, Y, axis);
 
@@ -2050,6 +2052,49 @@ namespace PHP2xAI::Runtime::CPP
 			}
 		}
 	}
+
+	void GraphRuntime::SOFTMAX_4D_LAST(Tensor &X, Tensor &Y)
+	{
+		if (X.shape.size() != 4 || Y.shape != X.shape)
+			throw std::runtime_error("softmax 4D last: dimension mismatch");
+
+		const int batch = X.shape[0];
+		const int heads = X.shape[1];
+		const int time = X.shape[2];
+		const int dim = X.shape[3];
+		const int rows = batch * heads * time;
+		Y.data.assign(static_cast<std::size_t>(rows * dim), 0.0f);
+
+		for (int row = 0; row < rows; ++row)
+		{
+			const int rowStart = row * dim;
+			Scalar maxVal = X.data[static_cast<std::size_t>(rowStart)];
+
+			for (int i = 1; i < dim; ++i)
+			{
+				const Scalar value = X.data[static_cast<std::size_t>(rowStart + i)];
+				if (value > maxVal)
+					maxVal = value;
+			}
+
+			if (maxVal == -std::numeric_limits<Scalar>::infinity())
+				continue;
+
+			Scalar sum = 0.0f;
+			for (int i = 0; i < dim; ++i)
+			{
+				const std::size_t index = static_cast<std::size_t>(rowStart + i);
+				const Scalar value = std::exp(X.data[index] - maxVal);
+				Y.data[index] = value;
+				sum += value;
+			}
+
+			const Scalar invSum = sum == 0.0f ? 0.0f : 1.0f / sum;
+			for (int i = 0; i < dim; ++i)
+				Y.data[static_cast<std::size_t>(rowStart + i)] *= invSum;
+		}
+	}
+
 
 	void GraphRuntime::SOFTMAX_GENERIC_AXIS(Tensor &X, Tensor &Y, int axis)
 	{
@@ -4206,6 +4251,8 @@ namespace PHP2xAI::Runtime::CPP
 			return BACKWORD_SOFTMAX_2D_LAST(X, Y);
 		if (kernelName == "SOFTMAX_3D_LAST")
 			return BACKWORD_SOFTMAX_3D_LAST(X, Y);
+		if (kernelName == "SOFTMAX_4D_LAST")
+			return BACKWORD_SOFTMAX_4D_LAST(X, Y);
 		if (kernelName == "SOFTMAX_GENERIC_AXIS")
 			return BACKWORD_SOFTMAX_GENERIC_AXIS(X, Y, axis);
 
@@ -4280,6 +4327,37 @@ namespace PHP2xAI::Runtime::CPP
 			}
 		}
 	}
+
+	void GraphRuntime::BACKWORD_SOFTMAX_4D_LAST(Tensor &X, Tensor &Y)
+	{
+		if (Y.shape.size() != 4 || X.shape != Y.shape)
+			throw std::runtime_error("softmax 4D last backward: dimension mismatch");
+
+		const int batch = Y.shape[0];
+		const int heads = Y.shape[1];
+		const int time = Y.shape[2];
+		const int dim = Y.shape[3];
+		const int rows = batch * heads * time;
+
+		for (int row = 0; row < rows; ++row)
+		{
+			const int rowStart = row * dim;
+			Scalar dot = 0.0f;
+
+			for (int i = 0; i < dim; ++i)
+			{
+				const std::size_t index = static_cast<std::size_t>(rowStart + i);
+				dot += Y.grad[index] * Y.data[index];
+			}
+
+			for (int i = 0; i < dim; ++i)
+			{
+				const std::size_t index = static_cast<std::size_t>(rowStart + i);
+				X.grad[index] += Y.data[index] * (Y.grad[index] - dot);
+			}
+		}
+	}
+
 
 	void GraphRuntime::BACKWORD_SOFTMAX_GENERIC_AXIS(Tensor &X, Tensor &Y, int axis)
 	{
