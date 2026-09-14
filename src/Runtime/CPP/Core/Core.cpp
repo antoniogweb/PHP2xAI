@@ -10,9 +10,12 @@
 
 namespace PHP2xAI::Runtime::CPP
 {
-	Core::Core(const std::string &configPath, const std::string &weightsPath)
-		: graphPath_(configPath), weightsPath_(weightsPath)
+	Core::Core(const std::string &provider, const std::string &configPath, const std::string &weightsPath)
+		: provider_(provider), graphPath_(configPath), weightsPath_(weightsPath)
 	{
+		if (provider_ != "EIGEN" && provider_ != "NAIVE")
+			throw std::runtime_error("Unsupported provider: " + provider_);
+
 		auto configDef = loadJson(graphPath_);
 		loadGraphRuntime(configDef);
 
@@ -47,7 +50,10 @@ namespace PHP2xAI::Runtime::CPP
 	void Core::loadGraphRuntime(const json &configDef)
 	{
 		const auto &graphDef = configDef.at("graph");
-		graphRuntime_.emplace(graphDef, weightsPath_);
+		if (provider_ == "EIGEN")
+			graphRuntime_ = std::make_unique<GraphRuntimeEigen>(graphDef, weightsPath_);
+		else
+			graphRuntime_ = std::make_unique<GraphRuntime>(graphDef, weightsPath_);
 	}
 	
 	void Core::loadOptimizer(const json &configDef)
@@ -136,12 +142,12 @@ namespace PHP2xAI::Runtime::CPP
 		if (!graphRuntime_)
 			throw std::runtime_error("Core not initialized");
 		
-		auto &graph = *graphRuntime_;
+		auto *graph = graphRuntime_.get();
 		
-		graph.setInput(x);
-		graph.forward();
+		graph->setInput(x);
+		graph->forward();
 		
-		return graph.getOutput();
+		return graph->getOutput();
 	}
 	
 	void Core::train()
@@ -150,8 +156,8 @@ namespace PHP2xAI::Runtime::CPP
 			throw std::runtime_error("Core not initialized");
 
 		auto &dataset = *trainValDataset_;
-		auto &graph = *graphRuntime_;
-		graph.setTraining(true);
+		auto *graph = graphRuntime_.get();
+		graph->setTraining(true);
 
 		std::vector<Scalar> x;
 		std::vector<Scalar> y;
@@ -168,33 +174,33 @@ namespace PHP2xAI::Runtime::CPP
 			
 			while (dataset.train.nextBatch())
 			{
-				graph.resetGrad();
-				graph.setLossGrad(1.0f);
+				graph->resetGrad();
+				graph->setLossGrad(1.0f);
 				
 				dataset.train.pack(x, y);
 				
-				graph.setInput(x);
-				graph.setTarget(y);
-				graph.forward();
+				graph->setInput(x);
+				graph->setTarget(y);
+				graph->forward();
 				
-				const auto error = graph.getError();
+				const auto error = graph->getError();
 				
-				graph.backward();
-				optimizer_->step(graph);
+				graph->backward();
+				optimizer_->step(*graph);
 				
 // 				while (dataset.train.nextSampleInBatch(x, y))
 // 				{
-// 					graph.setInput(x);
-// 					graph.setTarget(y);
-// 					graph.forward();
+// 					graph->setInput(x);
+// 					graph->setTarget(y);
+// 					graph->forward();
 // 					
-// 					optimizer_->addError(graph.getError());
+// 					optimizer_->addError(graph->getError());
 // 					
-// 					graph.backward();
+// 					graph->backward();
 // 				}
 // 				
 // 				const auto error = optimizer_->getError();
-// 				optimizer_->step(graph);
+// 				optimizer_->step(*graph);
 // 				optimizer_->zeroGrads(graph);
 				
 				++indice;
@@ -215,7 +221,7 @@ namespace PHP2xAI::Runtime::CPP
 			if (!outputPath_.empty() && valLoss < betterValidationLoss)
 			{
 				betterValidationLoss = valLoss;
-				graph.saveWeightsToJson(outputPath_);
+				graph->saveWeightsToJson(outputPath_);
 			}
 			else
 			{
@@ -234,8 +240,8 @@ namespace PHP2xAI::Runtime::CPP
 			throw std::runtime_error("Core not initialized");
 
 		auto &dataset = trainValDataset_->val;
-		auto &graph = *graphRuntime_;
-		graph.setTraining(false);
+		auto *graph = graphRuntime_.get();
+		graph->setTraining(false);
 
 		std::vector<Scalar> x;
 		std::vector<Scalar> y;
@@ -248,11 +254,11 @@ namespace PHP2xAI::Runtime::CPP
 		{
 			dataset.pack(x, y);
 			
-			graph.setInput(x);
-			graph.setTarget(y);
-			graph.forward();
+			graph->setInput(x);
+			graph->setTarget(y);
+			graph->forward();
 			
-			loss += graph.getError();
+			loss += graph->getError();
 			++count;
 		}
 

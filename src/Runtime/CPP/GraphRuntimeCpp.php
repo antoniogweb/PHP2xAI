@@ -30,7 +30,7 @@ class GraphRuntimeCpp extends GraphRuntime
 			throw new RuntimeException("FFI library not found: ".$soPath);
 
 		$this->ffi = FFI::cdef($this->getCdef(), $soPath);
-		$this->handle = $this->ffi->php2xai_runtime_create($graphJson);
+		$this->handle = $this->ffi->php2xai_runtime_create($this->getProvider(), $graphJson);
 
 		if ($this->handle === null)
 			throw new RuntimeException("Unable to initialize CPP runtime");
@@ -118,11 +118,16 @@ class GraphRuntimeCpp extends GraphRuntime
 		return $out;
 	}
 
+	protected function getProvider() : string
+	{
+		return "NAIVE";
+	}
+
 	private function getCdef() : string
 	{
 		return <<<CDEF
 			typedef struct PHP2xAI_Runtime PHP2xAI_Runtime;
-			PHP2xAI_Runtime* php2xai_runtime_create(const char* graph_json);
+			PHP2xAI_Runtime* php2xai_runtime_create(const char* provider, const char* graph_json);
 			void php2xai_runtime_destroy(PHP2xAI_Runtime* runtime);
 			int php2xai_runtime_forward(PHP2xAI_Runtime* runtime);
 			int php2xai_runtime_backward(PHP2xAI_Runtime* runtime);

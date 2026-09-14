@@ -29,11 +29,14 @@ cd src/Runtime/CPP
 # Build all binaries for the current architecture
 make all
 
-# Build only the native runtime
+# Build only the NAIVE runtime
 make Bin/linux-x86_64/php2xai_runtime
 
-# Build only the Eigen runtime
-make Bin/linux-x86_64/php2xai_runtime_eigen.so
+# Build only the EIGEN runtime
+make Bin/linux-x86_64/php2xai_runtime_eigen
+
+# Build only the shared library
+make Bin/linux-x86_64/php2xai_runtime.so
 
 # Show build information
 make info
@@ -57,12 +60,11 @@ make ARCH=arm64 all
 
 ## Generated Binaries
 
-| Binary | Description | USE_EIGEN |
-|--------|-------------|-----------|
-| `php2xai_runtime` | Native runtime executable | No |
-| `php2xai_runtime.so` | Native shared library | No |
-| `php2xai_runtime_eigen` | Eigen-powered executable | Yes |
-| `php2xai_runtime_eigen.so` | Eigen-powered shared library | Yes |
+| Binary | Description |
+|--------|-------------|
+| `php2xai_runtime` | NAIVE runtime executable |
+| `php2xai_runtime_eigen` | EIGEN runtime executable |
+| `php2xai_runtime.so` | Shared library; provider selected at runtime |
 
 ## Usage
 
@@ -79,10 +81,10 @@ $platform = Utility::getPlatform(); // Returns "linux-x86_64" or "linux-arm64"
 ### Standalone Execution
 
 ```bash
-# Native runtime
+# NAIVE runtime
 ./Bin/linux-x86_64/php2xai_runtime config.json
 
-# Eigen runtime
+# EIGEN runtime
 ./Bin/linux-x86_64/php2xai_runtime_eigen config.json
 ```
 

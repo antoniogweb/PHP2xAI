@@ -17,7 +17,7 @@ namespace PHP2xAI::Runtime::CPP
 	class Core
 	{
 	public:
-		explicit Core(const std::string &configPath, const std::string &weightsPath = "");
+		explicit Core(const std::string &provider, const std::string &configPath, const std::string &weightsPath = "");
 
 		void train();
 		Scalar validationLoss();
@@ -27,13 +27,14 @@ namespace PHP2xAI::Runtime::CPP
 		std::size_t outputSize() const;
 
 	private:
+		std::string provider_;
 		std::string graphPath_;
 		std::string weightsPath_;
 		std::unique_ptr<Optimizers::Optimizer> optimizer_;
 		std::optional<StreamFileDataset> trainDataset_;
 		std::optional<StreamFileDataset> valDataset_;
 		std::optional<TrainValidateDataset> trainValDataset_;
-		std::optional<GraphRuntime> graphRuntime_;
+		std::unique_ptr<GraphRuntime> graphRuntime_;
 		std::string outputPath_;
 		int epochsNumber_{};
 		int logOnEachXBatch_ = 1;

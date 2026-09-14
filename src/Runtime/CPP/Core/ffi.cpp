@@ -7,6 +7,7 @@
 
 using PHP2xAI::Runtime::CPP::Core;
 using PHP2xAI::Runtime::CPP::GraphRuntime;
+using PHP2xAI::Runtime::CPP::GraphRuntimeEigen;
 using PHP2xAI::Runtime::CPP::Scalar;
 using PHP2xAI::Runtime::CPP::json;
 
@@ -22,12 +23,15 @@ struct PHP2xAI_Runtime
 };
 
 extern "C" {
-	PHP2xAI_Core* php2xai_core_create(const char* model_path, const char* weights_path)
+	PHP2xAI_Core* php2xai_core_create(const char* provider, const char* model_path, const char* weights_path)
 	{
+		if (!provider || !model_path)
+			return nullptr;
+
 		try
 		{
 			auto *handle = new PHP2xAI_Core();
-			handle->core = new Core(model_path, weights_path ? weights_path : "");
+			handle->core = new Core(provider, model_path, weights_path ? weights_path : "");
 			return handle;
 		}
 		catch (...)
@@ -128,15 +132,23 @@ extern "C" {
 		return 0;
 	}
 
-	PHP2xAI_Runtime* php2xai_runtime_create(const char* graph_json)
+	PHP2xAI_Runtime* php2xai_runtime_create(const char* provider, const char* graph_json)
 	{
-		if (!graph_json)
+		if (!provider || !graph_json)
 			return nullptr;
 		try
 		{
 			auto *handle = new PHP2xAI_Runtime();
 			json graphDef = json::parse(std::string(graph_json));
-			handle->runtime = new GraphRuntime(graphDef, "");
+			if (std::string(provider) == "EIGEN")
+				handle->runtime = new GraphRuntimeEigen(graphDef, "");
+			else if (std::string(provider) == "NAIVE")
+				handle->runtime = new GraphRuntime(graphDef, "");
+			else
+			{
+				delete handle;
+				return nullptr;
+			}
 			return handle;
 		}
 		catch (...)

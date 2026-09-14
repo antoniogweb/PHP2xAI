@@ -9,13 +9,7 @@
 #include "../ThirdParty/nlohmann/json.hpp"
 #include "../types.hpp"
 
-#ifndef PHP2XAI_USE_EIGEN
-#define PHP2XAI_USE_EIGEN 1
-#endif
-
-#if PHP2XAI_USE_EIGEN
-	#include <Eigen/Dense>
-#endif
+#include <Eigen/Dense>
 
 namespace PHP2xAI::Runtime::CPP
 {
@@ -111,6 +105,7 @@ namespace PHP2xAI::Runtime::CPP
 	class GraphRuntime
 	{
 	public:
+		virtual ~GraphRuntime() = default;
 		std::vector<Tensor> tensors;
 		std::vector<Op> ops;
 		int lossId{};
@@ -206,14 +201,12 @@ namespace PHP2xAI::Runtime::CPP
 		void BACKWARD_ADD_3D_LAST(Tensor &A, Tensor &B, Tensor &C);
 		void BACKWARD_ADD_GENERIC_LAST(Tensor &A, Tensor &B, Tensor &C);
 		
-		void MATMUL_2D_2D(Tensor &A, Tensor &B, Tensor &C);
-		void MATMUL_2D_2D_EIGEN(Tensor &A, Tensor &B, Tensor &C);
+		virtual void MATMUL_2D_2D(Tensor &A, Tensor &B, Tensor &C);
 		void MATMUL_1B_2D_2D(Tensor &A, Tensor &B, Tensor &C);
 		void MATMUL_2B_2D_2D(Tensor &A, Tensor &B, Tensor &C);
 		void MATMUL_1B_2D_2D_LINEAR(Tensor &A, Tensor &B, Tensor &C);
 		void MATMUL_GENERIC_B_2D_2D_BROADCAST(Tensor &A, Tensor &B, Tensor &C);
-		void BACKWARD_MATMUL_2D_2D(Tensor &A, Tensor &B, Tensor &C);
-		void BACKWARD_MATMUL_2D_2D_EIGEN(Tensor &A, Tensor &B, Tensor &C);
+		virtual void BACKWARD_MATMUL_2D_2D(Tensor &A, Tensor &B, Tensor &C);
 		void BACKWARD_MATMUL_1B_2D_2D(Tensor &A, Tensor &B, Tensor &C);
 		void BACKWARD_MATMUL_2B_2D_2D(Tensor &A, Tensor &B, Tensor &C);
 		void BACKWARD_MATMUL_1B_2D_2D_LINEAR(Tensor &A, Tensor &B, Tensor &C);
@@ -305,5 +298,15 @@ namespace PHP2xAI::Runtime::CPP
 			const std::vector<Scalar> &yData,
 			const std::vector<int> &yStrides,
 			int axis = -1) const;
+	};
+
+	class GraphRuntimeEigen final : public GraphRuntime
+	{
+	public:
+		using GraphRuntime::GraphRuntime;
+
+	private:
+		void MATMUL_2D_2D(Tensor &A, Tensor &B, Tensor &C) override;
+		void BACKWARD_MATMUL_2D_2D(Tensor &A, Tensor &B, Tensor &C) override;
 	};
 }
