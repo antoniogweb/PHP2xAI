@@ -40,6 +40,102 @@ abstract class Model
 	
 	abstract public function output(Tensor $x) : Tensor;
 	abstract public function loss(Tensor $x, Tensor $y) : Tensor;
+
+	/**
+	 * Multi-head attention mechanism.
+	 *
+	 * @param Tensor $Q Query tensor [B, L, D]
+	 * @param Tensor $K Key tensor [B, L, D]
+	 * @param Tensor $V Value tensor [B, L, D]
+	 * @param Tensor $mask Padding mask [B, L] with 1 for valid tokens, 0 for padding
+	 * @param int $numHeads Number of attention heads
+	 * @param string $maskType Mask type: "PADDING" (CASUAL not supported yet)
+	 * @return Tensor Attention output with shape [B, L, D]
+	 *
+	 * Flow:
+	 *   Q, K, V [B, L, D]
+	 *   → reshape [B, L, H, dk] where dk = D / numHeads
+	 *   → transpose axes [1,2] [B, H, L, dk]
+	 *   → Qh, Kh, Vh [B, H, L, dk]
+	 *
+	 *   Qh @ Khᵀ / sqrt(dk) → [B, H, L, L]
+	 *   softmax → [B, H, L, L]
+	 *   × Vh → [B, H, L, dk]
+	 *
+	 *   → transpose axes [1,2] [B, L, H, dk]
+	 *   → reshape [B, L, D]
+	 */
+	public static function attention(
+		Tensor $Q, 
+		Tensor $K, 
+		Tensor $V, 
+		Tensor $mask, 
+		int $numHeads, 
+		string $maskType = "PADDING"
+	) : Tensor
+	{
+		// Validate inputs
+		$qRank = $Q->getRank();
+		$kRank = $K->getRank();
+		$vRank = $V->getRank();
+
+		if ($qRank !== $kRank || $kRank !== $vRank)
+			throw new RuntimeException("Q, K, V must have the same rank");
+
+		if ($qRank !== 3)
+			throw new RuntimeException("Q, K, V must have rank 3 [B, L, D]");
+
+		if ($mask->getRank() !== 2)
+			throw new RuntimeException("Mask must have rank 2 [B, L]");
+
+		if ($numHeads <= 0)
+			throw new RuntimeException("numHeads must be positive");
+
+		// Get D (last dimension) and validate divisibility
+		$D = $Q->shape[2];
+		if ($D % $numHeads !== 0)
+			throw new RuntimeException("Dimension D ({$D}) must be divisible by numHeads ({$numHeads})");
+
+		$dk = intdiv($D, $numHeads);
+
+		// For now, only PADDING mask is supported
+		if ($maskType !== "PADDING")
+			throw new RuntimeException("Mask type '{$maskType}' not supported yet. Only 'PADDING' is available.");
+
+		// Split heads: reshape [B, L, D] -> [B, L, H, dk]
+		$Q_reshaped = $Q->reshape([$Q->shape[0], $Q->shape[1], $numHeads, $dk]);
+		$K_reshaped = $K->reshape([$K->shape[0], $K->shape[1], $numHeads, $dk]);
+		$V_reshaped = $V->reshape([$V->shape[0], $V->shape[1], $numHeads, $dk]);
+
+		// Transpose: [B, L, H, dk] -> [B, H, L, dk]
+		$Qh = $Q_reshaped->transpose([1, 2]);
+		$Kh = $K_reshaped->transpose([1, 2]);
+		$Vh = $V_reshaped->transpose([1, 2]);
+
+		// Attention: Qh @ Khᵀ / sqrt(dk)
+		$Kh_transposed = $Kh->transpose([-2, -1]);
+		$scores = $Qh->matMul($Kh_transposed);
+
+		// Scale by sqrt(dk)
+		$scaledScores = $scores->scale(1.0 / sqrt($dk));
+
+		// Apply mask
+		$maskedScores = $scaledScores->applyPaddingMask($mask);
+
+		// Softmax
+		$attentionWeights = $maskedScores->softmax();
+
+		// Weighted sum of V: attentionWeights @ Vh
+		$attentionOutput = $attentionWeights->matMul($Vh);
+
+		// Merge heads: transpose [B, H, L, dk] -> [B, L, H, dk]
+		$merged = $attentionOutput->transpose([1, 2]);
+
+		// Reshape [B, L, H, dk] -> [B, L, D]
+		$output = $merged->reshape([$Q->shape[0], $Q->shape[1], $D]);
+
+		return $output;
+	}
 	
 	public function __construct(?Optimizer $optimizer = null)
 	{
