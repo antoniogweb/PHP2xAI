@@ -204,14 +204,14 @@ namespace PHP2xAI::Runtime::CPP
 		void BACKWARD_ADD_GENERIC_LAST(Tensor &A, Tensor &B, Tensor &C);
 		
 		virtual void MATMUL_2D_2D(Tensor &A, Tensor &B, Tensor &C);
-		void MATMUL_1B_2D_2D(Tensor &A, Tensor &B, Tensor &C);
-		void MATMUL_2B_2D_2D(Tensor &A, Tensor &B, Tensor &C);
-		void MATMUL_1B_2D_2D_LINEAR(Tensor &A, Tensor &B, Tensor &C);
+		virtual void MATMUL_1B_2D_2D(Tensor &A, Tensor &B, Tensor &C);
+		virtual void MATMUL_2B_2D_2D(Tensor &A, Tensor &B, Tensor &C);
+		virtual void MATMUL_1B_2D_2D_LINEAR(Tensor &A, Tensor &B, Tensor &C);
 		void MATMUL_GENERIC_B_2D_2D_BROADCAST(Tensor &A, Tensor &B, Tensor &C);
 		virtual void BACKWARD_MATMUL_2D_2D(Tensor &A, Tensor &B, Tensor &C);
-		void BACKWARD_MATMUL_1B_2D_2D(Tensor &A, Tensor &B, Tensor &C);
-		void BACKWARD_MATMUL_2B_2D_2D(Tensor &A, Tensor &B, Tensor &C);
-		void BACKWARD_MATMUL_1B_2D_2D_LINEAR(Tensor &A, Tensor &B, Tensor &C);
+		virtual void BACKWARD_MATMUL_1B_2D_2D(Tensor &A, Tensor &B, Tensor &C);
+		virtual void BACKWARD_MATMUL_2B_2D_2D(Tensor &A, Tensor &B, Tensor &C);
+		virtual void BACKWARD_MATMUL_1B_2D_2D_LINEAR(Tensor &A, Tensor &B, Tensor &C);
 		void BACKWARD_MATMUL_GENERIC_B_2D_2D_BROADCAST(Tensor &A, Tensor &B, Tensor &C);
 
 		void LAYER_NORM_LAST_AXIS(Tensor &X, Tensor &Gamma, Tensor &Beta, Tensor &Y);
@@ -309,6 +309,12 @@ namespace PHP2xAI::Runtime::CPP
 
 	private:
 		void MATMUL_2D_2D(Tensor &A, Tensor &B, Tensor &C) override;
+		void MATMUL_1B_2D_2D(Tensor &A, Tensor &B, Tensor &C) override;
+		void MATMUL_2B_2D_2D(Tensor &A, Tensor &B, Tensor &C) override;
+		void MATMUL_1B_2D_2D_LINEAR(Tensor &A, Tensor &B, Tensor &C) override;
 		void BACKWARD_MATMUL_2D_2D(Tensor &A, Tensor &B, Tensor &C) override;
+		void BACKWARD_MATMUL_1B_2D_2D(Tensor &A, Tensor &B, Tensor &C) override;
+		void BACKWARD_MATMUL_2B_2D_2D(Tensor &A, Tensor &B, Tensor &C) override;
+		void BACKWARD_MATMUL_1B_2D_2D_LINEAR(Tensor &A, Tensor &B, Tensor &C) override;
 	};
 }

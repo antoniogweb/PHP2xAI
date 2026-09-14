@@ -1558,6 +1558,100 @@ namespace PHP2xAI::Runtime::CPP
 		}
 	}
 
+	void GraphRuntimeEigen::MATMUL_1B_2D_2D(Tensor &A, Tensor &B, Tensor &C)
+	{
+		if (A.shape.size() != 3 || B.shape.size() != 3)
+			throw std::runtime_error("matmul: dimension mismatch");
+
+		const int batch = A.shape[0];
+		const int time = A.shape[1];
+		const int dim = A.shape[2];
+		const int batchB = B.shape[0];
+		const int dimB = B.shape[1];
+		const int outDim = B.shape[2];
+
+		if (batch != batchB || dim != dimB)
+			throw std::runtime_error("matmul: dimension mismatch");
+
+		C.shape = {batch, time, outDim};
+		C.data.assign(static_cast<std::size_t>(batch * time * outDim), 0.0f);
+
+		using RowMajorMat = Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
+		using ConstMatMap = Eigen::Map<const RowMajorMat>;
+		using MatMap = Eigen::Map<RowMajorMat>;
+
+		for (int b = 0; b < batch; ++b)
+		{
+			const ConstMatMap aMap(A.data.data() + static_cast<std::size_t>(b * time * dim), time, dim);
+			const ConstMatMap bMap(B.data.data() + static_cast<std::size_t>(b * dim * outDim), dim, outDim);
+			MatMap cMap(C.data.data() + static_cast<std::size_t>(b * time * outDim), time, outDim);
+			cMap.noalias() = aMap * bMap;
+		}
+	}
+
+	void GraphRuntimeEigen::MATMUL_2B_2D_2D(Tensor &A, Tensor &B, Tensor &C)
+	{
+		if (A.shape.size() != 4 || B.shape.size() != 4)
+			throw std::runtime_error("matmul: dimension mismatch");
+
+		const int batch = A.shape[0];
+		const int heads = A.shape[1];
+		const int time = A.shape[2];
+		const int dim = A.shape[3];
+		const int batchB = B.shape[0];
+		const int headsB = B.shape[1];
+		const int dimB = B.shape[2];
+		const int outTime = B.shape[3];
+
+		if (batch != batchB || heads != headsB || dim != dimB)
+			throw std::runtime_error("matmul: dimension mismatch");
+
+		C.shape = {batch, heads, time, outTime};
+		C.data.assign(static_cast<std::size_t>(batch * heads * time * outTime), 0.0f);
+
+		using RowMajorMat = Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
+		using ConstMatMap = Eigen::Map<const RowMajorMat>;
+		using MatMap = Eigen::Map<RowMajorMat>;
+
+		const int matrixBatch = batch * heads;
+		for (int bh = 0; bh < matrixBatch; ++bh)
+		{
+			const ConstMatMap aMap(A.data.data() + static_cast<std::size_t>(bh * time * dim), time, dim);
+			const ConstMatMap bMap(B.data.data() + static_cast<std::size_t>(bh * dim * outTime), dim, outTime);
+			MatMap cMap(C.data.data() + static_cast<std::size_t>(bh * time * outTime), time, outTime);
+			cMap.noalias() = aMap * bMap;
+		}
+	}
+
+	void GraphRuntimeEigen::MATMUL_1B_2D_2D_LINEAR(Tensor &A, Tensor &B, Tensor &C)
+	{
+		if (A.shape.size() != 3 || B.shape.size() != 2)
+			throw std::runtime_error("matmul: dimension mismatch");
+
+		const int batch = A.shape[0];
+		const int time = A.shape[1];
+		const int dim = A.shape[2];
+		const int dimB = B.shape[0];
+		const int hidden = B.shape[1];
+
+		if (dim != dimB)
+			throw std::runtime_error("matmul: dimension mismatch");
+
+		C.shape = {batch, time, hidden};
+		C.data.assign(static_cast<std::size_t>(batch * time * hidden), 0.0f);
+
+		using RowMajorMat = Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
+		using ConstMatMap = Eigen::Map<const RowMajorMat>;
+		using MatMap = Eigen::Map<RowMajorMat>;
+
+		const int rows = batch * time;
+		const ConstMatMap aMap(A.data.data(), rows, dim);
+		const ConstMatMap bMap(B.data.data(), dim, hidden);
+		MatMap cMap(C.data.data(), rows, hidden);
+		cMap.noalias() = aMap * bMap;
+	}
+
+
 	void GraphRuntime::MATMUL_GENERIC_B_2D_2D_BROADCAST(Tensor &A, Tensor &B, Tensor &C)
 	{
 		bmmGenericBroadcast(A.data, A.shape, A.strides, B.data, B.shape, B.strides, C.data, C.shape, C.strides);
@@ -3407,6 +3501,104 @@ namespace PHP2xAI::Runtime::CPP
 			aGradMap.noalias() += cGradMap * bMap.transpose();
 		bGradMap.noalias() += aMap.transpose() * cGradMap;
 	}
+
+	void GraphRuntimeEigen::BACKWARD_MATMUL_1B_2D_2D(Tensor &A, Tensor &B, Tensor &C)
+	{
+		if (A.shape.size() != 3 || B.shape.size() != 3)
+			throw std::runtime_error("matmul backward: dimension mismatch");
+
+		const int batch = A.shape[0];
+		const int time = A.shape[1];
+		const int dim = A.shape[2];
+		const int batchB = B.shape[0];
+		const int dimB = B.shape[1];
+		const int outDim = B.shape[2];
+
+		if (batch != batchB || dim != dimB || C.shape != std::vector<int>{batch, time, outDim})
+			throw std::runtime_error("matmul backward: dimension mismatch");
+
+		using RowMajorMat = Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
+		using ConstMatMap = Eigen::Map<const RowMajorMat>;
+		using MatMap = Eigen::Map<RowMajorMat>;
+
+		for (int b = 0; b < batch; ++b)
+		{
+			const ConstMatMap aMap(A.data.data() + static_cast<std::size_t>(b * time * dim), time, dim);
+			const ConstMatMap bMap(B.data.data() + static_cast<std::size_t>(b * dim * outDim), dim, outDim);
+			const ConstMatMap cGradMap(C.grad.data() + static_cast<std::size_t>(b * time * outDim), time, outDim);
+			MatMap aGradMap(A.grad.data() + static_cast<std::size_t>(b * time * dim), time, dim);
+			MatMap bGradMap(B.grad.data() + static_cast<std::size_t>(b * dim * outDim), dim, outDim);
+
+			aGradMap.noalias() += cGradMap * bMap.transpose();
+			bGradMap.noalias() += aMap.transpose() * cGradMap;
+		}
+	}
+
+	void GraphRuntimeEigen::BACKWARD_MATMUL_2B_2D_2D(Tensor &A, Tensor &B, Tensor &C)
+	{
+		if (A.shape.size() != 4 || B.shape.size() != 4)
+			throw std::runtime_error("matmul backward: dimension mismatch");
+
+		const int batch = A.shape[0];
+		const int heads = A.shape[1];
+		const int time = A.shape[2];
+		const int dim = A.shape[3];
+		const int batchB = B.shape[0];
+		const int headsB = B.shape[1];
+		const int dimB = B.shape[2];
+		const int outTime = B.shape[3];
+
+		if (batch != batchB || heads != headsB || dim != dimB
+			|| C.shape != std::vector<int>{batch, heads, time, outTime})
+			throw std::runtime_error("matmul backward: dimension mismatch");
+
+		using RowMajorMat = Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
+		using ConstMatMap = Eigen::Map<const RowMajorMat>;
+		using MatMap = Eigen::Map<RowMajorMat>;
+
+		const int matrixBatch = batch * heads;
+		for (int bh = 0; bh < matrixBatch; ++bh)
+		{
+			const ConstMatMap aMap(A.data.data() + static_cast<std::size_t>(bh * time * dim), time, dim);
+			const ConstMatMap bMap(B.data.data() + static_cast<std::size_t>(bh * dim * outTime), dim, outTime);
+			const ConstMatMap cGradMap(C.grad.data() + static_cast<std::size_t>(bh * time * outTime), time, outTime);
+			MatMap aGradMap(A.grad.data() + static_cast<std::size_t>(bh * time * dim), time, dim);
+			MatMap bGradMap(B.grad.data() + static_cast<std::size_t>(bh * dim * outTime), dim, outTime);
+
+			aGradMap.noalias() += cGradMap * bMap.transpose();
+			bGradMap.noalias() += aMap.transpose() * cGradMap;
+		}
+	}
+
+	void GraphRuntimeEigen::BACKWARD_MATMUL_1B_2D_2D_LINEAR(Tensor &A, Tensor &B, Tensor &C)
+	{
+		if (A.shape.size() != 3 || B.shape.size() != 2)
+			throw std::runtime_error("matmul backward: dimension mismatch");
+
+		const int batch = A.shape[0];
+		const int time = A.shape[1];
+		const int dim = A.shape[2];
+		const int dimB = B.shape[0];
+		const int hidden = B.shape[1];
+
+		if (dim != dimB || C.shape != std::vector<int>{batch, time, hidden})
+			throw std::runtime_error("matmul backward: dimension mismatch");
+
+		using RowMajorMat = Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
+		using ConstMatMap = Eigen::Map<const RowMajorMat>;
+		using MatMap = Eigen::Map<RowMajorMat>;
+
+		const int rows = batch * time;
+		const ConstMatMap aMap(A.data.data(), rows, dim);
+		const ConstMatMap bMap(B.data.data(), dim, hidden);
+		const ConstMatMap cGradMap(C.grad.data(), rows, hidden);
+		MatMap aGradMap(A.grad.data(), rows, dim);
+		MatMap bGradMap(B.grad.data(), dim, hidden);
+
+		aGradMap.noalias() += cGradMap * bMap.transpose();
+		bGradMap.noalias() += aMap.transpose() * cGradMap;
+	}
+
 
 	void GraphRuntime::BACKWARD_MATMUL_1B_2D_2D(Tensor &A, Tensor &B, Tensor &C)
 	{
