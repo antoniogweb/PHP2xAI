@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include <memory>
 #include <numeric>
 #include <stdexcept>
 #include <string>
@@ -8,6 +9,7 @@
 #include <unordered_map>
 #include "../ThirdParty/nlohmann/json.hpp"
 #include "../types.hpp"
+#include "../Utility/Profiler.hpp"
 
 #include <Eigen/Dense>
 
@@ -133,12 +135,18 @@ namespace PHP2xAI::Runtime::CPP
 		
 		void setLossGrad(Scalar lossGrad = 1.0f);
 		void setTraining(bool training);
+		void enableProfiler();
+		bool isProfilingEnabled() const;
+		void setProfilingEnabled(bool enabled);
+		Profiler &getProfiler();
 		
 		explicit GraphRuntime(const json &graphDef, const std::string &weightsPath = "");
 
 	private:
 		std::string graphPath_;
 		json graphDef_;
+		std::unique_ptr<Profiler> profiler_;
+		bool profilingEnabled_ = false;
 
 		void opMatmul(int, int, int, const std::string &kernel);
 		void opLayerNorm(int inputId, int gammaId, int betaId, int outId, const std::string &kernel, const std::vector<int> &axes);

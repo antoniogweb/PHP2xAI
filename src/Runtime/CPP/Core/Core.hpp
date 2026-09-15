@@ -36,6 +36,7 @@ namespace PHP2xAI::Runtime::CPP
 		std::optional<TrainValidateDataset> trainValDataset_;
 		std::unique_ptr<GraphRuntime> graphRuntime_;
 		std::string outputPath_;
+		std::string profilerOutputPath_;
 		int epochsNumber_{};
 		int logOnEachXBatch_ = 1;
 		
@@ -45,5 +46,6 @@ namespace PHP2xAI::Runtime::CPP
 		void loadTrainValidateDataset(const json &configDef);
 		void loadOutputPath(const json &configDef);
 		void loadEpochsNumber(const json &configDef);
+		void loadProfilerOutputPath(const json &configDef);
 	};
 }

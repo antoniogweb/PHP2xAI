@@ -7,6 +7,7 @@
 #include "Core.hpp"
 #include "../Optimizers/Optimizers.hpp"
 #include "../Utility/Utility.hpp"
+#include "../Utility/ProfileWriter.hpp"
 
 namespace PHP2xAI::Runtime::CPP
 {
@@ -18,6 +19,9 @@ namespace PHP2xAI::Runtime::CPP
 
 		auto configDef = loadJson(graphPath_);
 		loadGraphRuntime(configDef);
+
+		if (configDef.contains("profiler_output_path"))
+			loadProfilerOutputPath(configDef);
 
 		if (configDef.contains("optimizer"))
 			loadOptimizer(configDef);
@@ -103,6 +107,13 @@ namespace PHP2xAI::Runtime::CPP
 		epochsNumber_ = configDef.at("epochs_number").get<int>();
 	}
 
+	void Core::loadProfilerOutputPath(const json &configDef)
+	{
+		profilerOutputPath_ = configDef.at("profiler_output_path").get<std::string>();
+		if (!profilerOutputPath_.empty())
+			graphRuntime_->enableProfiler();
+	}
+
 	int Core::predictLabelInt(const std::vector<Scalar> &x)
 	{
 		const auto output = predict(x);
@@ -162,6 +173,7 @@ namespace PHP2xAI::Runtime::CPP
 		std::vector<Scalar> x;
 		std::vector<Scalar> y;
 		auto betterValidationLoss = std::numeric_limits<Scalar>::max();
+		std::size_t profileBatchIndex = 0;
 		
 		for (int i = 0; i < epochsNumber_; ++i)
 		{
@@ -187,21 +199,12 @@ namespace PHP2xAI::Runtime::CPP
 				
 				graph->backward();
 				optimizer_->step(*graph);
-				
-// 				while (dataset.train.nextSampleInBatch(x, y))
-// 				{
-// 					graph->setInput(x);
-// 					graph->setTarget(y);
-// 					graph->forward();
-// 					
-// 					optimizer_->addError(graph->getError());
-// 					
-// 					graph->backward();
-// 				}
-// 				
-// 				const auto error = optimizer_->getError();
-// 				optimizer_->step(*graph);
-// 				optimizer_->zeroGrads(graph);
+
+				if (graph->isProfilingEnabled())
+				{
+					ProfileWriter::appendBatch(graph->getProfiler(), profilerOutputPath_, ++profileBatchIndex);
+					graph->getProfiler().clear();
+				}
 				
 				++indice;
 				
@@ -212,7 +215,10 @@ namespace PHP2xAI::Runtime::CPP
 				}
 			}
 			
+			const bool profileTraining = graph->isProfilingEnabled();
+			graph->setProfilingEnabled(false);
 			const auto valLoss = validationLoss();
+			graph->setProfilingEnabled(profileTraining);
 			
 			std::cout << "------------------------\n";
 			std::cout << "Validation error: " << valLoss << "\n";

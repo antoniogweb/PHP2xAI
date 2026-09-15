@@ -310,6 +310,14 @@ namespace PHP2xAI::Runtime::CPP
 			const auto &name = op.op;
 			const auto &inputs = op.inputs;
 			const auto outId = op.output;
+			std::optional<ProfileTimer> timer;
+			if (profilingEnabled_)
+			{
+				std::string profileName = name + ".forward";
+				if (!op.kernel.empty())
+					profileName += "." + op.kernel;
+				timer.emplace(*profiler_, std::move(profileName));
+			}
 
 			if (name == "apply_padding_mask")
 				opApplyPaddingMask(inputs[0], inputs[1], outId);
@@ -384,6 +392,14 @@ namespace PHP2xAI::Runtime::CPP
 			const auto &name = op.op;
 			const auto &inputs = op.inputs;
 			auto outId = op.output;
+			std::optional<ProfileTimer> timer;
+			if (profilingEnabled_)
+			{
+				std::string profileName = name + ".backward";
+				if (!op.kernel.empty())
+					profileName += "." + op.kernel;
+				timer.emplace(*profiler_, std::move(profileName));
+			}
 
 			if (name == "apply_padding_mask")
 				backwardApplyPaddingMask(inputs[0], inputs[1], outId);
@@ -503,6 +519,29 @@ namespace PHP2xAI::Runtime::CPP
 	void GraphRuntime::setTraining(bool training)
 	{
 		training_ = training;
+	}
+
+	void GraphRuntime::enableProfiler()
+	{
+		profiler_ = std::make_unique<Profiler>();
+		profilingEnabled_ = true;
+	}
+
+	bool GraphRuntime::isProfilingEnabled() const
+	{
+		return profilingEnabled_;
+	}
+
+	void GraphRuntime::setProfilingEnabled(bool enabled)
+	{
+		profilingEnabled_ = enabled && profiler_ != nullptr;
+	}
+
+	Profiler &GraphRuntime::getProfiler()
+	{
+		if (!profiler_)
+			throw std::runtime_error("Profiler is not enabled");
+		return *profiler_;
 	}
 
 	void GraphRuntime::setLossGrad(Scalar lossGrad)

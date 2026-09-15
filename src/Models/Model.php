@@ -318,7 +318,7 @@ abstract class Model
 		return $output;
 	}
 	
-	public function getTrainingConfig(TrainValidateDataset $dataset = null, int $epochsNumber = 10, string $savePath = null, int $logOnEachXBatch = 10) : string
+	public function getTrainingConfig(TrainValidateDataset $dataset = null, int $epochsNumber = 10, string $savePath = null, int $logOnEachXBatch = 10, ?string $profilerOutputPath = null) : string
 	{
 		$graph = $this->generateGraph($dataset->train);
 		
@@ -332,6 +332,9 @@ abstract class Model
 			"save_Path"		=>	$savePath ? $savePath : "",
 			"log_on_each_x_batch"	=>	$logOnEachXBatch,
 		);
+
+		if ($profilerOutputPath !== null && $profilerOutputPath !== '')
+			$jsonConfig['profiler_output_path'] = $profilerOutputPath;
 		
 		return json_encode($jsonConfig);
 	}
@@ -532,14 +535,14 @@ abstract class Model
 			return 0;
 	}
 	
-	public function train(TrainValidateDataset $dataset = null, int $epochsNumber = 10, string $savePath = null, int $logOnEachXBatch = 10)
+	public function train(TrainValidateDataset $dataset = null, int $epochsNumber = 10, string $savePath = null, int $logOnEachXBatch = 10, ?string $profilerOutputPath = null)
 	{
 		// Save the model JSON graph
 		file_put_contents($this->modelSavePath, $this->exportModel($dataset->train), LOCK_EX);
 		
 		if ($this->runtime == "CPP")
 		{
-			$config = $this->getTrainingConfig($dataset, $epochsNumber, $savePath, $logOnEachXBatch);
+			$config = $this->getTrainingConfig($dataset, $epochsNumber, $savePath, $logOnEachXBatch, $profilerOutputPath);
 			file_put_contents($this->configSavePath, $config, LOCK_EX);
 			$this->trainCpp();
 			return;

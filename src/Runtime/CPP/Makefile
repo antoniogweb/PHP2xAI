@@ -19,7 +19,9 @@ CPP_SOURCES := \
 	Optimizers/Optimizer.cpp \
 	Optimizers/Adam.cpp \
 	Optimizers/Fixed.cpp \
-	Utility/Utility.cpp
+	Utility/Utility.cpp \
+	Utility/Profiler.cpp \
+	Utility/ProfileWriter.cpp
 
 FFI_SOURCES := $(CPP_SOURCES) Core/ffi.cpp
 
