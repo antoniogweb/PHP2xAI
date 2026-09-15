@@ -11,6 +11,14 @@ namespace PHP2xAI::Runtime::CPP
 {
 	namespace
 	{
+		static std::uint64_t splitmix64(std::uint64_t value)
+		{
+			value += 0x9e3779b97f4a7c15ULL;
+			value = (value ^ (value >> 30U)) * 0xbf58476d1ce4e5b9ULL;
+			value = (value ^ (value >> 27U)) * 0x94d049bb133111ebULL;
+			return value ^ (value >> 31U);
+		}
+
 		static std::size_t shapeElementCount(const std::vector<int> &shape)
 		{
 			std::size_t count = 1;
@@ -1692,6 +1700,56 @@ namespace PHP2xAI::Runtime::CPP
 		cMap.noalias() = aMap * bMap;
 	}
 
+	void GraphRuntimeEigen::opGelu(int inputId, int outId)
+	{
+		auto &X = tensors[inputId];
+		auto &Y = tensors[outId];
+		const auto size = X.data.size();
+		const Scalar scale = std::sqrt(2.0f / 3.14159265358979323846f);
+
+		Y.shape = X.shape;
+		Y.strides = Tensor::computeStrides(Y.shape);
+		Y.data.assign(size, 0.0f);
+
+		using Array = Eigen::Array<Scalar, Eigen::Dynamic, 1>;
+		const Eigen::Map<const Array> x(X.data.data(), static_cast<Eigen::Index>(size));
+		Eigen::Map<Array> y(Y.data.data(), static_cast<Eigen::Index>(size));
+		y = 0.5f * x * (1.0f + (scale * (x + 0.044715f * x.cube())).tanh());
+	}
+
+	void GraphRuntimeEigen::SOFTMAX_4D_LAST(Tensor &X, Tensor &Y)
+	{
+		if (X.shape.size() != 4 || Y.shape != X.shape)
+			throw std::runtime_error("softmax 4D last: dimension mismatch");
+
+		const int batch = X.shape[0];
+		const int heads = X.shape[1];
+		const int time = X.shape[2];
+		const int dim = X.shape[3];
+		const int rows = batch * heads * time;
+		Y.data.assign(static_cast<std::size_t>(rows * dim), 0.0f);
+
+		using Matrix = Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
+		const Eigen::Map<const Matrix> x(X.data.data(), rows, dim);
+		Eigen::Map<Matrix> y(Y.data.data(), rows, dim);
+
+		Eigen::Array<Scalar, Eigen::Dynamic, 1> maxValues = x.rowwise().maxCoeff().array();
+		for (int row = 0; row < rows; ++row)
+		{
+			if (maxValues[row] == -std::numeric_limits<Scalar>::infinity())
+				maxValues[row] = 0.0f;
+		}
+
+		y = (x.array().colwise() - maxValues).exp().matrix();
+		Eigen::Array<Scalar, Eigen::Dynamic, 1> sums = y.rowwise().sum().array();
+		for (int row = 0; row < rows; ++row)
+		{
+			if (sums[row] == 0.0f)
+				sums[row] = 1.0f;
+		}
+		y.array().colwise() /= sums;
+	}
+
 
 	void GraphRuntime::MATMUL_GENERIC_B_2D_2D_BROADCAST(Tensor &A, Tensor &B, Tensor &C)
 	{
@@ -1787,12 +1845,10 @@ namespace PHP2xAI::Runtime::CPP
 		Y.shape = X.shape;
 		auto size = X.data.size();
 		Y.data.assign(size, 0.0f);
-		std::vector<Scalar> maskValues(size, 0.0f);
 
 		if (!training_)
 		{
 			Y.data = X.data;
-			dropoutMasks[outId] = std::vector<Scalar>(size, 1.0f);
 			return;
 		}
 
@@ -1800,13 +1856,18 @@ namespace PHP2xAI::Runtime::CPP
 		dropPerc = std::max(0.0f, std::min(100.0f, dropPerc));
 		Scalar keepProb = 1.0f - (dropPerc / 100.0f);
 		Scalar scale = keepProb > 0.0f ? 1.0f / keepProb : 0.0f;
+		const auto seed = (dropoutSeed_ += 0x9e3779b97f4a7c15ULL);
+		std::vector<Scalar> maskValues(size, 0.0f);
 
-		for (std::size_t i = 0; i < size; ++i)
+		#pragma omp parallel for schedule(static)
+		for (std::int64_t i = 0; i < static_cast<std::int64_t>(size); ++i)
 		{
-			bool keep = (static_cast<Scalar>(std::rand()) / static_cast<Scalar>(RAND_MAX)) >= (dropPerc / 100.0f);
+			const auto randomBits = splitmix64(seed + static_cast<std::uint64_t>(i));
+			const Scalar randomUnit = static_cast<Scalar>(randomBits >> 40U) * (1.0f / 16777216.0f);
+			const bool keep = randomUnit >= (dropPerc / 100.0f);
 			Scalar mask = keep ? scale : 0.0f;
-			maskValues[i] = mask;
-			Y.data[i] = X.data[i] * mask;
+			maskValues[static_cast<std::size_t>(i)] = mask;
+			Y.data[static_cast<std::size_t>(i)] = X.data[static_cast<std::size_t>(i)] * mask;
 		}
 
 		dropoutMasks[outId] = std::move(maskValues);
@@ -3685,6 +3746,32 @@ namespace PHP2xAI::Runtime::CPP
 
 		aGradMap.noalias() += cGradMap * bMap.transpose();
 		bGradMap.noalias() += aMap.transpose() * cGradMap;
+	}
+
+	void GraphRuntimeEigen::backwardGelu(int inputId, int outId)
+	{
+		auto &X = tensors[inputId];
+		auto &Y = tensors[outId];
+
+		if (!X.requiresGrad)
+			return;
+
+		const auto size = X.data.size();
+		if (size != Y.grad.size())
+			throw std::runtime_error("gelu backward: dimension mismatch");
+
+		const Scalar scale = std::sqrt(2.0f / 3.14159265358979323846f);
+		using Array = Eigen::Array<Scalar, Eigen::Dynamic, 1>;
+		const Eigen::Map<const Array> x(X.data.data(), static_cast<Eigen::Index>(size));
+		const Eigen::Map<const Array> yGrad(Y.grad.data(), static_cast<Eigen::Index>(size));
+		Eigen::Map<Array> xGrad(X.grad.data(), static_cast<Eigen::Index>(size));
+
+		const Array u = scale * (x + 0.044715f * x.cube());
+		const Array tanhU = u.tanh();
+		const Array du = scale * (1.0f + 3.0f * 0.044715f * x.square());
+		const Array localGrad = 0.5f * (1.0f + tanhU)
+			+ 0.5f * x * (1.0f - tanhU.square()) * du;
+		xGrad += yGrad * localGrad;
 	}
 
 

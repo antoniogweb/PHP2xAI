@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <numeric>
@@ -147,6 +148,7 @@ namespace PHP2xAI::Runtime::CPP
 		json graphDef_;
 		std::unique_ptr<Profiler> profiler_;
 		bool profilingEnabled_ = false;
+		std::uint64_t dropoutSeed_ = 0x9e3779b97f4a7c15ULL;
 
 		void opMatmul(int, int, int, const std::string &kernel);
 		void opLayerNorm(int inputId, int gammaId, int betaId, int outId, const std::string &kernel, const std::vector<int> &axes);
@@ -156,7 +158,7 @@ namespace PHP2xAI::Runtime::CPP
 		void opPaddingMask(int inputId, int outId, int padId);
 		void opApplyPaddingMask(int inputId, int maskId, int outId);
 		void opScale(int inputId, int outId, Scalar scale);
-		void opGelu(int inputId, int outId);
+		virtual void opGelu(int inputId, int outId);
 		void opPositionalEncoding(int inputId, int outId);
 		void opReshape(int inputId, int outId);
 		void opTranspose(int inputId, int outId, const std::string &kernel, const std::vector<int> &axes);
@@ -178,7 +180,7 @@ namespace PHP2xAI::Runtime::CPP
 		void backwardMatmul(int, int, int, const std::string &kernel);
 		void backwardLayerNorm(int inputId, int gammaId, int betaId, int outId, const std::string &kernel, const std::vector<int> &axes);
 		void backwardScale(int inputId, int outId, Scalar scale);
-		void backwardGelu(int inputId, int outId);
+		virtual void backwardGelu(int inputId, int outId);
 		void backwardPositionalEncoding(int inputId, int outId);
 		void backwardReshape(int inputId, int outId);
 		void backwardTranspose(int inputId, int outId, const std::string &kernel, const std::vector<int> &axes);
@@ -241,7 +243,7 @@ namespace PHP2xAI::Runtime::CPP
 		void SOFTMAX_1D_LAST(Tensor &X, Tensor &Y);
 		void SOFTMAX_2D_LAST(Tensor &X, Tensor &Y);
 		void SOFTMAX_3D_LAST(Tensor &X, Tensor &Y);
-		void SOFTMAX_4D_LAST(Tensor &X, Tensor &Y);
+		virtual void SOFTMAX_4D_LAST(Tensor &X, Tensor &Y);
 		void SOFTMAX_GENERIC_AXIS(Tensor &X, Tensor &Y, int axis);
 		void BACKWORD_SOFTMAX_1D_LAST(Tensor &X, Tensor &Y);
 		void BACKWORD_SOFTMAX_2D_LAST(Tensor &X, Tensor &Y);
@@ -318,6 +320,9 @@ namespace PHP2xAI::Runtime::CPP
 		using GraphRuntime::GraphRuntime;
 
 	private:
+		void opGelu(int inputId, int outId) override;
+		void backwardGelu(int inputId, int outId) override;
+		void SOFTMAX_4D_LAST(Tensor &X, Tensor &Y) override;
 		void MATMUL_2D_2D(Tensor &A, Tensor &B, Tensor &C) override;
 		void MATMUL_1B_2D_2D(Tensor &A, Tensor &B, Tensor &C) override;
 		void MATMUL_2B_2D_2D(Tensor &A, Tensor &B, Tensor &C) override;
