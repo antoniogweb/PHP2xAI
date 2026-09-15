@@ -689,8 +689,9 @@ namespace PHP2xAI::Runtime::CPP
 		const int outer = total / lastDim;
 		const int rowsPerBatch = outer / batch;
 		const Scalar negativeInfinity = -std::numeric_limits<Scalar>::infinity();
-		out.data = scores.data;
+		out.data.assign(scores.data.size(), 0.0f);
 
+		#pragma omp parallel for schedule(static)
 		for (int row = 0; row < outer; ++row)
 		{
 			const int b = row / rowsPerBatch;
@@ -699,8 +700,10 @@ namespace PHP2xAI::Runtime::CPP
 
 			for (int k = 0; k < lastDim; ++k)
 			{
-				if (mask.data[static_cast<std::size_t>(maskOffset + k)] == 0.0f)
-					out.data[static_cast<std::size_t>(scoreOffset + k)] = negativeInfinity;
+				const std::size_t index = static_cast<std::size_t>(scoreOffset + k);
+				out.data[index] = mask.data[static_cast<std::size_t>(maskOffset + k)] == 0.0f
+					? negativeInfinity
+					: scores.data[index];
 			}
 		}
 	}
@@ -3193,6 +3196,7 @@ namespace PHP2xAI::Runtime::CPP
 		const int outer = total / lastDim;
 		const int rowsPerBatch = outer / batch;
 
+		#pragma omp parallel for schedule(static)
 		for (int row = 0; row < outer; ++row)
 		{
 			const int b = row / rowsPerBatch;
@@ -3201,8 +3205,9 @@ namespace PHP2xAI::Runtime::CPP
 
 			for (int k = 0; k < lastDim; ++k)
 			{
+				const std::size_t index = static_cast<std::size_t>(scoreOffset + k);
 				if (mask.data[static_cast<std::size_t>(maskOffset + k)] != 0.0f)
-					scores.grad[static_cast<std::size_t>(scoreOffset + k)] += out.grad[static_cast<std::size_t>(scoreOffset + k)];
+					scores.grad[index] += out.grad[index];
 			}
 		}
 	}
