@@ -310,6 +310,9 @@ class GraphRuntime
 				case 'reshape':
 					$this->opReshape($inputs[0], $outId);
 					break;
+				case 'slice':
+					$this->opSlice($inputs[0], $outId, $attributes);
+					break;
 				case 'transpose':
 					$this->opTranspose($inputs[0], $outId, $attributes);
 					break;
@@ -664,6 +667,67 @@ class GraphRuntime
 
 		$C->strides = TensorRuntime::computeStrides($C->shape);
 		$C->data = $A->data;
+	}
+
+
+	private function opSlice(int $inputId, int $outId, array $attributes): void
+	{
+		$A = $this->tensors[$inputId];
+		$C = $this->tensors[$outId];
+		$rank = count($A->shape);
+		$axis = $attributes["axes"][0] ?? -1;
+		$start = $attributes["start"] ?? null;
+		$end = $attributes["end"] ?? null;
+		$kernel = $attributes["kernel"] ?? "";
+		if (!is_int($axis) || !is_int($start) || !is_int($end))
+			throw new RuntimeException("slice: missing or invalid attributes");
+		if ($axis < 0) $axis += $rank;
+		if ($rank === 0 || $axis < 0 || $axis >= $rank || $start < 0 || $end <= $start || $end > $A->shape[$axis])
+			throw new RuntimeException("slice: range out of bounds");
+		$expectedShape = $A->shape;
+		$expectedShape[$axis] = $end - $start;
+		if ($C->shape !== $expectedShape)
+			throw new RuntimeException("slice: output shape mismatch");
+
+		switch ($kernel)
+		{
+			case "SLICE_LAST":
+				if ($axis !== $rank - 1) throw new RuntimeException("slice last: axis must be the last axis");
+				$this->SLICE_LAST($A, $C, $start, $end);
+				return;
+			case "SLICE_GENERIC_AXIS":
+				$this->SLICE_GENERIC_AXIS($A, $C, $axis, $start, $end);
+				return;
+			default:
+				throw new RuntimeException("slice: kernel not supported");
+		}
+	}
+
+	private function SLICE_LAST(TensorRuntime $A, TensorRuntime $C, int $start, int $end): void
+	{
+		$axisSize = $A->shape[count($A->shape) - 1];
+		$sliceSize = $end - $start;
+		$outerCount = intdiv(count($A->data), $axisSize);
+		$C->strides = TensorRuntime::computeStrides($C->shape);
+		$C->data = array_fill(0, array_product($C->shape), 0.0);
+		for ($outer = 0; $outer < $outerCount; $outer++)
+			for ($i = 0; $i < $sliceSize; $i++)
+				$C->data[$outer * $sliceSize + $i] = $A->data[$outer * $axisSize + $start + $i];
+	}
+
+	private function SLICE_GENERIC_AXIS(TensorRuntime $A, TensorRuntime $C, int $axis, int $start, int $end): void
+	{
+		$sliceSize = $end - $start;
+		$C->strides = TensorRuntime::computeStrides($C->shape);
+		$C->data = array_fill(0, array_product($C->shape), 0.0);
+		$this->forEachSliceAlongAxisIncremental($A->shape, $A->strides, $axis,
+			function(int $base, int $strideAxis, int $axisLen, array $idxNoAxis) use ($A, $C, $axis, $start, $sliceSize): void {
+				$outputBase = 0;
+				foreach ($idxNoAxis as $dimension => $index)
+					if ($index !== null) $outputBase += $index * $C->strides[$dimension];
+				for ($i = 0; $i < $sliceSize; $i++)
+					$C->data[$outputBase + $i * $C->strides[$axis]] = $A->data[$base + ($start + $i) * $strideAxis];
+			});
 	}
 
 	private function opPositionalEncoding(int $inputId, int $outId): void
@@ -1855,6 +1919,9 @@ class GraphRuntime
 				case 'reshape':
 					$this->backwardReshape($inputs[0], $outId);
 					break;
+				case 'slice':
+					$this->backwardSlice($inputs[0], $outId, $attributes);
+					break;
 				case 'transpose':
 					$this->backwardTranspose($inputs[0], $outId, $attributes);
 					break;
@@ -2241,6 +2308,57 @@ class GraphRuntime
 
 		for ($i = 0; $i < count($A->grad); $i++)
 			$A->grad[$i] += $C->grad[$i];
+	}
+
+
+	private function backwardSlice(int $inputId, int $outId, array $attributes): void
+	{
+		$A = $this->tensors[$inputId];
+		$C = $this->tensors[$outId];
+		if (!$A->requiresGrad) return;
+		$rank = count($A->shape);
+		$axis = $attributes["axes"][0] ?? -1;
+		$start = $attributes["start"] ?? null;
+		$end = $attributes["end"] ?? null;
+		$kernel = $attributes["kernel"] ?? "";
+		if (!is_int($axis) || !is_int($start) || !is_int($end)) throw new RuntimeException("slice backward: missing or invalid attributes");
+		if ($axis < 0) $axis += $rank;
+		if ($rank === 0 || $axis < 0 || $axis >= $rank || $start < 0 || $end <= $start || $end > $A->shape[$axis]) throw new RuntimeException("slice backward: range out of bounds");
+		if ($kernel === "SLICE_LAST")
+		{
+			if ($axis !== $rank - 1) throw new RuntimeException("slice last backward: axis must be the last axis");
+			$this->BACKWARD_SLICE_LAST($A, $C, $start, $end);
+			return;
+		}
+		if ($kernel === "SLICE_GENERIC_AXIS")
+		{
+			$this->BACKWARD_SLICE_GENERIC_AXIS($A, $C, $axis, $start, $end);
+			return;
+		}
+		throw new RuntimeException("slice backward: kernel not supported");
+	}
+
+	private function BACKWARD_SLICE_LAST(TensorRuntime $A, TensorRuntime $C, int $start, int $end): void
+	{
+		$axisSize = $A->shape[count($A->shape) - 1];
+		$sliceSize = $end - $start;
+		$outerCount = intdiv(count($A->grad), $axisSize);
+		for ($outer = 0; $outer < $outerCount; $outer++)
+			for ($i = 0; $i < $sliceSize; $i++)
+				$A->grad[$outer * $axisSize + $start + $i] += $C->grad[$outer * $sliceSize + $i];
+	}
+
+	private function BACKWARD_SLICE_GENERIC_AXIS(TensorRuntime $A, TensorRuntime $C, int $axis, int $start, int $end): void
+	{
+		$sliceSize = $end - $start;
+		$this->forEachSliceAlongAxisIncremental($A->shape, $A->strides, $axis,
+			function(int $base, int $strideAxis, int $axisLen, array $idxNoAxis) use ($A, $C, $axis, $start, $sliceSize): void {
+				$outputBase = 0;
+				foreach ($idxNoAxis as $dimension => $index)
+					if ($index !== null) $outputBase += $index * $C->strides[$dimension];
+				for ($i = 0; $i < $sliceSize; $i++)
+					$A->grad[$base + ($start + $i) * $strideAxis] += $C->grad[$outputBase + $i * $C->strides[$axis]];
+			});
 	}
 
 	private function backwardPositionalEncoding(int $inputId, int $outId): void

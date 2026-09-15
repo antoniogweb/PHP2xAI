@@ -368,6 +368,36 @@ class Tensor
 		return $result;
 	}
 
+	/** Extracts the half-open interval [start, end) along an axis. */
+	public function slice(int $start, int $end, int $axis = -1) : Tensor
+	{
+		$rank = $this->getRank();
+		if ($rank === 0)
+			throw new Exception("Slice requires rank >= 1");
+		if ($axis < 0)
+			$axis += $rank;
+		if ($axis < 0 || $axis >= $rank)
+			throw new Exception("Slice axis out of range");
+
+		$axisSize = $this->shape[$axis];
+		if ($start < 0 || $end <= $start || $end > $axisSize)
+			throw new Exception("Slice range out of bounds");
+
+		$outputShape = $this->shape;
+		$outputShape[$axis] = $end - $start;
+		$context = $this->initContextFrom();
+		$inputId = $this->registerInContext($context, $this);
+		$result = new Tensor($outputShape, [], 'slice');
+		$context->registerOp('slice', [$inputId], $result, [
+			"kernel" => $axis === $rank - 1 ? "SLICE_LAST" : "SLICE_GENERIC_AXIS",
+			"axes" => [$axis],
+			"start" => $start,
+			"end" => $end,
+		]);
+
+		return $result;
+	}
+
 	/**
 	 * Adds sinusoidal positional encoding to token embeddings [B, L, D].
 	 */

@@ -103,6 +103,8 @@ namespace PHP2xAI::Runtime::CPP
 		std::vector<int> axes;
 		Scalar dropoutPerc{50.0f};
 		Scalar scale{1.0f};
+		int start{};
+		int end{};
 	};
 
 	class GraphRuntime
@@ -161,6 +163,7 @@ namespace PHP2xAI::Runtime::CPP
 		virtual void opGelu(int inputId, int outId);
 		void opPositionalEncoding(int inputId, int outId);
 		void opReshape(int inputId, int outId);
+		void opSlice(int inputId, int outId, const std::string &kernel, const std::vector<int> &axes, int start, int end);
 		void opTranspose(int inputId, int outId, const std::string &kernel, const std::vector<int> &axes);
 		void opAdd(int aId, int bId, int outId, const std::string &kernel);
 		// void opSub(int, int, int);
@@ -183,6 +186,7 @@ namespace PHP2xAI::Runtime::CPP
 		virtual void backwardGelu(int inputId, int outId);
 		void backwardPositionalEncoding(int inputId, int outId);
 		void backwardReshape(int inputId, int outId);
+		void backwardSlice(int inputId, int outId, const std::string &kernel, const std::vector<int> &axes, int start, int end);
 		void backwardTranspose(int inputId, int outId, const std::string &kernel, const std::vector<int> &axes);
 		void backwardAdd(int, int, int, const std::string &kernel);
 		void backwardEmbeddings(int xIdsId, int embeddingsId, int outId);
@@ -239,6 +243,10 @@ namespace PHP2xAI::Runtime::CPP
 		void BACKWARD_TRANSPOSE_4D_LAST_TWO(Tensor &A, Tensor &C);
 		void BACKWARD_TRANSPOSE_4D_AXIS_1_2(Tensor &A, Tensor &C);
 		void BACKWARD_TRANSPOSE_GENERIC(Tensor &A, Tensor &C, const std::vector<int> &axes);
+		void SLICE_LAST(Tensor &A, Tensor &C, int start, int end);
+		void SLICE_GENERIC_AXIS(Tensor &A, Tensor &C, int axis, int start, int end);
+		void BACKWARD_SLICE_LAST(Tensor &A, Tensor &C, int start, int end);
+		void BACKWARD_SLICE_GENERIC_AXIS(Tensor &A, Tensor &C, int axis, int start, int end);
 
 		void SOFTMAX_1D_LAST(Tensor &X, Tensor &Y);
 		void SOFTMAX_2D_LAST(Tensor &X, Tensor &Y);

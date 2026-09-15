@@ -339,6 +339,8 @@ namespace PHP2xAI::Runtime::CPP
 				opPositionalEncoding(inputs[0], outId);
 			else if (name == "reshape")
 				opReshape(inputs[0], outId);
+			else if (name == "slice")
+				opSlice(inputs[0], outId, op.kernel, op.axes, op.start, op.end);
 			else if (name == "transpose")
 				opTranspose(inputs[0], outId, op.kernel, op.axes);
 			else if (name == "matmul")
@@ -421,6 +423,8 @@ namespace PHP2xAI::Runtime::CPP
 				backwardPositionalEncoding(inputs[0], outId);
 			else if (name == "reshape")
 				backwardReshape(inputs[0], outId);
+			else if (name == "slice")
+				backwardSlice(inputs[0], outId, op.kernel, op.axes, op.start, op.end);
 			else if (name == "transpose")
 				backwardTranspose(inputs[0], outId, op.kernel, op.axes);
 			else if (name == "matmul")
@@ -871,6 +875,38 @@ namespace PHP2xAI::Runtime::CPP
 			return LAYER_NORM_GENERIC(X, Gamma, Beta, Y, axes);
 
 		throw std::runtime_error("layer_norm: kernel not supported");
+	}
+
+
+	void GraphRuntime::opSlice(int inputId, int outId, const std::string &kernel, const std::vector<int> &axes, int start, int end)
+	{
+		auto &A = tensors[inputId]; auto &C = tensors[outId]; const int rank = static_cast<int>(A.shape.size());
+		if (rank == 0 || axes.size() != 1) throw std::runtime_error("slice: invalid axis");
+		int axis = axes[0]; if (axis < 0) axis += rank;
+		if (axis < 0 || axis >= rank || start < 0 || end <= start || end > A.shape[static_cast<std::size_t>(axis)]) throw std::runtime_error("slice: range out of bounds");
+		auto expectedShape = A.shape; expectedShape[static_cast<std::size_t>(axis)] = end - start;
+		if (C.shape != expectedShape) throw std::runtime_error("slice: output shape mismatch");
+		if (kernel == "SLICE_LAST") { if (axis != rank - 1) throw std::runtime_error("slice last: axis must be the last axis"); return SLICE_LAST(A, C, start, end); }
+		if (kernel == "SLICE_GENERIC_AXIS") return SLICE_GENERIC_AXIS(A, C, axis, start, end);
+		throw std::runtime_error("slice: kernel not supported");
+	}
+
+	void GraphRuntime::SLICE_LAST(Tensor &A, Tensor &C, int start, int end)
+	{
+		if (!A.isContiguous()) throw std::runtime_error("slice last: input must be contiguous");
+		const int axisSize = A.shape.back(), sliceSize = end - start; const long long outerCount = static_cast<long long>(A.data.size()) / axisSize;
+		C.strides = Tensor::computeStrides(C.shape); C.data.assign(shapeElementCount(C.shape), 0.0f);
+		#pragma omp parallel for schedule(static)
+		for (long long outer = 0; outer < outerCount; ++outer) std::copy_n(A.data.begin() + outer * axisSize + start, sliceSize, C.data.begin() + outer * sliceSize);
+	}
+
+	void GraphRuntime::SLICE_GENERIC_AXIS(Tensor &A, Tensor &C, int axis, int start, int end)
+	{
+		const int sliceSize = end - start; C.strides = Tensor::computeStrides(C.shape); C.data.assign(shapeElementCount(C.shape), 0.0f);
+		forEachSliceAlongAxisIncremental(A.shape, A.strides, axis, [&](int base, int strideAxis, int, const std::vector<int> &idxNoAxis) {
+			int outputBase = 0; for (std::size_t dimension = 0; dimension < idxNoAxis.size(); ++dimension) if (idxNoAxis[dimension] >= 0) outputBase += idxNoAxis[dimension] * C.strides[dimension];
+			for (int i = 0; i < sliceSize; ++i) C.data[static_cast<std::size_t>(outputBase + i * C.strides[static_cast<std::size_t>(axis)])] = A.data[static_cast<std::size_t>(base + (start + i) * strideAxis)];
+		});
 	}
 
 	void GraphRuntime::opTranspose(int inputId, int outId, const std::string &kernel, const std::vector<int> &axes)
@@ -3351,6 +3387,33 @@ namespace PHP2xAI::Runtime::CPP
 		throw std::runtime_error("layer_norm backward: kernel not supported");
 	}
 
+
+	void GraphRuntime::backwardSlice(int inputId, int outId, const std::string &kernel, const std::vector<int> &axes, int start, int end)
+	{
+		auto &A = tensors[inputId]; auto &C = tensors[outId]; if (!A.requiresGrad) return; const int rank = static_cast<int>(A.shape.size());
+		if (rank == 0 || axes.size() != 1) throw std::runtime_error("slice backward: invalid axis"); int axis = axes[0]; if (axis < 0) axis += rank;
+		if (axis < 0 || axis >= rank || start < 0 || end <= start || end > A.shape[static_cast<std::size_t>(axis)]) throw std::runtime_error("slice backward: range out of bounds");
+		if (kernel == "SLICE_LAST") { if (axis != rank - 1) throw std::runtime_error("slice last backward: axis must be the last axis"); return BACKWARD_SLICE_LAST(A, C, start, end); }
+		if (kernel == "SLICE_GENERIC_AXIS") return BACKWARD_SLICE_GENERIC_AXIS(A, C, axis, start, end);
+		throw std::runtime_error("slice backward: kernel not supported");
+	}
+
+	void GraphRuntime::BACKWARD_SLICE_LAST(Tensor &A, Tensor &C, int start, int end)
+	{
+		if (!A.isContiguous()) throw std::runtime_error("slice last backward: input must be contiguous"); const int axisSize = A.shape.back(), sliceSize = end - start; const long long outerCount = static_cast<long long>(A.grad.size()) / axisSize;
+		#pragma omp parallel for schedule(static)
+		for (long long outer = 0; outer < outerCount; ++outer) for (int i = 0; i < sliceSize; ++i) A.grad[static_cast<std::size_t>(outer * axisSize + start + i)] += C.grad[static_cast<std::size_t>(outer * sliceSize + i)];
+	}
+
+	void GraphRuntime::BACKWARD_SLICE_GENERIC_AXIS(Tensor &A, Tensor &C, int axis, int start, int end)
+	{
+		const int sliceSize = end - start;
+		forEachSliceAlongAxisIncremental(A.shape, A.strides, axis, [&](int base, int strideAxis, int, const std::vector<int> &idxNoAxis) {
+			int outputBase = 0; for (std::size_t dimension = 0; dimension < idxNoAxis.size(); ++dimension) if (idxNoAxis[dimension] >= 0) outputBase += idxNoAxis[dimension] * C.strides[dimension];
+			for (int i = 0; i < sliceSize; ++i) A.grad[static_cast<std::size_t>(base + (start + i) * strideAxis)] += C.grad[static_cast<std::size_t>(outputBase + i * C.strides[static_cast<std::size_t>(axis)])];
+		});
+	}
+
 	void GraphRuntime::backwardTranspose(int inputId, int outId, const std::string &kernel, const std::vector<int> &axes)
 	{
 		auto &A = tensors[inputId];
@@ -5444,6 +5507,10 @@ namespace PHP2xAI::Runtime::CPP
 					op.dropoutPerc = attrs.at("dropoutPerc").get<Scalar>();
 				if (attrs.contains("scale"))
 					op.scale = attrs.at("scale").get<Scalar>();
+				if (attrs.contains("start"))
+					op.start = attrs.at("start").get<int>();
+				if (attrs.contains("end"))
+					op.end = attrs.at("end").get<int>();
 			}
 
 			ops.push_back(std::move(op));
