@@ -3829,12 +3829,13 @@ namespace PHP2xAI::Runtime::CPP
 		const Eigen::Map<const Array> yGrad(Y.grad.data(), static_cast<Eigen::Index>(size));
 		Eigen::Map<Array> xGrad(X.grad.data(), static_cast<Eigen::Index>(size));
 
-		const Array u = scale * (x + 0.044715f * x.cube());
-		const Array tanhU = u.tanh();
-		const Array du = scale * (1.0f + 3.0f * 0.044715f * x.square());
-		const Array localGrad = 0.5f * (1.0f + tanhU)
-			+ 0.5f * x * (1.0f - tanhU.square()) * du;
-		xGrad += yGrad * localGrad;
+		// Keep just tanh(u) as a materialized buffer: the remaining expression is fused.
+		Array tanhU = (scale * (x + 0.044715f * x.cube())).tanh();
+		xGrad += yGrad * (
+			0.5f * (1.0f + tanhU)
+			+ 0.5f * x * (1.0f - tanhU.square())
+				* scale * (1.0f + 3.0f * 0.044715f * x.square())
+		);
 	}
 
 
