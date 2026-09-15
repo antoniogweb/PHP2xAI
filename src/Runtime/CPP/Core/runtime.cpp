@@ -1753,6 +1753,7 @@ namespace PHP2xAI::Runtime::CPP
 		y = 0.5f * x * (1.0f + (scale * (x + 0.044715f * x.cube())).tanh());
 	}
 
+
 	void GraphRuntimeEigen::SOFTMAX_4D_LAST(Tensor &X, Tensor &Y)
 	{
 		if (X.shape.size() != 4 || Y.shape != X.shape)
@@ -1762,28 +1763,35 @@ namespace PHP2xAI::Runtime::CPP
 		const int heads = X.shape[1];
 		const int time = X.shape[2];
 		const int dim = X.shape[3];
-		const int rows = batch * heads * time;
+		const long long rows = static_cast<long long>(batch) * heads * time;
+		Y.strides = Tensor::computeStrides(Y.shape);
 		Y.data.assign(static_cast<std::size_t>(rows * dim), 0.0f);
 
-		using Matrix = Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
-		const Eigen::Map<const Matrix> x(X.data.data(), rows, dim);
-		Eigen::Map<Matrix> y(Y.data.data(), rows, dim);
-
-		Eigen::Array<Scalar, Eigen::Dynamic, 1> maxValues = x.rowwise().maxCoeff().array();
-		for (int row = 0; row < rows; ++row)
+		// Rows are independent. Keeping all three passes in one worker improves
+		// locality and avoids allocating the row-max and row-sum vectors.
+		#pragma omp parallel for schedule(static)
+		for (long long row = 0; row < rows; ++row)
 		{
-			if (maxValues[row] == -std::numeric_limits<Scalar>::infinity())
-				maxValues[row] = 0.0f;
-		}
+			const std::size_t offset = static_cast<std::size_t>(row * dim);
+			Scalar maxValue = -std::numeric_limits<Scalar>::infinity();
+			for (int col = 0; col < dim; ++col)
+				maxValue = std::max(maxValue, X.data[offset + static_cast<std::size_t>(col)]);
 
-		y = (x.array().colwise() - maxValues).exp().matrix();
-		Eigen::Array<Scalar, Eigen::Dynamic, 1> sums = y.rowwise().sum().array();
-		for (int row = 0; row < rows; ++row)
-		{
-			if (sums[row] == 0.0f)
-				sums[row] = 1.0f;
+			if (maxValue == -std::numeric_limits<Scalar>::infinity())
+				maxValue = 0.0f;
+
+			Scalar sum = 0.0f;
+			for (int col = 0; col < dim; ++col)
+			{
+				const Scalar value = std::exp(X.data[offset + static_cast<std::size_t>(col)] - maxValue);
+				Y.data[offset + static_cast<std::size_t>(col)] = value;
+				sum += value;
+			}
+
+			const Scalar inverseSum = sum > 0.0f ? 1.0f / sum : 1.0f;
+			for (int col = 0; col < dim; ++col)
+				Y.data[offset + static_cast<std::size_t>(col)] *= inverseSum;
 		}
-		y.array().colwise() /= sums;
 	}
 
 
