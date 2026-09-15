@@ -34,6 +34,8 @@ abstract class Model
 	private ?CoreFFI $cppRuntime = null;
 	
 	protected $p = [];
+	/** @var array<string,array<string,Tensor>> */
+	protected array $bertEncoderParameters = [];
 	public Optimizer $optimizer;
 	
 	// abstract public function forward(Tensor $x) : Tensor;
@@ -109,6 +111,38 @@ abstract class Model
 	}
 
 	/**
+	 * Creates a reusable BERT encoder parameter set. Invoke this from a
+	 * concrete model constructor, before the framework exports its graph.
+	 */
+	protected function initializeBertEncoder(string $key, int $d, int $dff) : void
+	{
+		if (isset($this->bertEncoderParameters[$key]))
+			return;
+
+		if ($dff <= 0)
+			throw new RuntimeException("dff must be positive");
+
+		$this->bertEncoderParameters[$key] = [
+			'wq' => $this->createParam(Tensor::init([$d, $d], 0.05)),
+			'wk' => $this->createParam(Tensor::init([$d, $d], 0.05)),
+			'wv' => $this->createParam(Tensor::init([$d, $d], 0.05)),
+			'bq' => $this->createParam(Tensor::zeros([$d])),
+			'bk' => $this->createParam(Tensor::zeros([$d])),
+			'bv' => $this->createParam(Tensor::zeros([$d])),
+			'wo' => $this->createParam(Tensor::init([$d, $d], 0.05)),
+			'bo' => $this->createParam(Tensor::zeros([$d])),
+			'w1' => $this->createParam(Tensor::init([$d, $dff], 0.05)),
+			'b1' => $this->createParam(Tensor::zeros([$dff])),
+			'w2' => $this->createParam(Tensor::init([$dff, $d], 0.05)),
+			'b2' => $this->createParam(Tensor::zeros([$d])),
+			'gamma1' => $this->createParam(Tensor::createFromData(array_fill(0, $d, 1.0))),
+			'beta1' => $this->createParam(Tensor::zeros([$d])),
+			'gamma2' => $this->createParam(Tensor::createFromData(array_fill(0, $d, 1.0))),
+			'beta2' => $this->createParam(Tensor::zeros([$d])),
+		];
+	}
+
+	/**
 	 * Builds one post-LayerNorm BERT encoder block for an input [B, L, D].
 	 */
 	public function bertEncoder(
@@ -116,7 +150,8 @@ abstract class Model
 		int $numHeads,
 		int $dff,
 		?Tensor $mask = null,
-		float $dropout = 0.1
+		float $dropout = 0.1,
+		?string $parameterKey = null
 	) : Tensor
 	{
 		if ($x->getRank() !== 3)
@@ -148,22 +183,26 @@ abstract class Model
 			$mask->setTrainable(false);
 		}
 
-		$wq = $this->createParam(Tensor::init([$d, $d], 0.05));
-		$wk = $this->createParam(Tensor::init([$d, $d], 0.05));
-		$wv = $this->createParam(Tensor::init([$d, $d], 0.05));
-		$bq = $this->createParam(Tensor::zeros([$d]));
-		$bk = $this->createParam(Tensor::zeros([$d]));
-		$bv = $this->createParam(Tensor::zeros([$d]));
-		$wo = $this->createParam(Tensor::init([$d, $d], 0.05));
-		$bo = $this->createParam(Tensor::zeros([$d]));
-		$w1 = $this->createParam(Tensor::init([$d, $dff], 0.05));
-		$b1 = $this->createParam(Tensor::zeros([$dff]));
-		$w2 = $this->createParam(Tensor::init([$dff, $d], 0.05));
-		$b2 = $this->createParam(Tensor::zeros([$d]));
-		$gamma1 = $this->createParam(Tensor::createFromData(array_fill(0, $d, 1.0)));
-		$beta1 = $this->createParam(Tensor::zeros([$d]));
-		$gamma2 = $this->createParam(Tensor::createFromData(array_fill(0, $d, 1.0)));
-		$beta2 = $this->createParam(Tensor::zeros([$d]));
+		if ($parameterKey === null || !isset($this->bertEncoderParameters[$parameterKey]))
+			throw new RuntimeException("BERT encoder parameters must be initialized in the model constructor");
+
+		$params = $this->bertEncoderParameters[$parameterKey];
+		$wq = $params['wq'];
+		$wk = $params['wk'];
+		$wv = $params['wv'];
+		$bq = $params['bq'];
+		$bk = $params['bk'];
+		$bv = $params['bv'];
+		$wo = $params['wo'];
+		$bo = $params['bo'];
+		$w1 = $params['w1'];
+		$b1 = $params['b1'];
+		$w2 = $params['w2'];
+		$b2 = $params['b2'];
+		$gamma1 = $params['gamma1'];
+		$beta1 = $params['beta1'];
+		$gamma2 = $params['gamma2'];
+		$beta2 = $params['beta2'];
 
 		$q = $x->matMul($wq)->add($bq);
 		$k = $x->matMul($wk)->add($bk);
