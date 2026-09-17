@@ -223,9 +223,9 @@ abstract class Model
 	 * @param Tensor $Q Query tensor [B, L, D]
 	 * @param Tensor $K Key tensor [B, L, D]
 	 * @param Tensor $V Value tensor [B, L, D]
-	 * @param Tensor $mask Padding mask [B, L] with 1 for valid tokens, 0 for padding
+	 * @param ?Tensor $mask Optional padding mask [B, Lkv] with 1 for valid tokens, 0 for padding
 	 * @param int $numHeads Number of attention heads
-	 * @param string $maskType Mask type: "PADDING" (CASUAL not supported yet)
+	 * @param string $maskType Mask type: "PADDING" or "CAUSAL"
 	 * @return Tensor Attention output with shape [B, L, D]
 	 *
 	 * Flow:
@@ -234,7 +234,7 @@ abstract class Model
 	 *   → transpose axes [1,2] [B, H, L, dk]
 	 *   → Qh, Kh, Vh [B, H, L, dk]
 	 *
-	 *   Qh @ Khᵀ / sqrt(dk) → [B, H, L, L]
+	 *   (Qh @ Khᵀ / sqrt(dk)) + Mask → [B, H, L, L]
 	 *   softmax → [B, H, L, L]
 	 *   × Vh → [B, H, L, dk]
 	 *
@@ -245,7 +245,7 @@ abstract class Model
 		Tensor $Q, 
 		Tensor $K, 
 		Tensor $V, 
-		Tensor $mask, 
+		?Tensor $mask,
 		int $numHeads, 
 		string $maskType = "PADDING"
 	) : Tensor
@@ -261,22 +261,28 @@ abstract class Model
 		if ($qRank !== 3)
 			throw new RuntimeException("Q, K, V must have rank 3 [B, L, D]");
 
-		if ($mask->getRank() !== 2)
-			throw new RuntimeException("Mask must have rank 2 [B, L]");
-
 		if ($numHeads <= 0)
 			throw new RuntimeException("numHeads must be positive");
 
-		// Get D (last dimension) and validate divisibility
-		$D = $Q->shape[2];
+		// Q may be shorter than K/V during decode, but batch, K/V length and embedding dimension must agree.
+		[$batch, $Lq, $D] = $Q->shape;
+		[$kBatch, $Lkv, $kDim] = $K->shape;
+		[$vBatch, $vLength, $vDim] = $V->shape;
+		if ($batch !== $kBatch || $batch !== $vBatch || $Lkv !== $vLength || $D !== $kDim || $D !== $vDim)
+			throw new RuntimeException("Q, K, V dimensions mismatch");
+
 		if ($D % $numHeads !== 0)
 			throw new RuntimeException("Dimension D ({$D}) must be divisible by numHeads ({$numHeads})");
 
+		if ($mask !== null && ($mask->getRank() !== 2 || $mask->shape[0] !== $batch || $mask->shape[1] !== $Lkv))
+			throw new RuntimeException("Mask must have shape [B, Lkv]");
+
 		$dk = intdiv($D, $numHeads);
 
-		// For now, only PADDING mask is supported
-		if ($maskType !== "PADDING")
-			throw new RuntimeException("Mask type '{$maskType}' not supported yet. Only 'PADDING' is available.");
+		$maskType = strtoupper($maskType);
+
+		if ($maskType !== "PADDING" && $maskType !== "CAUSAL")
+			throw new RuntimeException("Mask type {$maskType} is not supported. Use PADDING or CAUSAL.");
 
 		// Split heads: reshape [B, L, D] -> [B, L, H, dk]
 		$Q_reshaped = $Q->reshape([$Q->shape[0], $Q->shape[1], $numHeads, $dk]);
@@ -295,8 +301,12 @@ abstract class Model
 		// Scale by sqrt(dk)
 		$scaledScores = $scores->scale(1.0 / sqrt($dk));
 
-		// Apply mask
-		$maskedScores = $scaledScores->applyPaddingMask($mask);
+		$maskedScores = $scaledScores;
+		
+		if ($maskType === "CAUSAL")
+			$maskedScores = $maskedScores->applyCausalMask($Lq, $Lkv);
+		else if ($maskType === "PADDING" && $mask !== null)
+			$maskedScores = $maskedScores->applyPaddingMask($mask);
 
 		// Softmax
 		$attentionWeights = $maskedScores->softmax();
