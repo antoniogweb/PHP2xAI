@@ -542,6 +542,28 @@ class Tensor
 	}
 
 	/**
+	 * Applies a causal attention mask to this tensor.
+	 *
+	 * Lq and Lkv are retained as operation attributes. Shape and axis semantics
+	 * are intentionally left to the runtime implementation.
+	 */
+	public function applyCausalMask(int $Lq, int $Lkv) : Tensor
+	{
+		$context = $this->initContextFrom();
+		$inputId = $this->registerInContext($context, $this);
+
+		$result = new Tensor($this->shape, [], "applyCausalMask");
+		$context->registerOp(
+			"apply_causal_mask",
+			[$inputId],
+			$result,
+			["Lq" => $Lq, "Lkv" => $Lkv]
+		);
+
+		return $result;
+	}
+
+	/**
 	 * Mean-pools token representations in a training batch, excluding padding.
 	 *
 	 * $this is X [B, L, D] and $mask is [B, L], with 1 for a valid token and

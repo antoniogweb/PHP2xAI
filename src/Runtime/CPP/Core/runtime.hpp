@@ -105,6 +105,8 @@ namespace PHP2xAI::Runtime::CPP
 		Scalar scale{1.0f};
 		int start{};
 		int end{};
+		int Lq{};
+		int Lkv{};
 	};
 
 	// Controls execution-specific behavior such as dropout and, later, GPT KV-cache handling.
@@ -163,6 +165,8 @@ namespace PHP2xAI::Runtime::CPP
 
 		void opMatmul(int, int, int, const std::string &kernel);
 		void opLayerNorm(int inputId, int gammaId, int betaId, int outId, const std::string &kernel, const std::vector<int> &axes);
+		void opApplyCausalMask(int inputId, int outId, int Lq, int Lkv);
+
 		void opEmbeddings(int xIdsId, int embeddingsId, int outId);
 		void opEmbeddingsMeanPooling(int xIdsId, int embeddingsId, int outId, int padId);
 		void opMeanPooling(int inputId, int maskId, int outId);
@@ -198,6 +202,8 @@ namespace PHP2xAI::Runtime::CPP
 		void backwardSlice(int inputId, int outId, const std::string &kernel, const std::vector<int> &axes, int start, int end);
 		void backwardTranspose(int inputId, int outId, const std::string &kernel, const std::vector<int> &axes);
 		void backwardAdd(int, int, int, const std::string &kernel);
+		void backwardApplyCausalMask(int inputId, int outId, int Lq, int Lkv);
+
 		void backwardEmbeddings(int xIdsId, int embeddingsId, int outId);
 		void backwardEmbeddingsMeanPooling(int xIdsId, int embeddingsId, int outId, int padId);
 		void backwardMeanPooling(int inputId, int maskId, int outId);

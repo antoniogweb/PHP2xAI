@@ -329,6 +329,8 @@ namespace PHP2xAI::Runtime::CPP
 
 			if (name == "apply_padding_mask")
 				opApplyPaddingMask(inputs[0], inputs[1], outId);
+			else if (name == "apply_causal_mask")
+				opApplyCausalMask(inputs[0], outId, op.Lq, op.Lkv);
 			else if (name == "layer_norm")
 				opLayerNorm(inputs[0], inputs[1], inputs[2], outId, op.kernel, op.axes);
 			else if (name == "scale")
@@ -413,6 +415,8 @@ namespace PHP2xAI::Runtime::CPP
 
 			if (name == "apply_padding_mask")
 				backwardApplyPaddingMask(inputs[0], inputs[1], outId);
+			else if (name == "apply_causal_mask")
+				backwardApplyCausalMask(inputs[0], outId, op.Lq, op.Lkv);
 			else if (name == "layer_norm")
 				backwardLayerNorm(inputs[0], inputs[1], inputs[2], outId, op.kernel, op.axes);
 			else if (name == "scale")
@@ -707,6 +711,45 @@ namespace PHP2xAI::Runtime::CPP
 			}
 		}
 	}
+	void GraphRuntime::opApplyCausalMask(int inputId, int outId, int Lq, int Lkv)
+	{
+		auto &input = tensors[inputId];
+		auto &output = tensors[outId];
+
+		const std::size_t rank = input.shape.size();
+		if (rank < 2)
+			throw std::runtime_error("apply_causal_mask: requires rank >= 2");
+
+		const std::size_t shapeLq = static_cast<std::size_t>(input.shape[rank - 2]);
+		const std::size_t shapeLkv = static_cast<std::size_t>(input.shape[rank - 1]);
+		if (Lq <= 0 || Lkv <= 0 || shapeLq != static_cast<std::size_t>(Lq)
+			|| shapeLkv != static_cast<std::size_t>(Lkv) || shapeLkv < shapeLq)
+			throw std::runtime_error("apply_causal_mask: requires 0 < Lq <= Lkv matching the last two dimensions");
+
+		if (output.shape != input.shape || !input.isContiguous() || !output.isContiguous())
+			throw std::runtime_error("apply_causal_mask: tensors must be contiguous and have the same shape");
+
+		output.data = input.data;
+		if (shapeLq == 1)
+			return;
+
+		const std::size_t offset = shapeLkv - shapeLq;
+		const std::size_t outer = input.data.size() / (shapeLq * shapeLkv);
+		const Scalar negInf = -std::numeric_limits<Scalar>::infinity();
+
+		#pragma omp parallel for schedule(static)
+		for (std::int64_t o = 0; o < static_cast<std::int64_t>(outer); ++o)
+		{
+			for (std::size_t q = 0; q < shapeLq; ++q)
+			{
+				Scalar *row = output.data.data() + (static_cast<std::size_t>(o) * shapeLq + q) * shapeLkv;
+				const std::size_t firstMasked = offset + q + 1;
+				std::fill(row + firstMasked, row + shapeLkv, negInf);
+			}
+		}
+	}
+
+
 	void GraphRuntime::opEmbeddings(int xIdsId, int embeddingsId, int outId)
 	{
 		auto &xIds = tensors[xIdsId];
@@ -3212,6 +3255,43 @@ namespace PHP2xAI::Runtime::CPP
 		}
 	}
 
+	void GraphRuntime::backwardApplyCausalMask(int inputId, int outId, int Lq, int Lkv)
+	{
+		auto &input = tensors[inputId];
+		auto &output = tensors[outId];
+		if (!input.requiresGrad)
+			return;
+
+		const std::size_t rank = input.shape.size();
+		if (rank < 2)
+			throw std::runtime_error("apply_causal_mask backward: requires rank >= 2");
+
+		const std::size_t shapeLq = static_cast<std::size_t>(input.shape[rank - 2]);
+		const std::size_t shapeLkv = static_cast<std::size_t>(input.shape[rank - 1]);
+		if (Lq <= 0 || Lkv <= 0 || shapeLq != static_cast<std::size_t>(Lq)
+			|| shapeLkv != static_cast<std::size_t>(Lkv) || shapeLkv < shapeLq)
+			throw std::runtime_error("apply_causal_mask backward: requires 0 < Lq <= Lkv matching the last two dimensions");
+
+		if (output.shape != input.shape || !input.isContiguous() || !output.isContiguous())
+			throw std::runtime_error("apply_causal_mask backward: tensors must be contiguous and have the same shape");
+
+		const std::size_t offset = shapeLkv - shapeLq;
+		const std::size_t outer = input.data.size() / (shapeLq * shapeLkv);
+
+		#pragma omp parallel for schedule(static)
+		for (std::int64_t o = 0; o < static_cast<std::int64_t>(outer); ++o)
+		{
+			for (std::size_t q = 0; q < shapeLq; ++q)
+			{
+				const std::size_t rowOffset = (static_cast<std::size_t>(o) * shapeLq + q) * shapeLkv;
+				const std::size_t firstMasked = offset + q + 1;
+				for (std::size_t k = 0; k < firstMasked; ++k)
+					input.grad[rowOffset + k] += output.grad[rowOffset + k];
+			}
+		}
+	}
+
+
 	void GraphRuntime::backwardEmbeddings(int xIdsId, int embeddingsId, int outId)
 	{
 		auto &xIds = tensors[xIdsId];
@@ -5525,6 +5605,10 @@ namespace PHP2xAI::Runtime::CPP
 					op.start = attrs.at("start").get<int>();
 				if (attrs.contains("end"))
 					op.end = attrs.at("end").get<int>();
+				if (attrs.contains("Lq"))
+					op.Lq = attrs.at("Lq").get<int>();
+				if (attrs.contains("Lkv"))
+					op.Lkv = attrs.at("Lkv").get<int>();
 			}
 
 			ops.push_back(std::move(op));

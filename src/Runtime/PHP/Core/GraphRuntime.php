@@ -295,6 +295,9 @@ class GraphRuntime
 				case 'apply_padding_mask':
 					$this->opApplyPaddingMask($inputs[0], $inputs[1], $outId);
 					break;
+				case 'apply_causal_mask':
+					$this->opApplyCausalMask($inputs[0], $outId, $attributes["Lq"] ?? 0, $attributes["Lkv"] ?? 0);
+					break;
 				case 'layer_norm':
 					$this->opLayerNorm($inputs[0], $inputs[1], $inputs[2], $outId, $attributes);
 					break;
@@ -448,6 +451,48 @@ class GraphRuntime
 			}
 		}
 	}
+	private function opApplyCausalMask(int $inputId, int $outId, int $Lq, int $Lkv): void
+	{
+		$input = $this->tensors[$inputId];
+		$output = $this->tensors[$outId];
+
+		$rank = count($input->shape);
+		if ($rank < 2)
+			throw new RuntimeException("apply_causal_mask: requires rank >= 2");
+
+		$shapeLq = $input->shape[$rank - 2];
+		$shapeLkv = $input->shape[$rank - 1];
+		if ($Lq <= 0 || $Lkv <= 0 || $shapeLq !== $Lq || $shapeLkv !== $Lkv || $shapeLkv < $shapeLq)
+			throw new RuntimeException("apply_causal_mask: requires 0 < Lq <= Lkv matching the last two dimensions");
+
+		if (
+			$output->shape !== $input->shape ||
+			$input->baseOffset !== 0 || $output->baseOffset !== 0 ||
+			$input->strides !== TensorRuntime::computeStrides($input->shape) ||
+			$output->strides !== TensorRuntime::computeStrides($output->shape)
+		)
+			throw new RuntimeException("apply_causal_mask: tensors must be contiguous and have the same shape");
+
+		$output->data = $input->data;
+		if ($shapeLq === 1)
+			return;
+
+		$offset = $shapeLkv - $shapeLq;
+		$outer = intdiv(count($input->data), $shapeLq * $shapeLkv);
+
+		for ($o = 0; $o < $outer; $o++)
+		{
+			for ($q = 0; $q < $shapeLq; $q++)
+			{
+				$rowOffset = ($o * $shapeLq + $q) * $shapeLkv;
+				$firstMasked = $offset + $q + 1;
+				for ($k = $firstMasked; $k < $shapeLkv; $k++)
+					$output->data[$rowOffset + $k] = -INF;
+			}
+		}
+	}
+
+
 	private function opEmbeddings(int $xIdsId, int $embeddingsId, int $outId, array $attributes): void
 	{
 		$xIds = $this->tensors[$xIdsId];
@@ -1904,6 +1949,9 @@ class GraphRuntime
 				case 'apply_padding_mask':
 					$this->backwardApplyPaddingMask($inputs[0], $inputs[1], $outId);
 					break;
+				case 'apply_causal_mask':
+					$this->backwardApplyCausalMask($inputs[0], $outId, $attributes["Lq"] ?? 0, $attributes["Lkv"] ?? 0);
+					break;
 				case 'layer_norm':
 					$this->backwardLayerNorm($inputs[0], $inputs[1], $inputs[2], $outId, $attributes);
 					break;
@@ -2037,6 +2085,46 @@ class GraphRuntime
 			}
 		}
 	}
+
+	private function backwardApplyCausalMask(int $inputId, int $outId, int $Lq, int $Lkv): void
+	{
+		$input = $this->tensors[$inputId];
+		$output = $this->tensors[$outId];
+		if (!$input->requiresGrad)
+			return;
+
+		$rank = count($input->shape);
+		if ($rank < 2)
+			throw new RuntimeException("apply_causal_mask backward: requires rank >= 2");
+
+		$shapeLq = $input->shape[$rank - 2];
+		$shapeLkv = $input->shape[$rank - 1];
+		if ($Lq <= 0 || $Lkv <= 0 || $shapeLq !== $Lq || $shapeLkv !== $Lkv || $shapeLkv < $shapeLq)
+			throw new RuntimeException("apply_causal_mask backward: requires 0 < Lq <= Lkv matching the last two dimensions");
+
+		if (
+			$output->shape !== $input->shape ||
+			$input->baseOffset !== 0 || $output->baseOffset !== 0 ||
+			$input->strides !== TensorRuntime::computeStrides($input->shape) ||
+			$output->strides !== TensorRuntime::computeStrides($output->shape)
+		)
+			throw new RuntimeException("apply_causal_mask backward: tensors must be contiguous and have the same shape");
+
+		$offset = $shapeLkv - $shapeLq;
+		$outer = intdiv(count($input->data), $shapeLq * $shapeLkv);
+
+		for ($o = 0; $o < $outer; $o++)
+		{
+			for ($q = 0; $q < $shapeLq; $q++)
+			{
+				$rowOffset = ($o * $shapeLq + $q) * $shapeLkv;
+				$firstMasked = $offset + $q + 1;
+				for ($k = 0; $k < $firstMasked; $k++)
+					$input->grad[$rowOffset + $k] += $output->grad[$rowOffset + $k];
+			}
+		}
+	}
+
 
 	private function backwardEmbeddings(int $xIdsId, int $embeddingsId, int $outId, array $attributes): void
 	{
