@@ -542,6 +542,28 @@ class Tensor
 	}
 
 	/**
+	 * Builds a paired key/value cache node for autoregressive attention.
+	 *
+	 * The graph contains one kv_cache operation with Knew and Vnew as inputs
+	 * and Kcache/Vcache as separate outputs. Runtime execution semantics are
+	 * intentionally implemented later.
+	 *
+	 * @return array{0: Tensor, 1: Tensor} [Kcache, Vcache]
+	 */
+	public function kvCache(Tensor $value) : array
+	{
+		$context = $this->initContextFrom($value);
+		$keyId = $this->registerInContext($context, $this);
+		$valueId = $this->registerInContext($context, $value);
+
+		$keyCache = new Tensor($this->shape, [], "kvCacheK");
+		$valueCache = new Tensor($value->shape, [], "kvCacheV");
+		$context->registerMultiOutputOp("kv_cache", [$keyId, $valueId], [$keyCache, $valueCache]);
+
+		return [$keyCache, $valueCache];
+	}
+
+	/**
 	 * Applies a causal attention mask to this tensor.
 	 *
 	 * The runtime derives Lq and Lkv from the last two dimensions of this tensor.

@@ -92,12 +92,10 @@ class GraphContext
 	
 	public function registerOp(string $op, array $inputs, Tensor $output, array $attributes = []) : int
 	{
-		$outputId = $this->registerTensor($output, 'intermediate', $output->getName() ?? $op, $output->getShape());
-		$requiresGrad = $output->requiresGrad();
-
+		$requiresGrad = false;
 		foreach ($inputs as $inputId)
 		{
-			if ($this->tensors[$inputId]['requiresGrad'])
+			if ($this->tensors[$inputId]["requiresGrad"])
 			{
 				$requiresGrad = true;
 				break;
@@ -105,21 +103,68 @@ class GraphContext
 		}
 
 		$output->setRequiresGrad($requiresGrad);
-		$this->tensors[$outputId]['requiresGrad'] = $requiresGrad;
-		
+		$outputId = $this->registerTensor($output, "intermediate", $output->getName() ?? $op, $output->getShape());
+
 		$opId = $this->nextOpId++;
-		
 		$this->ops[] = [
-			'id' => $opId,
-			'op' => $op,
-			'inputs' => $inputs,
-			'output' => $outputId,
-			'attributes'	=>	$attributes,
+			"id" => $opId,
+			"op" => $op,
+			"inputs" => $inputs,
+			"output" => $outputId,
+			"attributes" => $attributes,
 		];
-		
+
 		return $opId;
 	}
-	
+
+	/**
+	 * Registers one graph operation producing multiple tensors.
+	 *
+	 * Unlike registerOp(), the serialized definition stores an outputs array and
+	 * deliberately has no singular output field.
+	 *
+	 * @param int[] $inputs
+	 * @param Tensor[] $outputs
+	 */
+	public function registerMultiOutputOp(string $op, array $inputs, array $outputs, array $attributes = []) : int
+	{
+		if ($outputs === [])
+			throw new \InvalidArgumentException("A multi-output operation requires at least one output");
+
+		$inputRequiresGrad = false;
+		foreach ($inputs as $inputId)
+		{
+			if ($this->tensors[$inputId]["requiresGrad"])
+			{
+				$inputRequiresGrad = true;
+				break;
+			}
+		}
+
+		foreach ($outputs as $output)
+		{
+			if (!$output instanceof Tensor)
+				throw new \InvalidArgumentException("Multi-output operation outputs must be Tensor instances");
+
+			$output->setRequiresGrad($inputRequiresGrad);
+		}
+
+		$outputIds = [];
+		foreach ($outputs as $output)
+			$outputIds[] = $this->registerTensor($output, "intermediate", $output->getName() ?? $op, $output->getShape());
+
+		$opId = $this->nextOpId++;
+		$this->ops[] = [
+			"id" => $opId,
+			"op" => $op,
+			"inputs" => $inputs,
+			"outputs" => $outputIds,
+			"attributes" => $attributes,
+		];
+
+		return $opId;
+	}
+
 	public function getTensors() : array
 	{
 		return $this->tensors;
