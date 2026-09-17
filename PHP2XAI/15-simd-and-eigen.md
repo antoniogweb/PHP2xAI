@@ -1,46 +1,96 @@
 # 15. SIMD and Eigen migration
 
-The C++ runtime is being migrated incrementally toward SIMD-friendly Eigen implementations for the operations that dominate neural-network execution time. The goal is to improve performance without changing the graph format, Tensor API, numerical semantics, or the PHP runtime reference implementation.
+This chapter describes the current C++ acceleration paths. `EIGEN` is a CPU provider: it uses Eigen row-major maps for supported dense operations and lets Eigen and the compiler use the SIMD instruction set available on the build machine. It is not a GPU provider.
 
-## Why Eigen
+The PHP graph format and Tensor API are shared by the PHP runtime, the native C++ runtime, and the Eigen C++ runtime. Selecting Eigen changes only the C++ kernel implementation when an Eigen override exists.
 
-Eigen is a header-only C++ linear-algebra library. Its matrix expressions can use SIMD instructions made available by the compiler and target architecture, while keeping the runtime code expressed in terms of row-major tensors and ordinary matrix operations.
+## Providers and build configuration
 
-PHP2xAI stores tensor data in row-major order. This permits contiguous two-dimensional tensors to be exposed to Eigen through `Eigen::Map`, avoiding an extra copy before a supported operation is evaluated.
-
-## Current state
-
-The C++ runtime has an Eigen implementation for the contiguous `MATMUL_2D_2D` kernel and its backward counterpart. When Eigen is enabled, the dispatcher selects:
+The C++ runtime has two providers:
 
 ```text
-MATMUL_2D_2D           -> MATMUL_2D_2D_EIGEN
-BACKWARD_MATMUL_2D_2D  -> BACKWARD_MATMUL_2D_2D_EIGEN
+NAIVE  GraphRuntime: general C++ kernels and stride-aware fallbacks
+EIGEN  GraphRuntimeEigen: Eigen overrides plus every general C++ kernel
 ```
 
-The generic and specialized kernels remain available as the semantic reference and for layouts that cannot safely be mapped as the required contiguous Eigen matrix. This is intentional: correctness for every supported shape and stride configuration takes precedence over forcing an operation through a matrix-only path.
+The standalone binaries are built with `PHP2XAI_USE_EIGEN=0` or `1`. The shared FFI library selects the provider at runtime. In PHP, select it with the model provider configuration before C++ training or inference.
 
-## Build variants
-
-The runtime is controlled by the `PHP2XAI_USE_EIGEN` preprocessor macro:
+The standard build uses:
 
 ```text
-PHP2XAI_USE_EIGEN=1  enable Eigen kernels where available
-PHP2XAI_USE_EIGEN=0  use the scalar/runtime kernels only
+-O3 -DNDEBUG -march=native -flto -fopenmp
 ```
 
-The project provides separate native and Eigen build targets, including PHP shared libraries and standalone C++ runtime binaries. The PHP model configuration can select the Eigen provider, which loads the corresponding Eigen runtime artifact.
+`-march=native` can enable CPU-specific SIMD instructions such as AVX2 where the build CPU supports them. Binaries built this way are not automatically portable to older or different CPUs. OpenMP controls CPU parallel loops; configure its thread count with `OMP_NUM_THREADS` when needed.
 
-Optimization flags such as `-O3`, `-DNDEBUG`, and `-march=native` are build choices rather than graph properties. In particular, `-march=native` may enable instructions available on the build machine; binaries built with it are not necessarily portable to older CPUs.
+## Eigen provider overrides
 
-## Migration strategy
+`GraphRuntimeEigen` currently overrides the following kernels. All listed matmul paths have Eigen forward and backward implementations.
 
-Each operation is migrated one kernel at a time:
+| Graph kernel | Tensor layout | Implementation |
+|---|---|---|
+| `MATMUL_2D_2D` | `[M, K] x [K, N]` | One row-major `Eigen::Map` GEMM. |
+| `MATMUL_1B_2D_2D` | `[B, T, K] x [B, K, N]` | One GEMM per batch item; batch items run with OpenMP. |
+| `MATMUL_2B_2D_2D` | `[B, H, T, K] x [B, H, K, N]` | One GEMM per `[B, H]` matrix; matrices run with OpenMP. |
+| `MATMUL_1B_2D_2D_LINEAR` | `[B, T, K] x [K, N]` | Flattens the first two axes to one `[B*T, K]` GEMM. |
+| `gelu` | Any contiguous tensor | Eigen array expression for the tanh GELU approximation. The backward materializes only the tanh term and fuses the remaining expression. |
+| `SOFTMAX_4D_LAST` | `[B, H, T, D]`, last axis | Dedicated row-wise stable softmax. Each worker performs max, exponential sum, and normalization for independent rows without auxiliary max or sum tensors. |
 
-1. Preserve the existing Tensor and graph operation contract.
-2. Identify the contiguous, high-volume shape path.
-3. Add an Eigen implementation for forward and backward.
-4. Keep the existing scalar or stride-aware kernel as fallback.
-5. Compare forward values and gradients against the PHP runtime and small numerical-gradient tests.
-6. Benchmark realistic batch and sequence shapes before making the Eigen path the preferred dispatch target.
+The matmul implementations use row-major `Eigen::Map` and `noalias()` assignments or accumulations. This avoids temporary result matrices for the normal dense paths.
 
-Priority is given to matrix multiplication, batched matrix multiplication, reductions and normalization, and common elementwise activation paths. Operations with arbitrary strides or complex broadcasting continue to need dedicated generic kernels even after common contiguous paths gain Eigen acceleration.
+The 4D softmax is an optimized Eigen-provider override, but its inner loop is explicit C++ plus OpenMP rather than an Eigen reduction expression. It remains in the Eigen provider because it is the preferred optimized path for attention scores.
+
+## Common C++ SIMD and OpenMP paths
+
+Some optimizations are implemented in `GraphRuntime` itself. They are therefore available to both `NAIVE` and `EIGEN`; they are not Eigen-specific.
+
+| Operation | Available path |
+|---|---|
+| `dropout` forward | OpenMP element loop with deterministic splitmix random values. Dropout is active only in `ExecutionMode::TRAIN`. |
+| `apply_padding_mask` forward and backward | OpenMP over contiguous score rows. Forward writes negative infinity for masked keys; backward propagates only unmasked gradients. |
+| `apply_causal_mask` forward and backward | OpenMP over outer `[Lq, Lkv]` matrices. The operation derives `Lq` and `Lkv` from the last two runtime dimensions. For `Lq == 1`, forward is a direct copy because a single decode query has no future key. |
+| `SLICE_LAST` and `BACKWARD_SLICE_LAST` | OpenMP copies or accumulates contiguous last-axis slices. |
+
+These paths are memory-bandwidth sensitive. They benefit from contiguous tensors and parallel rows, but they are not substitutes for a dense GEMM backend.
+
+## Kernel selection and fallbacks
+
+The Tensor API selects a graph kernel from known ranks and axis patterns. The runtime still keeps general kernels for unsupported layouts, generic axes, broadcasting, and operations not overridden by `GraphRuntimeEigen`.
+
+Examples of operations that currently do not have a dedicated Eigen override include generic add and broadcast, generic transpose, generic reductions, layer normalization, generic softmax shapes, embeddings, and generic slice axes. Some of them have efficient common C++ loops, but they do not become Eigen expressions simply by selecting the Eigen provider.
+
+Correctness takes priority over forcing every operation through Eigen. The optimized paths require the layouts they were written for; the general runtime remains the semantic reference for other valid graph shapes.
+
+## Attention-specific status
+
+BERT and Decoder attention benefit from the Eigen batched matmul kernels, the 4D last-axis softmax path, and the common padding or causal mask paths.
+
+The causal mask is shape-driven:
+
+```text
+scores shape: [B, H, Lq, Lkv]
+Lq          : scores[-2]
+Lkv         : scores[-1]
+```
+
+This lets the runtime use the actual dimensions in prefill and decode, rather than relying on static graph attributes.
+
+KV cache graph nodes are represented as a future multi-output operation, but their runtime cache storage and `PREFILL` or `DECODE` execution behavior are not implemented yet. They are not an available acceleration path at this stage.
+
+## Profiling and expectations
+
+The optional C++ profiler reports time by operation and kernel. Use it to identify the hot shape before optimizing. For Transformer training, `MATMUL_1B_2D_2D_LINEAR.backward`, batched attention matmuls, normalization, and memory traffic around attention commonly dominate.
+
+Eigen improves the supported CPU dense paths, but it does not eliminate the structural cost of Transformer training. The remaining limits are dense matrix multiplication, memory reads and writes, and the CPU core and cache budget. Larger gains beyond this provider generally require more graph fusion, a specialized CPU backend such as oneDNN or MKL, reduced precision where numerically valid, or a GPU backend.
+
+## Verification rule for future migrations
+
+For every new optimized path:
+
+1. Preserve the graph and Tensor contract.
+2. Compare forward values with the PHP runtime.
+3. Compare backward gradients, including masked and broadcast cases.
+4. Retain a general fallback when the optimized layout assumptions do not hold.
+5. Measure realistic batch, sequence, head, and hidden dimensions with the C++ profiler.
+
+This keeps provider selection an implementation choice rather than a change in model semantics.
