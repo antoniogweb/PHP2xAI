@@ -302,9 +302,9 @@ abstract class Model
 		$scaledScores = $scores->scale(1.0 / sqrt($dk));
 
 		$maskedScores = $scaledScores;
-		
+
 		if ($maskType === "CAUSAL")
-			$maskedScores = $maskedScores->applyCausalMask($Lq, $Lkv);
+			$maskedScores = $maskedScores->applyCausalMask();
 		else if ($maskType === "PADDING" && $mask !== null)
 			$maskedScores = $maskedScores->applyPaddingMask($mask);
 

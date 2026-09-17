@@ -296,7 +296,7 @@ class GraphRuntime
 					$this->opApplyPaddingMask($inputs[0], $inputs[1], $outId);
 					break;
 				case 'apply_causal_mask':
-					$this->opApplyCausalMask($inputs[0], $outId, $attributes["Lq"] ?? 0, $attributes["Lkv"] ?? 0);
+					$this->opApplyCausalMask($inputs[0], $outId);
 					break;
 				case 'layer_norm':
 					$this->opLayerNorm($inputs[0], $inputs[1], $inputs[2], $outId, $attributes);
@@ -451,7 +451,7 @@ class GraphRuntime
 			}
 		}
 	}
-	private function opApplyCausalMask(int $inputId, int $outId, int $Lq, int $Lkv): void
+	private function opApplyCausalMask(int $inputId, int $outId): void
 	{
 		$input = $this->tensors[$inputId];
 		$output = $this->tensors[$outId];
@@ -462,7 +462,7 @@ class GraphRuntime
 
 		$shapeLq = $input->shape[$rank - 2];
 		$shapeLkv = $input->shape[$rank - 1];
-		if ($Lq <= 0 || $Lkv <= 0 || $shapeLq !== $Lq || $shapeLkv !== $Lkv || $shapeLkv < $shapeLq)
+		if ($shapeLq <= 0 || $shapeLkv <= 0 || $shapeLkv < $shapeLq)
 			throw new RuntimeException("apply_causal_mask: requires 0 < Lq <= Lkv matching the last two dimensions");
 
 		if (
@@ -1950,7 +1950,7 @@ class GraphRuntime
 					$this->backwardApplyPaddingMask($inputs[0], $inputs[1], $outId);
 					break;
 				case 'apply_causal_mask':
-					$this->backwardApplyCausalMask($inputs[0], $outId, $attributes["Lq"] ?? 0, $attributes["Lkv"] ?? 0);
+					$this->backwardApplyCausalMask($inputs[0], $outId);
 					break;
 				case 'layer_norm':
 					$this->backwardLayerNorm($inputs[0], $inputs[1], $inputs[2], $outId, $attributes);
@@ -2086,7 +2086,7 @@ class GraphRuntime
 		}
 	}
 
-	private function backwardApplyCausalMask(int $inputId, int $outId, int $Lq, int $Lkv): void
+	private function backwardApplyCausalMask(int $inputId, int $outId): void
 	{
 		$input = $this->tensors[$inputId];
 		$output = $this->tensors[$outId];
@@ -2099,7 +2099,7 @@ class GraphRuntime
 
 		$shapeLq = $input->shape[$rank - 2];
 		$shapeLkv = $input->shape[$rank - 1];
-		if ($Lq <= 0 || $Lkv <= 0 || $shapeLq !== $Lq || $shapeLkv !== $Lkv || $shapeLkv < $shapeLq)
+		if ($shapeLq <= 0 || $shapeLkv <= 0 || $shapeLkv < $shapeLq)
 			throw new RuntimeException("apply_causal_mask backward: requires 0 < Lq <= Lkv matching the last two dimensions");
 
 		if (

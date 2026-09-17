@@ -330,7 +330,7 @@ namespace PHP2xAI::Runtime::CPP
 			if (name == "apply_padding_mask")
 				opApplyPaddingMask(inputs[0], inputs[1], outId);
 			else if (name == "apply_causal_mask")
-				opApplyCausalMask(inputs[0], outId, op.Lq, op.Lkv);
+				opApplyCausalMask(inputs[0], outId);
 			else if (name == "layer_norm")
 				opLayerNorm(inputs[0], inputs[1], inputs[2], outId, op.kernel, op.axes);
 			else if (name == "scale")
@@ -416,7 +416,7 @@ namespace PHP2xAI::Runtime::CPP
 			if (name == "apply_padding_mask")
 				backwardApplyPaddingMask(inputs[0], inputs[1], outId);
 			else if (name == "apply_causal_mask")
-				backwardApplyCausalMask(inputs[0], outId, op.Lq, op.Lkv);
+				backwardApplyCausalMask(inputs[0], outId);
 			else if (name == "layer_norm")
 				backwardLayerNorm(inputs[0], inputs[1], inputs[2], outId, op.kernel, op.axes);
 			else if (name == "scale")
@@ -711,7 +711,7 @@ namespace PHP2xAI::Runtime::CPP
 			}
 		}
 	}
-	void GraphRuntime::opApplyCausalMask(int inputId, int outId, int Lq, int Lkv)
+	void GraphRuntime::opApplyCausalMask(int inputId, int outId)
 	{
 		auto &input = tensors[inputId];
 		auto &output = tensors[outId];
@@ -722,8 +722,7 @@ namespace PHP2xAI::Runtime::CPP
 
 		const std::size_t shapeLq = static_cast<std::size_t>(input.shape[rank - 2]);
 		const std::size_t shapeLkv = static_cast<std::size_t>(input.shape[rank - 1]);
-		if (Lq <= 0 || Lkv <= 0 || shapeLq != static_cast<std::size_t>(Lq)
-			|| shapeLkv != static_cast<std::size_t>(Lkv) || shapeLkv < shapeLq)
+		if (shapeLq == 0 || shapeLkv == 0 || shapeLkv < shapeLq)
 			throw std::runtime_error("apply_causal_mask: requires 0 < Lq <= Lkv matching the last two dimensions");
 
 		if (output.shape != input.shape || !input.isContiguous() || !output.isContiguous())
@@ -3255,7 +3254,7 @@ namespace PHP2xAI::Runtime::CPP
 		}
 	}
 
-	void GraphRuntime::backwardApplyCausalMask(int inputId, int outId, int Lq, int Lkv)
+	void GraphRuntime::backwardApplyCausalMask(int inputId, int outId)
 	{
 		auto &input = tensors[inputId];
 		auto &output = tensors[outId];
@@ -3268,8 +3267,7 @@ namespace PHP2xAI::Runtime::CPP
 
 		const std::size_t shapeLq = static_cast<std::size_t>(input.shape[rank - 2]);
 		const std::size_t shapeLkv = static_cast<std::size_t>(input.shape[rank - 1]);
-		if (Lq <= 0 || Lkv <= 0 || shapeLq != static_cast<std::size_t>(Lq)
-			|| shapeLkv != static_cast<std::size_t>(Lkv) || shapeLkv < shapeLq)
+		if (shapeLq == 0 || shapeLkv == 0 || shapeLkv < shapeLq)
 			throw std::runtime_error("apply_causal_mask backward: requires 0 < Lq <= Lkv matching the last two dimensions");
 
 		if (output.shape != input.shape || !input.isContiguous() || !output.isContiguous())
@@ -5605,10 +5603,6 @@ namespace PHP2xAI::Runtime::CPP
 					op.start = attrs.at("start").get<int>();
 				if (attrs.contains("end"))
 					op.end = attrs.at("end").get<int>();
-				if (attrs.contains("Lq"))
-					op.Lq = attrs.at("Lq").get<int>();
-				if (attrs.contains("Lkv"))
-					op.Lkv = attrs.at("Lkv").get<int>();
 			}
 
 			ops.push_back(std::move(op));

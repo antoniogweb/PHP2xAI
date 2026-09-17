@@ -544,10 +544,9 @@ class Tensor
 	/**
 	 * Applies a causal attention mask to this tensor.
 	 *
-	 * Lq and Lkv are retained as operation attributes. Shape and axis semantics
-	 * are intentionally left to the runtime implementation.
+	 * The runtime derives Lq and Lkv from the last two dimensions of this tensor.
 	 */
-	public function applyCausalMask(int $Lq, int $Lkv) : Tensor
+	public function applyCausalMask() : Tensor
 	{
 		$context = $this->initContextFrom();
 		$inputId = $this->registerInContext($context, $this);
@@ -556,8 +555,7 @@ class Tensor
 		$context->registerOp(
 			"apply_causal_mask",
 			[$inputId],
-			$result,
-			["Lq" => $Lq, "Lkv" => $Lkv]
+			$result
 		);
 
 		return $result;
