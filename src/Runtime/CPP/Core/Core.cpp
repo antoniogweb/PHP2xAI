@@ -154,7 +154,7 @@ namespace PHP2xAI::Runtime::CPP
 			throw std::runtime_error("Core not initialized");
 		
 		auto *graph = graphRuntime_.get();
-		
+		graph->setMode(ExecutionMode::INFER);
 		graph->setInput(x);
 		graph->forward();
 		
@@ -168,7 +168,7 @@ namespace PHP2xAI::Runtime::CPP
 
 		auto &dataset = *trainValDataset_;
 		auto *graph = graphRuntime_.get();
-		graph->setTraining(true);
+		graph->setMode(ExecutionMode::TRAIN);
 
 		std::vector<Scalar> x;
 		std::vector<Scalar> y;
@@ -247,7 +247,7 @@ namespace PHP2xAI::Runtime::CPP
 
 		auto &dataset = trainValDataset_->val;
 		auto *graph = graphRuntime_.get();
-		graph->setTraining(false);
+		graph->setMode(ExecutionMode::INFER);
 
 		std::vector<Scalar> x;
 		std::vector<Scalar> y;

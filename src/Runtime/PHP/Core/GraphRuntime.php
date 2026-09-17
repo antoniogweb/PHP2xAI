@@ -25,7 +25,7 @@ class GraphRuntime
 	private ?GraphContext $context = null;
 	/** @var array<int,float[]> dropout masks from the latest forward pass */
 	private array $dropoutMasks = [];
-	private bool $training = false;
+	private ExecutionMode $mode = ExecutionMode::INFER;
 	
 	public function __construct(array $graphDef, ?array $weigths = null)
 	{
@@ -113,9 +113,9 @@ class GraphRuntime
 			$tensor->data[$i] = ($uniform * 2.0 - 1.0) * $scale;
 		}
 	}
-	public function setTraining(bool $training): void
+	public function setMode(ExecutionMode $mode): void
 	{
-		$this->training = $training;
+		$this->mode = $mode;
 	}
 
 	public function setContext(GraphContext $context) : void
@@ -942,7 +942,7 @@ class GraphRuntime
 		$Y->data = array_fill(0, $size, 0.0);
 		$maskValues = [];
 
-		if (!$this->training)
+		if ($this->mode !== ExecutionMode::TRAIN)
 		{
 			$Y->data = $X->data;
 			$this->dropoutMasks[$outId] = array_fill(0, $size, 1.0);

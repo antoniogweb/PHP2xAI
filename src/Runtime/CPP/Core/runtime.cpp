@@ -528,9 +528,9 @@ namespace PHP2xAI::Runtime::CPP
 			return tensor.data;
 	}
 	
-	void GraphRuntime::setTraining(bool training)
+	void GraphRuntime::setMode(ExecutionMode mode)
 	{
-		training_ = training;
+		mode_ = mode;
 	}
 
 	void GraphRuntime::enableProfiler()
@@ -1893,7 +1893,7 @@ namespace PHP2xAI::Runtime::CPP
 		auto size = X.data.size();
 		Y.data.assign(size, 0.0f);
 
-		if (!training_)
+		if (mode_ != ExecutionMode::TRAIN)
 		{
 			Y.data = X.data;
 			return;

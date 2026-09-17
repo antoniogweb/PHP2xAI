@@ -8,6 +8,7 @@ use PHP2xAI\Runtime\PHP\Datasets\TrainValidateDataset;
 use PHP2xAI\Runtime\PHP\Datasets\StreamFileDataset;
 use PHP2xAI\Graph\GraphContext;
 use PHP2xAI\Runtime\PHP\Core\GraphRuntime;
+use PHP2xAI\Runtime\PHP\Core\ExecutionMode;
 use PHP2xAI\Runtime\CPP\CoreFFI;
 use PHP2xAI\Utility\Utility;
 
@@ -507,7 +508,7 @@ abstract class Model
 		$count = 0;
 		
 		$dataset->resetEpoch();
-		$graph->setTraining(false);
+		$graph->setMode(ExecutionMode::INFER);
 		
 		while ($dataset->nextBatch())
 		{
@@ -545,7 +546,7 @@ abstract class Model
 		$graphDef = $this->generateGraph($dataset->train);
 		
 		$graph = new GraphRuntime($graphDef);
-		$graph->setTraining(true);
+		$graph->setMode(ExecutionMode::TRAIN);
 		
 		$betterValidationLoss = 99999999;
 		

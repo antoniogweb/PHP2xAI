@@ -107,6 +107,15 @@ namespace PHP2xAI::Runtime::CPP
 		int end{};
 	};
 
+	// Controls execution-specific behavior such as dropout and, later, GPT KV-cache handling.
+	enum class ExecutionMode
+	{
+		TRAIN,
+		INFER,
+		PREFILL,
+		DECODE
+	};
+
 	class GraphRuntime
 	{
 	public:
@@ -116,7 +125,7 @@ namespace PHP2xAI::Runtime::CPP
 		int lossId{};
 		std::vector<int> trainable;
 		std::unordered_map<int, std::vector<Scalar>> dropoutMasks;
-		bool training_ = false;
+		ExecutionMode mode_ = ExecutionMode::INFER;
 		int inputId{};
 		int targetId{};
 		int outputId{};
@@ -137,7 +146,7 @@ namespace PHP2xAI::Runtime::CPP
 		const Tensor &getTensor(int id) const;
 		
 		void setLossGrad(Scalar lossGrad = 1.0f);
-		void setTraining(bool training);
+		void setMode(ExecutionMode mode);
 		void enableProfiler();
 		bool isProfilingEnabled() const;
 		void setProfilingEnabled(bool enabled);
