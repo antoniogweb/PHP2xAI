@@ -247,7 +247,9 @@ abstract class Model
 		Tensor $V, 
 		?Tensor $mask,
 		int $numHeads, 
-		string $maskType = "PADDING"
+		string $maskType = "PADDING",
+		?array $rope = null,
+		?int $kvCacheLayer = null
 	) : Tensor
 	{
 		// Validate inputs
@@ -283,6 +285,17 @@ abstract class Model
 
 		if ($maskType !== "PADDING" && $maskType !== "CAUSAL")
 			throw new RuntimeException("Mask type {$maskType} is not supported. Use PADDING or CAUSAL.");
+		if ($kvCacheLayer !== null && $kvCacheLayer < 0)
+			throw new RuntimeException("KV cache layer must be >= 0");
+		if ($kvCacheLayer !== null && $maskType !== "CAUSAL")
+			throw new RuntimeException("KV cache requires causal attention");
+		if ($rope !== null)
+		{
+			if (!isset($rope['offset'], $rope['base'], $rope['pairing']))
+				throw new RuntimeException("RoPE requires offset, base and pairing");
+			if (!is_int($rope['offset']) || !is_numeric($rope['base']) || !is_string($rope['pairing']))
+				throw new RuntimeException("Invalid RoPE configuration");
+		}
 
 		// Split heads: reshape [B, L, D] -> [B, L, H, dk]
 		$Q_reshaped = $Q->reshape([$Q->shape[0], $Q->shape[1], $numHeads, $dk]);
@@ -293,6 +306,17 @@ abstract class Model
 		$Qh = $Q_reshaped->transpose([1, 2]);
 		$Kh = $K_reshaped->transpose([1, 2]);
 		$Vh = $V_reshaped->transpose([1, 2]);
+
+		// RoPE rotates queries and keys, never values, in the [B, H, L, Dk] layout.
+		if ($rope !== null)
+		{
+			$Qh = $Qh->rope(-2, -1, $rope['offset'], (float)$rope['base'], $rope['pairing']);
+			$Kh = $Kh->rope(-2, -1, $rope['offset'], (float)$rope['base'], $rope['pairing']);
+		}
+
+		// Decoder-only: cache already rotated keys and their paired values.
+		if ($kvCacheLayer !== null)
+			[$Kh, $Vh] = Tensor::kvCache($Kh, $Vh, $kvCacheLayer);
 
 		// Attention: Qh @ Khᵀ / sqrt(dk)
 		$Kh_transposed = $Kh->transpose([-2, -1]);
