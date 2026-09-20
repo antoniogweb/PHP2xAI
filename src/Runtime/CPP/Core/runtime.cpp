@@ -377,6 +377,8 @@ namespace PHP2xAI::Runtime::CPP
 				opPaddingMask(inputs[0], outId, op.padId);
 			else if (name == "softmax")
 				opSoftmax(inputs[0], outId, op.kernel, op.axes);
+			else if (name == "rope")
+				opRope(inputs[0], outId, op.kernel, op.axes, op.offset, op.base);
 			else if (name == "CE")
 				opCe(inputs[0], inputs[1], outId, op.kernel, op.axes);
 			else if (name == "softmax_ce_logits")
@@ -463,6 +465,8 @@ namespace PHP2xAI::Runtime::CPP
 				backwardPaddingMask(inputs[0], outId);
 			else if (name == "softmax")
 				backwardSoftmax(inputs[0], outId, op.kernel, op.axes);
+			else if (name == "rope")
+				backwardRope(inputs[0], outId, op.kernel, op.axes, op.offset, op.base);
 			else if (name == "CE")
 				backwardCe(inputs[0], inputs[1], outId, op.kernel, op.axes);
 			else if (name == "softmax_ce_logits")
@@ -2111,6 +2115,202 @@ namespace PHP2xAI::Runtime::CPP
  // 
 	// 	Y.data = {sum / static_cast<Scalar>(size)};
 	// }
+
+	void GraphRuntime::ropeLastTwo(Tensor &X, Tensor &Y, int offset, Scalar base, bool rotateHalf, bool backward)
+	{
+		const int rank = static_cast<int>(X.shape.size());
+		if (rank < 2 || Y.shape != X.shape || !X.isContiguous() || !Y.isContiguous())
+			throw std::runtime_error("rope last two: dimension mismatch");
+
+		const int L = X.shape[static_cast<std::size_t>(rank - 2)];
+		const int D = X.shape[static_cast<std::size_t>(rank - 1)];
+		if (D <= 0 || D % 2 != 0)
+			throw std::runtime_error("rope last two: rotation dimension must be positive and even");
+
+		std::size_t outer = 1;
+		for (int axis = 0; axis < rank - 2; ++axis)
+			outer *= static_cast<std::size_t>(X.shape[static_cast<std::size_t>(axis)]);
+		const int halfD = D / 2;
+		std::vector<Scalar> cosTable(static_cast<std::size_t>(L * halfD));
+		std::vector<Scalar> sinTable(static_cast<std::size_t>(L * halfD));
+
+		for (int p = 0; p < L; ++p)
+		{
+			const int position = offset + p;
+			for (int i = 0; i < halfD; ++i)
+			{
+				const Scalar angle = static_cast<Scalar>(position)
+					* std::pow(base, static_cast<Scalar>(-2.0f * i) / static_cast<Scalar>(D));
+				const std::size_t tableOffset = static_cast<std::size_t>(p * halfD + i);
+				cosTable[tableOffset] = std::cos(angle);
+				sinTable[tableOffset] = std::sin(angle);
+			}
+		}
+
+		for (std::size_t o = 0; o < outer; ++o)
+		{
+			for (int p = 0; p < L; ++p)
+			{
+				const std::size_t rowOffset = (o * static_cast<std::size_t>(L) + static_cast<std::size_t>(p)) * static_cast<std::size_t>(D);
+				for (int i = 0; i < halfD; ++i)
+				{
+					const Scalar c = cosTable[static_cast<std::size_t>(p * halfD + i)];
+					const Scalar s = sinTable[static_cast<std::size_t>(p * halfD + i)];
+					const int left = rotateHalf ? i : 2 * i;
+					const int right = rotateHalf ? i + halfD : 2 * i + 1;
+					const std::size_t leftOffset = rowOffset + static_cast<std::size_t>(left);
+					const std::size_t rightOffset = rowOffset + static_cast<std::size_t>(right);
+
+					if (backward)
+					{
+						const Scalar gy0 = Y.grad[leftOffset];
+						const Scalar gy1 = Y.grad[rightOffset];
+						X.grad[leftOffset] += gy0 * c + gy1 * s;
+						X.grad[rightOffset] += -gy0 * s + gy1 * c;
+					}
+					else
+					{
+						const Scalar x0 = X.data[leftOffset];
+						const Scalar x1 = X.data[rightOffset];
+						Y.data[leftOffset] = x0 * c - x1 * s;
+						Y.data[rightOffset] = x0 * s + x1 * c;
+					}
+				}
+			}
+		}
+	}
+
+	void GraphRuntime::ropeGeneric(Tensor &X, Tensor &Y, int positionAxis, int rotationAxis, int offset, Scalar base, bool rotateHalf, bool backward)
+	{
+		const int rank = static_cast<int>(X.shape.size());
+		if (rank < 2 || Y.shape != X.shape)
+			throw std::runtime_error("rope generic: dimension mismatch");
+		if (positionAxis < 0) positionAxis += rank;
+		if (rotationAxis < 0) rotationAxis += rank;
+		if (positionAxis < 0 || positionAxis >= rank || rotationAxis < 0 || rotationAxis >= rank || positionAxis == rotationAxis)
+			throw std::runtime_error("rope generic: invalid axes");
+
+		const int L = X.shape[static_cast<std::size_t>(positionAxis)];
+		const int D = X.shape[static_cast<std::size_t>(rotationAxis)];
+		if (D <= 0 || D % 2 != 0)
+			throw std::runtime_error("rope generic: rotation dimension must be positive and even");
+
+		const int halfD = D / 2;
+		std::vector<Scalar> cosTable(static_cast<std::size_t>(L * halfD));
+		std::vector<Scalar> sinTable(static_cast<std::size_t>(L * halfD));
+		for (int p = 0; p < L; ++p)
+			for (int i = 0; i < halfD; ++i)
+			{
+				const std::size_t tableOffset = static_cast<std::size_t>(p * halfD + i);
+				const Scalar angle = static_cast<Scalar>(offset + p)
+					* std::pow(base, static_cast<Scalar>(-2.0f * i) / static_cast<Scalar>(D));
+				cosTable[tableOffset] = std::cos(angle);
+				sinTable[tableOffset] = std::sin(angle);
+			}
+
+		forEachSliceAlongAxisIncremental(
+			X.shape,
+			X.strides,
+			rotationAxis,
+			[&](int baseX, int strideX, int, const std::vector<int> &idxNoAxis)
+			{
+				int baseY = 0;
+				for (int axis = 0; axis < rank; ++axis)
+				{
+					const int index = idxNoAxis[static_cast<std::size_t>(axis)];
+					if (index >= 0)
+						baseY += index * Y.strides[static_cast<std::size_t>(axis)];
+				}
+				const int strideY = Y.strides[static_cast<std::size_t>(rotationAxis)];
+				const std::size_t tableBase = static_cast<std::size_t>(idxNoAxis[static_cast<std::size_t>(positionAxis)] * halfD);
+
+				for (int i = 0; i < halfD; ++i)
+				{
+					const Scalar c = cosTable[tableBase + static_cast<std::size_t>(i)];
+					const Scalar s = sinTable[tableBase + static_cast<std::size_t>(i)];
+					const int left = rotateHalf ? i : 2 * i;
+					const int right = rotateHalf ? i + halfD : 2 * i + 1;
+					const int leftX = baseX + left * strideX;
+					const int rightX = baseX + right * strideX;
+					const int leftY = baseY + left * strideY;
+					const int rightY = baseY + right * strideY;
+
+					if (backward)
+					{
+						const Scalar gy0 = Y.grad[static_cast<std::size_t>(leftY)];
+						const Scalar gy1 = Y.grad[static_cast<std::size_t>(rightY)];
+						X.grad[static_cast<std::size_t>(leftX)] += gy0 * c + gy1 * s;
+						X.grad[static_cast<std::size_t>(rightX)] += -gy0 * s + gy1 * c;
+					}
+					else
+					{
+						const Scalar x0 = X.data[static_cast<std::size_t>(leftX)];
+						const Scalar x1 = X.data[static_cast<std::size_t>(rightX)];
+						Y.data[static_cast<std::size_t>(leftY)] = x0 * c - x1 * s;
+						Y.data[static_cast<std::size_t>(rightY)] = x0 * s + x1 * c;
+					}
+				}
+			});
+	}
+
+	void GraphRuntime::ROPE_INTERLEAVED_LAST_TWO(Tensor &X, Tensor &Y, int offset, Scalar base)
+	{
+		ropeLastTwo(X, Y, offset, base, false, false);
+	}
+
+	void GraphRuntime::ROPE_ROTATE_HALF_LAST_TWO(Tensor &X, Tensor &Y, int offset, Scalar base)
+	{
+		ropeLastTwo(X, Y, offset, base, true, false);
+	}
+
+	void GraphRuntime::ROPE_INTERLEAVED_GENERIC(Tensor &X, Tensor &Y, int positionAxis, int rotationAxis, int offset, Scalar base)
+	{
+		ropeGeneric(X, Y, positionAxis, rotationAxis, offset, base, false, false);
+	}
+
+	void GraphRuntime::ROPE_ROTATE_HALF_GENERIC(Tensor &X, Tensor &Y, int positionAxis, int rotationAxis, int offset, Scalar base)
+	{
+		ropeGeneric(X, Y, positionAxis, rotationAxis, offset, base, true, false);
+	}
+
+	void GraphRuntime::BACKWARD_ROPE_INTERLEAVED_LAST_TWO(Tensor &X, Tensor &Y, int offset, Scalar base)
+	{
+		ropeLastTwo(X, Y, offset, base, false, true);
+	}
+
+	void GraphRuntime::BACKWARD_ROPE_ROTATE_HALF_LAST_TWO(Tensor &X, Tensor &Y, int offset, Scalar base)
+	{
+		ropeLastTwo(X, Y, offset, base, true, true);
+	}
+
+	void GraphRuntime::BACKWARD_ROPE_INTERLEAVED_GENERIC(Tensor &X, Tensor &Y, int positionAxis, int rotationAxis, int offset, Scalar base)
+	{
+		ropeGeneric(X, Y, positionAxis, rotationAxis, offset, base, false, true);
+	}
+
+	void GraphRuntime::BACKWARD_ROPE_ROTATE_HALF_GENERIC(Tensor &X, Tensor &Y, int positionAxis, int rotationAxis, int offset, Scalar base)
+	{
+		ropeGeneric(X, Y, positionAxis, rotationAxis, offset, base, true, true);
+	}
+
+	void GraphRuntime::opRope(int inputId, int outId, const std::string &kernel, const std::vector<int> &axes, int offset, Scalar base)
+	{
+		auto &X = tensors[inputId];
+		auto &Y = tensors[outId];
+		if (axes.size() != 2)
+			throw std::runtime_error("rope: invalid axes");
+
+		if (kernel == "ROPE_INTERLEAVED_LAST_TWO")
+			return ROPE_INTERLEAVED_LAST_TWO(X, Y, offset, base);
+		if (kernel == "ROPE_ROTATE_HALF_LAST_TWO")
+			return ROPE_ROTATE_HALF_LAST_TWO(X, Y, offset, base);
+		if (kernel == "ROPE_INTERLEAVED_GENERIC")
+			return ROPE_INTERLEAVED_GENERIC(X, Y, axes[0], axes[1], offset, base);
+		if (kernel == "ROPE_ROTATE_HALF_GENERIC")
+			return ROPE_ROTATE_HALF_GENERIC(X, Y, axes[0], axes[1], offset, base);
+
+		throw std::runtime_error("rope: kernel not supported");
+	}
 
 	void GraphRuntime::opSoftmax(int inpId, int outId, const std::string &kernel, const std::vector<int> &axes)
 	{
@@ -4520,6 +4720,28 @@ namespace PHP2xAI::Runtime::CPP
 	// 	}
 	// }
 
+	void GraphRuntime::backwardRope(int inputId, int outId, const std::string &kernel, const std::vector<int> &axes, int offset, Scalar base)
+	{
+		auto &X = tensors[inputId];
+		if (!X.requiresGrad)
+			return;
+
+		auto &Y = tensors[outId];
+		if (axes.size() != 2)
+			throw std::runtime_error("rope backward: invalid axes");
+
+		if (kernel == "ROPE_INTERLEAVED_LAST_TWO")
+			return BACKWARD_ROPE_INTERLEAVED_LAST_TWO(X, Y, offset, base);
+		if (kernel == "ROPE_ROTATE_HALF_LAST_TWO")
+			return BACKWARD_ROPE_ROTATE_HALF_LAST_TWO(X, Y, offset, base);
+		if (kernel == "ROPE_INTERLEAVED_GENERIC")
+			return BACKWARD_ROPE_INTERLEAVED_GENERIC(X, Y, axes[0], axes[1], offset, base);
+		if (kernel == "ROPE_ROTATE_HALF_GENERIC")
+			return BACKWARD_ROPE_ROTATE_HALF_GENERIC(X, Y, axes[0], axes[1], offset, base);
+
+		throw std::runtime_error("rope backward: kernel not supported");
+	}
+
 	void GraphRuntime::backwardSoftmax(int inpId, int outId, const std::string &kernel, const std::vector<int> &axes)
 	{
 		auto &X = tensors[inpId];
@@ -5603,6 +5825,10 @@ namespace PHP2xAI::Runtime::CPP
 					op.start = attrs.at("start").get<int>();
 				if (attrs.contains("end"))
 					op.end = attrs.at("end").get<int>();
+				if (attrs.contains("offset"))
+					op.offset = attrs.at("offset").get<int>();
+				if (attrs.contains("base"))
+					op.base = attrs.at("base").get<Scalar>();
 			}
 
 			ops.push_back(std::move(op));

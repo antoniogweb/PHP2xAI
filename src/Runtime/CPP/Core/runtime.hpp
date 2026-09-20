@@ -105,6 +105,8 @@ namespace PHP2xAI::Runtime::CPP
 		Scalar scale{1.0f};
 		int start{};
 		int end{};
+		int offset{};
+		Scalar base{10000.0f};
 	};
 
 	// Controls execution-specific behavior such as dropout and, later, GPT KV-cache handling.
@@ -186,6 +188,7 @@ namespace PHP2xAI::Runtime::CPP
 		// void opMse(int, int);
 		// void opMae(int, int);
 		void opMean(int, int, const std::string &kernel, const std::vector<int> &axes);
+		void opRope(int, int, const std::string &kernel, const std::vector<int> &axes, int offset, Scalar base);
 		void opSoftmax(int, int, const std::string &kernel, const std::vector<int> &axes);
 		void opCe(int, int, int, const std::string &kernel, const std::vector<int> &axes);
 		void opCeLogits(int, int, int, const std::string &kernel, const std::vector<int> &axes);
@@ -216,6 +219,7 @@ namespace PHP2xAI::Runtime::CPP
 		// void backwardMse(int, int);
 		// void backwardMae(int, int);
 		void backwardMean(int, int, const std::string &kernel, const std::vector<int> &axes);
+		void backwardRope(int, int, const std::string &kernel, const std::vector<int> &axes, int offset, Scalar base);
 		void backwardSoftmax(int, int, const std::string &kernel, const std::vector<int> &axes);
 		void backwardCe(int, int, int, const std::string &kernel, const std::vector<int> &axes);
 		void backwardCeLogits(int, int, int, const std::string &kernel, const std::vector<int> &axes);
@@ -260,6 +264,18 @@ namespace PHP2xAI::Runtime::CPP
 		void SLICE_GENERIC_AXIS(Tensor &A, Tensor &C, int axis, int start, int end);
 		void BACKWARD_SLICE_LAST(Tensor &A, Tensor &C, int start, int end);
 		void BACKWARD_SLICE_GENERIC_AXIS(Tensor &A, Tensor &C, int axis, int start, int end);
+
+		void ROPE_INTERLEAVED_LAST_TWO(Tensor &X, Tensor &Y, int offset, Scalar base);
+		void ROPE_ROTATE_HALF_LAST_TWO(Tensor &X, Tensor &Y, int offset, Scalar base);
+		void ROPE_INTERLEAVED_GENERIC(Tensor &X, Tensor &Y, int positionAxis, int rotationAxis, int offset, Scalar base);
+		void ROPE_ROTATE_HALF_GENERIC(Tensor &X, Tensor &Y, int positionAxis, int rotationAxis, int offset, Scalar base);
+		void BACKWARD_ROPE_INTERLEAVED_LAST_TWO(Tensor &X, Tensor &Y, int offset, Scalar base);
+		void BACKWARD_ROPE_ROTATE_HALF_LAST_TWO(Tensor &X, Tensor &Y, int offset, Scalar base);
+		void BACKWARD_ROPE_INTERLEAVED_GENERIC(Tensor &X, Tensor &Y, int positionAxis, int rotationAxis, int offset, Scalar base);
+		void BACKWARD_ROPE_ROTATE_HALF_GENERIC(Tensor &X, Tensor &Y, int positionAxis, int rotationAxis, int offset, Scalar base);
+
+		void ropeLastTwo(Tensor &X, Tensor &Y, int offset, Scalar base, bool rotateHalf, bool backward);
+		void ropeGeneric(Tensor &X, Tensor &Y, int positionAxis, int rotationAxis, int offset, Scalar base, bool rotateHalf, bool backward);
 
 		void SOFTMAX_1D_LAST(Tensor &X, Tensor &Y);
 		void SOFTMAX_2D_LAST(Tensor &X, Tensor &Y);

@@ -353,6 +353,9 @@ class GraphRuntime
 				case 'softmax':
 					$this->opSoftmax($inputs[0], $outId, $attributes);
 					break;
+				case 'rope':
+					$this->opRope($inputs[0], $outId, $attributes);
+					break;
 				case 'CE':
 					$this->opCe($inputs[0], $inputs[1], $outId, $attributes);
 					break;
@@ -1119,6 +1122,35 @@ class GraphRuntime
 // 		$Y->data = [$sum / $size];
 // 	}
 	
+	private function opRope(int $inputId, int $outId, array $attributes): void
+	{
+		$X = $this->tensors[$inputId];
+		$Y = $this->tensors[$outId];
+		$kernel = $attributes['kernel'] ?? '';
+		$positionAxis = $attributes['axes'][0] ?? -2;
+		$rotationAxis = $attributes['axes'][1] ?? -1;
+		$offset = $attributes['offset'] ?? 0;
+		$base = (float)($attributes['base'] ?? 10000.0);
+
+		switch ($kernel)
+		{
+			case 'ROPE_INTERLEAVED_LAST_TWO':
+				$this->ROPE_INTERLEAVED_LAST_TWO($X, $Y, $offset, $base);
+				break;
+			case 'ROPE_ROTATE_HALF_LAST_TWO':
+				$this->ROPE_ROTATE_HALF_LAST_TWO($X, $Y, $offset, $base);
+				break;
+			case 'ROPE_INTERLEAVED_GENERIC':
+				$this->ROPE_INTERLEAVED_GENERIC($X, $Y, $positionAxis, $rotationAxis, $offset, $base);
+				break;
+			case 'ROPE_ROTATE_HALF_GENERIC':
+				$this->ROPE_ROTATE_HALF_GENERIC($X, $Y, $positionAxis, $rotationAxis, $offset, $base);
+				break;
+			default:
+				throw new RuntimeException("rope: kernel not supported");
+		}
+	}
+
 	private function opSoftmax(int $inpId, int $outId, array $attributes): void
 	{
 		$X = $this->tensors[$inpId];
@@ -2007,6 +2039,9 @@ class GraphRuntime
 				case 'softmax':
 					$this->backwardSoftmax($inputs[0], $outId, $attributes);
 					break;
+				case 'rope':
+					$this->backwardRope($inputs[0], $outId, $attributes);
+					break;
 				case 'CE':
 					$this->backwardCe($inputs[0], $inputs[1], $outId, $attributes);
 					break;
@@ -2752,6 +2787,38 @@ class GraphRuntime
 // 		}
 // 	}
 	
+	private function backwardRope(int $inputId, int $outId, array $attributes): void
+	{
+		$X = $this->tensors[$inputId];
+		if (!$X->requiresGrad)
+			return;
+
+		$Y = $this->tensors[$outId];
+		$kernel = $attributes['kernel'] ?? '';
+		$positionAxis = $attributes['axes'][0] ?? -2;
+		$rotationAxis = $attributes['axes'][1] ?? -1;
+		$offset = $attributes['offset'] ?? 0;
+		$base = (float)($attributes['base'] ?? 10000.0);
+
+		switch ($kernel)
+		{
+			case 'ROPE_INTERLEAVED_LAST_TWO':
+				$this->BACKWARD_ROPE_INTERLEAVED_LAST_TWO($X, $Y, $offset, $base);
+				break;
+			case 'ROPE_ROTATE_HALF_LAST_TWO':
+				$this->BACKWARD_ROPE_ROTATE_HALF_LAST_TWO($X, $Y, $offset, $base);
+				break;
+			case 'ROPE_INTERLEAVED_GENERIC':
+				$this->BACKWARD_ROPE_INTERLEAVED_GENERIC($X, $Y, $positionAxis, $rotationAxis, $offset, $base);
+				break;
+			case 'ROPE_ROTATE_HALF_GENERIC':
+				$this->BACKWARD_ROPE_ROTATE_HALF_GENERIC($X, $Y, $positionAxis, $rotationAxis, $offset, $base);
+				break;
+			default:
+				throw new RuntimeException("rope backward: kernel not supported");
+		}
+	}
+
 	private function backwardSoftmax(int $inpId, int $outId, array $attributes): void
 	{
 		$X = $this->tensors[$inpId];
@@ -4706,6 +4773,175 @@ class GraphRuntime
 		);
 	}
 	
+	// KERNELS ROPE
+	private function ropeLastTwo(TensorRuntime $X, TensorRuntime $Y, int $offset, float $base, bool $rotateHalf, bool $backward): void
+	{
+		$rank = count($X->shape);
+		if ($rank < 2 || $Y->shape !== $X->shape || $X->strides !== TensorRuntime::computeStrides($X->shape) || $Y->strides !== TensorRuntime::computeStrides($Y->shape))
+			throw new RuntimeException('rope last two: dimension mismatch');
+
+		$L = $X->shape[$rank - 2];
+		$D = $X->shape[$rank - 1];
+		if ($D <= 0 || $D % 2 !== 0)
+			throw new RuntimeException('rope last two: rotation dimension must be positive and even');
+
+		$outer = 1;
+		for ($axis = 0; $axis < $rank - 2; $axis++)
+			$outer *= $X->shape[$axis];
+		$halfD = intdiv($D, 2);
+		$cosTable = array_fill(0, $L * $halfD, 0.0);
+		$sinTable = array_fill(0, $L * $halfD, 0.0);
+
+		for ($p = 0; $p < $L; $p++)
+		{
+			$position = $offset + $p;
+			for ($i = 0; $i < $halfD; $i++)
+			{
+				$angle = $position * pow($base, -2.0 * $i / $D);
+				$tableOffset = $p * $halfD + $i;
+				$cosTable[$tableOffset] = cos($angle);
+				$sinTable[$tableOffset] = sin($angle);
+			}
+		}
+
+		for ($o = 0; $o < $outer; $o++)
+		{
+			for ($p = 0; $p < $L; $p++)
+			{
+				$rowOffset = ($o * $L + $p) * $D;
+				for ($i = 0; $i < $halfD; $i++)
+				{
+					$tableOffset = $p * $halfD + $i;
+					$c = $cosTable[$tableOffset];
+					$s = $sinTable[$tableOffset];
+					$left = $rotateHalf ? $i : 2 * $i;
+					$right = $rotateHalf ? $i + $halfD : 2 * $i + 1;
+					$x0 = $backward ? $Y->grad[$rowOffset + $left] : $X->data[$rowOffset + $left];
+					$x1 = $backward ? $Y->grad[$rowOffset + $right] : $X->data[$rowOffset + $right];
+
+					if ($backward)
+					{
+						$X->grad[$rowOffset + $left] += $x0 * $c + $x1 * $s;
+						$X->grad[$rowOffset + $right] += -$x0 * $s + $x1 * $c;
+					}
+					else
+					{
+						$Y->data[$rowOffset + $left] = $x0 * $c - $x1 * $s;
+						$Y->data[$rowOffset + $right] = $x0 * $s + $x1 * $c;
+					}
+				}
+			}
+		}
+	}
+
+	private function ropeGeneric(TensorRuntime $X, TensorRuntime $Y, int $positionAxis, int $rotationAxis, int $offset, float $base, bool $rotateHalf, bool $backward): void
+	{
+		$rank = count($X->shape);
+		if ($rank < 2 || $Y->shape !== $X->shape)
+			throw new RuntimeException('rope generic: dimension mismatch');
+		if ($positionAxis < 0) $positionAxis += $rank;
+		if ($rotationAxis < 0) $rotationAxis += $rank;
+		if ($positionAxis < 0 || $positionAxis >= $rank || $rotationAxis < 0 || $rotationAxis >= $rank || $positionAxis === $rotationAxis)
+			throw new RuntimeException('rope generic: invalid axes');
+
+		$L = $X->shape[$positionAxis];
+		$D = $X->shape[$rotationAxis];
+		if ($D <= 0 || $D % 2 !== 0)
+			throw new RuntimeException('rope generic: rotation dimension must be positive and even');
+
+		$halfD = intdiv($D, 2);
+		$cosTable = array_fill(0, $L * $halfD, 0.0);
+		$sinTable = array_fill(0, $L * $halfD, 0.0);
+		for ($p = 0; $p < $L; $p++)
+			for ($i = 0; $i < $halfD; $i++)
+			{
+				$tableOffset = $p * $halfD + $i;
+				$angle = ($offset + $p) * pow($base, -2.0 * $i / $D);
+				$cosTable[$tableOffset] = cos($angle);
+				$sinTable[$tableOffset] = sin($angle);
+			}
+
+		$this->forEachSliceAlongAxisIncremental(
+			$X->shape,
+			$X->strides,
+			$rotationAxis,
+			function(int $baseX, int $strideX, int $axisLen, array $idxNoAxis) use ($X, $Y, $positionAxis, $rotationAxis, $halfD, $cosTable, $sinTable, $rotateHalf, $backward)
+			{
+				$baseY = 0;
+				foreach ($idxNoAxis as $axis => $index)
+					if ($index !== null)
+						$baseY += $index * $Y->strides[$axis];
+				$strideY = $Y->strides[$rotationAxis];
+				$tableBase = $idxNoAxis[$positionAxis] * $halfD;
+
+				for ($i = 0; $i < $halfD; $i++)
+				{
+					$c = $cosTable[$tableBase + $i];
+					$s = $sinTable[$tableBase + $i];
+					$left = $rotateHalf ? $i : 2 * $i;
+					$right = $rotateHalf ? $i + $halfD : 2 * $i + 1;
+					$offsetX0 = $baseX + $left * $strideX;
+					$offsetX1 = $baseX + $right * $strideX;
+					$offsetY0 = $baseY + $left * $strideY;
+					$offsetY1 = $baseY + $right * $strideY;
+					$x0 = $backward ? $Y->grad[$offsetY0] : $X->data[$offsetX0];
+					$x1 = $backward ? $Y->grad[$offsetY1] : $X->data[$offsetX1];
+
+					if ($backward)
+					{
+						$X->grad[$offsetX0] += $x0 * $c + $x1 * $s;
+						$X->grad[$offsetX1] += -$x0 * $s + $x1 * $c;
+					}
+					else
+					{
+						$Y->data[$offsetY0] = $x0 * $c - $x1 * $s;
+						$Y->data[$offsetY1] = $x0 * $s + $x1 * $c;
+					}
+				}
+			}
+		);
+	}
+
+	private function ROPE_INTERLEAVED_LAST_TWO(TensorRuntime $X, TensorRuntime $Y, int $offset, float $base): void
+	{
+		$this->ropeLastTwo($X, $Y, $offset, $base, false, false);
+	}
+
+	private function ROPE_ROTATE_HALF_LAST_TWO(TensorRuntime $X, TensorRuntime $Y, int $offset, float $base): void
+	{
+		$this->ropeLastTwo($X, $Y, $offset, $base, true, false);
+	}
+
+	private function ROPE_INTERLEAVED_GENERIC(TensorRuntime $X, TensorRuntime $Y, int $positionAxis, int $rotationAxis, int $offset, float $base): void
+	{
+		$this->ropeGeneric($X, $Y, $positionAxis, $rotationAxis, $offset, $base, false, false);
+	}
+
+	private function ROPE_ROTATE_HALF_GENERIC(TensorRuntime $X, TensorRuntime $Y, int $positionAxis, int $rotationAxis, int $offset, float $base): void
+	{
+		$this->ropeGeneric($X, $Y, $positionAxis, $rotationAxis, $offset, $base, true, false);
+	}
+
+	private function BACKWARD_ROPE_INTERLEAVED_LAST_TWO(TensorRuntime $X, TensorRuntime $Y, int $offset, float $base): void
+	{
+		$this->ropeLastTwo($X, $Y, $offset, $base, false, true);
+	}
+
+	private function BACKWARD_ROPE_ROTATE_HALF_LAST_TWO(TensorRuntime $X, TensorRuntime $Y, int $offset, float $base): void
+	{
+		$this->ropeLastTwo($X, $Y, $offset, $base, true, true);
+	}
+
+	private function BACKWARD_ROPE_INTERLEAVED_GENERIC(TensorRuntime $X, TensorRuntime $Y, int $positionAxis, int $rotationAxis, int $offset, float $base): void
+	{
+		$this->ropeGeneric($X, $Y, $positionAxis, $rotationAxis, $offset, $base, false, true);
+	}
+
+	private function BACKWARD_ROPE_ROTATE_HALF_GENERIC(TensorRuntime $X, TensorRuntime $Y, int $positionAxis, int $rotationAxis, int $offset, float $base): void
+	{
+		$this->ropeGeneric($X, $Y, $positionAxis, $rotationAxis, $offset, $base, true, true);
+	}
+
 	// KERNELS SOFTMAX
 	private function SOFTMAX_1D_LAST(TensorRuntime $X, TensorRuntime $Y)
 	{

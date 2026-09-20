@@ -17,6 +17,9 @@ use Exception;
 class Tensor
 {
 	use TensorUtility;
+
+	public const INTERLEAVED = 'INTERLEAVED';
+	public const ROTATE_HALF = 'ROTATE_HALF';
 	
 	/**
 	* Operation name that produced this tensor (if any)
@@ -759,6 +762,63 @@ class Tensor
 		
 		return $result;
     }
+
+	/**
+	 * Applies Rotary Position Embeddings (RoPE) along the selected axes.
+	 *
+	 * The rotation axis must have an even size. Pairing is encoded in the
+	 * selected kernel so it is deliberately not emitted as an operation
+	 * attribute.
+	 */
+	public function rope(
+		int $positionAxis = -2,
+		int $rotationAxis = -1,
+		int $offset = 0,
+		float $base = 10000.0,
+		string $pairing = self::INTERLEAVED
+	) : Tensor
+	{
+		$rank = $this->getRank();
+		if ($rank < 2)
+			throw new Exception("RoPE requires rank >= 2");
+
+		if ($positionAxis < -$rank || $positionAxis >= $rank)
+			throw new Exception("RoPE position axis out of range");
+		if ($rotationAxis < -$rank || $rotationAxis >= $rank)
+			throw new Exception("RoPE rotation axis out of range");
+
+		$positionAxis = $positionAxis < 0 ? $positionAxis + $rank : $positionAxis;
+		$rotationAxis = $rotationAxis < 0 ? $rotationAxis + $rank : $rotationAxis;
+
+		if ($positionAxis === $rotationAxis)
+			throw new Exception("RoPE position and rotation axes must be different");
+		if ($this->shape[$rotationAxis] % 2 !== 0)
+			throw new Exception("RoPE rotation axis size must be even");
+		if ($offset < 0)
+			throw new Exception("RoPE offset must be >= 0");
+		if ($base <= 0.0)
+			throw new Exception("RoPE base must be > 0");
+		if (!in_array($pairing, [self::INTERLEAVED, self::ROTATE_HALF], true))
+			throw new Exception("RoPE pairing must be INTERLEAVED or ROTATE_HALF");
+
+		$isLastTwo = $positionAxis === $rank - 2 && $rotationAxis === $rank - 1;
+		if ($pairing === self::INTERLEAVED)
+			$kernel = $isLastTwo ? "ROPE_INTERLEAVED_LAST_TWO" : "ROPE_INTERLEAVED_GENERIC";
+		else
+			$kernel = $isLastTwo ? "ROPE_ROTATE_HALF_LAST_TWO" : "ROPE_ROTATE_HALF_GENERIC";
+
+		$context = $this->initContextFrom();
+		$inputId = $this->registerInContext($context, $this);
+		$result = new Tensor($this->shape, [], 'rope');
+		$context->registerOp('rope', [$inputId], $result, [
+			"kernel" => $kernel,
+			"axes" => [$positionAxis, $rotationAxis],
+			"offset" => $offset,
+			"base" => $base,
+		]);
+
+		return $result;
+	}
     
     public function shapeReduced(int $index = 0) : array
 	{
