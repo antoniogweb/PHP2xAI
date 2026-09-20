@@ -28,6 +28,9 @@ class GraphRuntime
 	/** @var array<int,array{key: array, value: array, shape: array}> Cache KV contigue, indicizzate dal layer. */
 	private array $kvCaches = [];
 	private ExecutionMode $mode = ExecutionMode::INFER;
+	private int $ropeOffset = -1;
+	private int $ropeOffsetIncrement = 1;
+	private bool $hasKvCacheInForward = false;
 	
 	public function __construct(array $graphDef, ?array $weigths = null)
 	{
@@ -291,6 +294,11 @@ class GraphRuntime
 	
 	public function forward(): void
 	{
+		$this->ropeOffsetIncrement = 1;
+		$this->hasKvCacheInForward = false;
+		if ($this->mode === ExecutionMode::PREFILL)
+			$this->ropeOffset = -1;
+
 		foreach ($this->ops as $op)
 		{
 			$name = $op['op'];
@@ -364,7 +372,9 @@ class GraphRuntime
 					$this->opSoftmax($inputs[0], $outId, $attributes);
 					break;
 				case 'rope':
-					$this->opRope($inputs[0], $outId, $attributes);
+					if ($this->mode === ExecutionMode::PREFILL && $this->ropeOffset < 0)
+						$this->ropeOffset = $attributes['offset'] ?? 0;
+					$this->opRope($inputs[0], $outId, $attributes, $this->ropeOffset);
 					break;
 				case 'kv_cache':
 					if (count($outputIds) !== 2) throw new RuntimeException('kv_cache requires two outputs');
@@ -398,6 +408,9 @@ class GraphRuntime
 					throw new RuntimeException("Op not supported: {$name}");
 			}
 		}
+
+		if ($this->hasKvCacheInForward)
+			$this->ropeOffset += $this->ropeOffsetIncrement;
 	}
 	
 	private function opPaddingMask(int $inputId, int $outId, array $attributes): void
@@ -1153,6 +1166,14 @@ class GraphRuntime
 			throw new RuntimeException('kv_cache requires a non-negative layer attribute');
 
 		$shape = $K->shape;
+		if ($this->mode === ExecutionMode::PREFILL || $this->mode === ExecutionMode::DECODE)
+		{
+			$lNew = $shape[2];
+			if ($this->hasKvCacheInForward && $this->ropeOffsetIncrement !== $lNew)
+				throw new RuntimeException('kv_cache layers must share Lnew');
+			$this->ropeOffsetIncrement = $lNew;
+			$this->hasKvCacheInForward = true;
+		}
 		if ($this->mode === ExecutionMode::TRAIN || $this->mode === ExecutionMode::INFER)
 		{
 			// Identity path: cache state and graph metadata stay untouched.
@@ -1222,14 +1243,15 @@ class GraphRuntime
 		}
 	}
 
-	private function opRope(int $inputId, int $outId, array $attributes): void
+	private function opRope(int $inputId, int $outId, array $attributes, int $runtimeOffset): void
 	{
 		$X = $this->tensors[$inputId];
 		$Y = $this->tensors[$outId];
 		$kernel = $attributes['kernel'] ?? '';
 		$positionAxis = $attributes['axes'][0] ?? -2;
 		$rotationAxis = $attributes['axes'][1] ?? -1;
-		$offset = $attributes['offset'] ?? 0;
+		// The dispatcher supplies the sequence position shared by every layer.
+		$offset = $runtimeOffset;
 		$base = (float)($attributes['base'] ?? 10000.0);
 
 		switch ($kernel)

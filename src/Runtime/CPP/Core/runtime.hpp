@@ -166,6 +166,9 @@ namespace PHP2xAI::Runtime::CPP
 		std::uint64_t dropoutSeed_ = 0x9e3779b97f4a7c15ULL;
 		struct KVCacheSlot { std::vector<Scalar> key, value; std::vector<int> shape; };
 		std::unordered_map<int, KVCacheSlot> kvCaches_;
+		int ropeOffset_ = -1;
+		int ropeOffsetIncrement_ = 1;
+		bool hasKvCacheInForward_ = false;
 
 		void opMatmul(int, int, int, const std::string &kernel);
 		void opLayerNorm(int inputId, int gammaId, int betaId, int outId, const std::string &kernel, const std::vector<int> &axes);

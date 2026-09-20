@@ -313,6 +313,10 @@ namespace PHP2xAI::Runtime::CPP
 
 	void GraphRuntime::forward()
 	{
+		ropeOffsetIncrement_ = 1;
+		hasKvCacheInForward_ = false;
+		if (mode_ == ExecutionMode::PREFILL) ropeOffset_ = -1;
+
 		for (const auto &op : ops)
 		{
 			const auto &name = op.op;
@@ -377,8 +381,10 @@ namespace PHP2xAI::Runtime::CPP
 				opPaddingMask(inputs[0], outId, op.padId);
 			else if (name == "softmax")
 				opSoftmax(inputs[0], outId, op.kernel, op.axes);
-			else if (name == "rope")
-				opRope(inputs[0], outId, op.kernel, op.axes, op.offset, op.base);
+			else if (name == "rope") {
+				if (mode_ == ExecutionMode::PREFILL && ropeOffset_ < 0) ropeOffset_ = op.offset;
+				opRope(inputs[0], outId, op.kernel, op.axes, ropeOffset_, op.base);
+			}
 			else if (name == "kv_cache")
 			{
 				if (op.outputs.size() != 2)
@@ -395,6 +401,8 @@ namespace PHP2xAI::Runtime::CPP
 			else
 				throw std::runtime_error("Op not supported: " + name);
 		}
+
+		if (hasKvCacheInForward_) ropeOffset_ += ropeOffsetIncrement_;
 	}
 
 	void GraphRuntime::backward()
@@ -2310,6 +2318,13 @@ namespace PHP2xAI::Runtime::CPP
 		auto &V = tensors[valueId];
 		if (K.shape.size() != 4 || K.shape != V.shape || layer < 0)
 			throw std::runtime_error("kv_cache: invalid K/V or layer");
+
+		if (mode_ == ExecutionMode::PREFILL || mode_ == ExecutionMode::DECODE) {
+			const int lNew = K.shape[2];
+			if (hasKvCacheInForward_ && ropeOffsetIncrement_ != lNew) throw std::runtime_error("kv_cache: layers must share Lnew");
+			ropeOffsetIncrement_ = lNew;
+			hasKvCacheInForward_ = true;
+		}
 
 		// Training and ordinary inference are identity paths: no persistent state.
 		if (mode_ == ExecutionMode::TRAIN || mode_ == ExecutionMode::INFER)
