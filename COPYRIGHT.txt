@@ -24,7 +24,7 @@ link: 		https://github.com/nlohmann/json
 
 Eigen
 -------
-C++ library to parse JSON
+C++ library to apply SIMD easily
 License:	License: Mozilla Public License, Version 2.0 (MPL2)
 link: 		https://libeigen.gitlab.io/
 
