@@ -25,6 +25,8 @@ class GraphRuntime
 	private ?GraphContext $context = null;
 	/** @var array<int,float[]> dropout masks from the latest forward pass */
 	private array $dropoutMasks = [];
+	/** @var array<int,array{key: array, value: array, shape: array}> Cache KV contigue, indicizzate dal layer. */
+	private array $kvCaches = [];
 	private ExecutionMode $mode = ExecutionMode::INFER;
 	
 	public function __construct(array $graphDef, ?array $weigths = null)
@@ -116,6 +118,12 @@ class GraphRuntime
 	public function setMode(ExecutionMode $mode): void
 	{
 		$this->mode = $mode;
+	}
+
+	public function resetKvCache(?int $layer = null): void
+	{
+		if ($layer === null) { $this->kvCaches = []; return; }
+		unset($this->kvCaches[$layer]);
 	}
 
 	public function setContext(GraphContext $context) : void
@@ -287,7 +295,9 @@ class GraphRuntime
 		{
 			$name = $op['op'];
 			$inputs = $op['inputs'];
-			$outId = $op['output'];
+			// Le op normali hanno `output`; kv_cache usa invece i due id in `outputs`.
+			$outId = $op['output'] ?? null;
+			$outputIds = $op['outputs'] ?? [];
 			$attributes = $op['attributes'] ?? [];
 			
 			switch ($name)
@@ -355,6 +365,10 @@ class GraphRuntime
 					break;
 				case 'rope':
 					$this->opRope($inputs[0], $outId, $attributes);
+					break;
+				case 'kv_cache':
+					if (count($outputIds) !== 2) throw new RuntimeException('kv_cache requires two outputs');
+					$this->opKvCache($inputs[0], $inputs[1], $outputIds[0], $outputIds[1], $attributes);
 					break;
 				case 'CE':
 					$this->opCe($inputs[0], $inputs[1], $outId, $attributes);
@@ -1122,6 +1136,92 @@ class GraphRuntime
 // 		$Y->data = [$sum / $size];
 // 	}
 	
+	/**
+	 * Executes the paired KV cache operation over contiguous [B, H, L, Dk] tensors.
+	 * PREFILL replaces one layer slot; DECODE appends along L; TRAIN/INFER are
+	 * pass-through paths. Outputs are always materialized as contiguous tensors.
+	 */
+	private function opKvCache(int $keyId, int $valueId, int $keyOutId, int $valueOutId, array $attributes): void
+	{
+		$K = $this->tensors[$keyId];
+		$V = $this->tensors[$valueId];
+		if (count($K->shape) !== 4 || $K->shape !== $V->shape)
+			throw new RuntimeException('kv_cache requires matching rank-4 [B, H, L, Dk] tensors');
+
+		$layer = $attributes['layer'] ?? null;
+		if (!is_int($layer) || $layer < 0)
+			throw new RuntimeException('kv_cache requires a non-negative layer attribute');
+
+		$shape = $K->shape;
+		if ($this->mode === ExecutionMode::TRAIN || $this->mode === ExecutionMode::INFER)
+		{
+			// Identity path: cache state and graph metadata stay untouched.
+			$this->tensors[$keyOutId]->data = $K->data;
+			$this->tensors[$valueOutId]->data = $V->data;
+			return;
+		}
+
+		if ($this->mode === ExecutionMode::PREFILL)
+		{
+			// A new prompt replaces any older request state for this transformer layer.
+			$this->kvCaches[$layer] = ['key' => $K->data, 'value' => $V->data, 'shape' => $shape];
+		}
+		else if ($this->mode === ExecutionMode::DECODE)
+		{
+			// Each decode step contributes Lnew tokens (normally Lnew = 1).
+			if (!isset($this->kvCaches[$layer]))
+				throw new RuntimeException("kv_cache layer {$layer} requires PREFILL before DECODE");
+
+			$cache = $this->kvCaches[$layer];
+			$old = $cache['shape'];
+			if ($old[0] !== $shape[0] || $old[1] !== $shape[1] || $old[3] !== $shape[3])
+				throw new RuntimeException('kv_cache decode shape mismatch');
+
+			$newShape = [$shape[0], $shape[1], $old[2] + $shape[2], $shape[3]];
+			$merge = function(array $cached, array $new) use ($old, $shape): array
+			{
+				// Storage is [B,H,L,Dk], so append separately for every (B,H) block.
+				$out = [];
+				$outer = $shape[0] * $shape[1];
+				$oldBlock = $old[2] * $shape[3];
+				$newBlock = $shape[2] * $shape[3];
+				for ($o = 0; $o < $outer; $o++)
+					array_push($out, ...array_slice($cached, $o * $oldBlock, $oldBlock), ...array_slice($new, $o * $newBlock, $newBlock));
+				return $out;
+			};
+
+			$this->kvCaches[$layer] = ['key' => $merge($cache['key'], $K->data), 'value' => $merge($cache['value'], $V->data), 'shape' => $newShape];
+		}
+
+		$source = $this->kvCaches[$layer];
+		foreach ([[$keyOutId, 'key'], [$valueOutId, 'value']] as [$id, $kind])
+		{
+			$out = $this->tensors[$id];
+			$out->shape = $source['shape'];
+			$out->strides = TensorRuntime::computeStrides($out->shape);
+			$out->data = $source[$kind];
+			if (count($out->grad) !== count($out->data))
+				$out->grad = array_fill(0, count($out->data), 0.0);
+		}
+	}
+
+	/** TRAIN is identity, therefore each output gradient is added to its input. */
+	private function backwardKvCache(int $keyId, int $valueId, int $keyOutId, int $valueOutId): void
+	{
+		if ($this->mode !== ExecutionMode::TRAIN)
+			return;
+
+		foreach ([[$keyId, $keyOutId], [$valueId, $valueOutId]] as [$inputId, $outId])
+		{
+			$input = $this->tensors[$inputId];
+			$out = $this->tensors[$outId];
+			if (!$input->requiresGrad)
+				continue;
+			foreach ($out->grad as $i => $grad)
+				$input->grad[$i] += $grad;
+		}
+	}
+
 	private function opRope(int $inputId, int $outId, array $attributes): void
 	{
 		$X = $this->tensors[$inputId];
@@ -1973,7 +2073,8 @@ class GraphRuntime
 			$op = $this->ops[$i];
 			$name   = $op['op'];
 			$inputs = $op['inputs'];
-			$outId  = $op['output'];
+			$outId  = $op['output'] ?? null;
+			$outputIds = $op['outputs'] ?? [];
 			$attributes = $op['attributes'] ?? [];
 			
 			switch ($name)
@@ -2041,6 +2142,10 @@ class GraphRuntime
 					break;
 				case 'rope':
 					$this->backwardRope($inputs[0], $outId, $attributes);
+					break;
+				case 'kv_cache':
+					if (count($outputIds) !== 2) throw new RuntimeException('kv_cache requires two outputs');
+					$this->backwardKvCache($inputs[0], $inputs[1], $outputIds[0], $outputIds[1]);
 					break;
 				case 'CE':
 					$this->backwardCe($inputs[0], $inputs[1], $outId, $attributes);

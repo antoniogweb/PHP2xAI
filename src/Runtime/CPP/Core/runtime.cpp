@@ -379,6 +379,7 @@ namespace PHP2xAI::Runtime::CPP
 				opSoftmax(inputs[0], outId, op.kernel, op.axes);
 			else if (name == "rope")
 				opRope(inputs[0], outId, op.kernel, op.axes, op.offset, op.base);
+			else if (name == "kv_cache") { if (op.outputs.size() != 2) throw std::runtime_error("kv_cache requires two outputs"); opKvCache(inputs[0], inputs[1], op.outputs[0], op.outputs[1], op.layer); }
 			else if (name == "CE")
 				opCe(inputs[0], inputs[1], outId, op.kernel, op.axes);
 			else if (name == "softmax_ce_logits")
@@ -467,6 +468,7 @@ namespace PHP2xAI::Runtime::CPP
 				backwardSoftmax(inputs[0], outId, op.kernel, op.axes);
 			else if (name == "rope")
 				backwardRope(inputs[0], outId, op.kernel, op.axes, op.offset, op.base);
+			else if (name == "kv_cache") { if (op.outputs.size() != 2) throw std::runtime_error("kv_cache requires two outputs"); backwardKvCache(inputs[0], inputs[1], op.outputs[0], op.outputs[1]); }
 			else if (name == "CE")
 				backwardCe(inputs[0], inputs[1], outId, op.kernel, op.axes);
 			else if (name == "softmax_ce_logits")
@@ -2291,6 +2293,80 @@ namespace PHP2xAI::Runtime::CPP
 	void GraphRuntime::BACKWARD_ROPE_ROTATE_HALF_GENERIC(Tensor &X, Tensor &Y, int positionAxis, int rotationAxis, int offset, Scalar base)
 	{
 		ropeGeneric(X, Y, positionAxis, rotationAxis, offset, base, true, true);
+	}
+
+
+	// KV tensors are contiguous [B, H, L, Dk].  The slot key is the stable
+	// transformer-layer attribute serialized in the graph.
+	void GraphRuntime::opKvCache(int keyId, int valueId, int keyOutId, int valueOutId, int layer)
+	{
+		auto &K = tensors[keyId];
+		auto &V = tensors[valueId];
+		if (K.shape.size() != 4 || K.shape != V.shape || layer < 0)
+			throw std::runtime_error("kv_cache: invalid K/V or layer");
+
+		// Training and ordinary inference are identity paths: no persistent state.
+		if (mode_ == ExecutionMode::TRAIN || mode_ == ExecutionMode::INFER)
+		{
+			tensors[keyOutId].data = K.data;
+			tensors[valueOutId].data = V.data;
+			return;
+		}
+
+		if (mode_ == ExecutionMode::PREFILL)
+		{
+			// A prompt replaces the old request state for this layer.
+			kvCaches_[layer] = {K.data, V.data, K.shape};
+		}
+		else if (mode_ == ExecutionMode::DECODE)
+		{
+			auto it = kvCaches_.find(layer);
+			if (it == kvCaches_.end())
+				throw std::runtime_error("kv_cache: PREFILL required before DECODE");
+
+			auto &cache = it->second;
+			if (cache.shape[0] != K.shape[0] || cache.shape[1] != K.shape[1] || cache.shape[3] != K.shape[3])
+				throw std::runtime_error("kv_cache: decode shape mismatch");
+
+			// Flat [B,H,L,Dk] storage requires append separately for each (B,H).
+			auto merge = [&](const std::vector<Scalar> &old, const std::vector<Scalar> &add) {
+				std::vector<Scalar> merged;
+				const int outer = K.shape[0] * K.shape[1];
+				const int oldBlock = cache.shape[2] * K.shape[3];
+				const int newBlock = K.shape[2] * K.shape[3];
+				merged.reserve(old.size() + add.size());
+				for (int o = 0; o < outer; ++o) {
+					merged.insert(merged.end(), old.begin() + o * oldBlock, old.begin() + (o + 1) * oldBlock);
+					merged.insert(merged.end(), add.begin() + o * newBlock, add.begin() + (o + 1) * newBlock);
+				}
+				return merged;
+			};
+			cache.key = merge(cache.key, K.data);
+			cache.value = merge(cache.value, V.data);
+			cache.shape[2] += K.shape[2]; // Lcached += Lnew
+		}
+
+		// Materialize the cached prefix into normal contiguous runtime tensors.
+		auto &cache = kvCaches_.at(layer);
+		for (const auto &[id, data] : std::vector<std::pair<int, const std::vector<Scalar>*>>{{keyOutId, &cache.key}, {valueOutId, &cache.value}}) {
+			auto &out = tensors[id];
+			out.shape = cache.shape;
+			out.strides = Tensor::computeStrides(out.shape);
+			out.data = *data;
+			if (out.grad.size() != out.data.size()) out.grad.assign(out.data.size(), 0.0f);
+		}
+	}
+
+	// TRAIN has Kout=Kin and Vout=Vin, hence the backward is identity.
+	void GraphRuntime::backwardKvCache(int keyId, int valueId, int keyOutId, int valueOutId)
+	{
+		if (mode_ != ExecutionMode::TRAIN) return;
+		for (const auto &[inputId, outId] : std::vector<std::pair<int, int>>{{keyId, keyOutId}, {valueId, valueOutId}}) {
+			auto &input = tensors[inputId];
+			auto &out = tensors[outId];
+			if (!input.requiresGrad) continue;
+			for (std::size_t i = 0; i < out.grad.size(); ++i) input.grad[i] += out.grad[i];
+		}
 	}
 
 	void GraphRuntime::opRope(int inputId, int outId, const std::string &kernel, const std::vector<int> &axes, int offset, Scalar base)
@@ -5807,10 +5883,13 @@ namespace PHP2xAI::Runtime::CPP
 			op.id = o.at("id").get<int>();
 			op.op = o.at("op").get<std::string>();
 			op.inputs = o.at("inputs").get<std::vector<int>>();
-			op.output = o.at("output").get<int>();
+			if (o.contains("output")) op.output = o.at("output").get<int>();
+			if (o.contains("outputs")) op.outputs = o.at("outputs").get<std::vector<int>>();
 			if (o.contains("attributes"))
 			{
 				const auto &attrs = o.at("attributes");
+				if (attrs.contains("layer"))
+					op.layer = attrs.at("layer").get<int>();
 				if (attrs.contains("kernel"))
 					op.kernel = attrs.at("kernel").get<std::string>();
 				if (attrs.contains("axes"))

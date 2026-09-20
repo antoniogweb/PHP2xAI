@@ -98,6 +98,8 @@ namespace PHP2xAI::Runtime::CPP
 		std::string op;
 		std::vector<int> inputs;
 		int output{};
+		std::vector<int> outputs;
+		int layer{-1};
 		std::string kernel{};
 		int padId{};
 		std::vector<int> axes;
@@ -162,6 +164,8 @@ namespace PHP2xAI::Runtime::CPP
 		std::unique_ptr<Profiler> profiler_;
 		bool profilingEnabled_ = false;
 		std::uint64_t dropoutSeed_ = 0x9e3779b97f4a7c15ULL;
+		struct KVCacheSlot { std::vector<Scalar> key, value; std::vector<int> shape; };
+		std::unordered_map<int, KVCacheSlot> kvCaches_;
 
 		void opMatmul(int, int, int, const std::string &kernel);
 		void opLayerNorm(int inputId, int gammaId, int betaId, int outId, const std::string &kernel, const std::vector<int> &axes);
@@ -188,6 +192,7 @@ namespace PHP2xAI::Runtime::CPP
 		// void opMse(int, int);
 		// void opMae(int, int);
 		void opMean(int, int, const std::string &kernel, const std::vector<int> &axes);
+		void opKvCache(int, int, int, int, int);
 		void opRope(int, int, const std::string &kernel, const std::vector<int> &axes, int offset, Scalar base);
 		void opSoftmax(int, int, const std::string &kernel, const std::vector<int> &axes);
 		void opCe(int, int, int, const std::string &kernel, const std::vector<int> &axes);
@@ -219,6 +224,7 @@ namespace PHP2xAI::Runtime::CPP
 		// void backwardMse(int, int);
 		// void backwardMae(int, int);
 		void backwardMean(int, int, const std::string &kernel, const std::vector<int> &axes);
+		void backwardKvCache(int, int, int, int);
 		void backwardRope(int, int, const std::string &kernel, const std::vector<int> &axes, int offset, Scalar base);
 		void backwardSoftmax(int, int, const std::string &kernel, const std::vector<int> &axes);
 		void backwardCe(int, int, int, const std::string &kernel, const std::vector<int> &axes);

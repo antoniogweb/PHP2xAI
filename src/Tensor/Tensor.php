@@ -547,21 +547,29 @@ class Tensor
 	/**
 	 * Builds a paired key/value cache node for autoregressive attention.
 	 *
-	 * The graph contains one kv_cache operation with Knew and Vnew as inputs
-	 * and Kcache/Vcache as separate outputs. Runtime execution semantics are
-	 * intentionally implemented later.
+	 * The graph contains one kv_cache operation with Knew and Vnew as inputs,
+	 * Kcache/Vcache as separate outputs, and a stable transformer layer id.
 	 *
 	 * @return array{0: Tensor, 1: Tensor} [Kcache, Vcache]
 	 */
-	public function kvCache(Tensor $value) : array
+	public static function kvCache(Tensor $key, Tensor $value, int $layer) : array
 	{
-		$context = $this->initContextFrom($value);
-		$keyId = $this->registerInContext($context, $this);
-		$valueId = $this->registerInContext($context, $value);
+		if ($layer < 0)
+			throw new Exception("KV cache layer must be >= 0");
+		if ($key->getRank() !== 4 || $value->getRank() !== 4)
+			throw new Exception("KV cache requires rank 4 K and V tensors [B, H, L, Dk]");
+		if ($key->shape !== $value->shape)
+			throw new Exception("KV cache K and V shapes must match");
 
-		$keyCache = new Tensor($this->shape, [], "kvCacheK");
+		$context = $key->initContextFrom($value);
+		$keyId = $key->registerInContext($context, $key);
+		$valueId = $key->registerInContext($context, $value);
+
+		$keyCache = new Tensor($key->shape, [], "kvCacheK");
 		$valueCache = new Tensor($value->shape, [], "kvCacheV");
-		$context->registerMultiOutputOp("kv_cache", [$keyId, $valueId], [$keyCache, $valueCache]);
+		$context->registerMultiOutputOp("kv_cache", [$keyId, $valueId], [$keyCache, $valueCache], [
+			"layer" => $layer,
+		]);
 
 		return [$keyCache, $valueCache];
 	}
