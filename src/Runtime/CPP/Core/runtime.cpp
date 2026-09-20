@@ -379,7 +379,13 @@ namespace PHP2xAI::Runtime::CPP
 				opSoftmax(inputs[0], outId, op.kernel, op.axes);
 			else if (name == "rope")
 				opRope(inputs[0], outId, op.kernel, op.axes, op.offset, op.base);
-			else if (name == "kv_cache") { if (op.outputs.size() != 2) throw std::runtime_error("kv_cache requires two outputs"); opKvCache(inputs[0], inputs[1], op.outputs[0], op.outputs[1], op.layer); }
+			else if (name == "kv_cache")
+			{
+				if (op.outputs.size() != 2)
+					throw std::runtime_error("kv_cache requires two outputs");
+				
+				opKvCache(inputs[0], inputs[1], op.outputs[0], op.outputs[1], op.layer); 
+			}
 			else if (name == "CE")
 				opCe(inputs[0], inputs[1], outId, op.kernel, op.axes);
 			else if (name == "softmax_ce_logits")
