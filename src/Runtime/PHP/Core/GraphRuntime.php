@@ -325,6 +325,9 @@ class GraphRuntime
 				case 'gelu':
 					$this->opGelu($inputs[0], $outId);
 					break;
+				case 'silu':
+					$this->opSilu($inputs[0], $outId);
+					break;
 				case 'positional_encoding':
 					$this->opPositionalEncoding($inputs[0], $outId);
 					break;
@@ -860,6 +863,25 @@ class GraphRuntime
 			$x = $X->data[$i];
 			$u = $scale * ($x + 0.044715 * $x * $x * $x);
 			$Y->data[$i] = 0.5 * $x * (1.0 + tanh($u));
+		}
+	}
+
+	/** Forward entry point for the Sigmoid Linear Unit operation. */
+	private function opSilu(int $inputId, int $outId): void
+	{
+		$X = $this->tensors[$inputId];
+		$Y = $this->tensors[$outId];
+		$size = count($X->data);
+
+		$Y->shape = $X->shape;
+		$Y->strides = TensorRuntime::computeStrides($Y->shape);
+		$Y->data = array_fill(0, $size, 0.0);
+
+		for ($i = 0; $i < $size; $i++)
+		{
+			$x = $X->data[$i];
+			$sigmoid = 1.0 / (1.0 + exp(-$x));
+			$Y->data[$i] = $x * $sigmoid;
 		}
 	}
 
@@ -2138,6 +2160,9 @@ class GraphRuntime
 				case 'gelu':
 					$this->backwardGelu($inputs[0], $outId);
 					break;
+				case 'silu':
+					$this->backwardSilu($inputs[0], $outId);
+					break;
 				case 'positional_encoding':
 					$this->backwardPositionalEncoding($inputs[0], $outId);
 					break;
@@ -2672,6 +2697,28 @@ class GraphRuntime
 			$tanhU = tanh($u);
 			$du = $scale * (1.0 + 3.0 * 0.044715 * $x * $x);
 			$localGrad = 0.5 * (1.0 + $tanhU) + 0.5 * $x * (1.0 - $tanhU * $tanhU) * $du;
+			$X->grad[$i] += $Y->grad[$i] * $localGrad;
+		}
+	}
+
+	/** Backward entry point for the Sigmoid Linear Unit operation. */
+	private function backwardSilu(int $inputId, int $outId): void
+	{
+		$X = $this->tensors[$inputId];
+		$Y = $this->tensors[$outId];
+
+		if (!$X->requiresGrad)
+			return;
+
+		$size = count($X->data);
+		if ($size !== count($Y->grad))
+			throw new RuntimeException('silu backward: dimension mismatch');
+
+		for ($i = 0; $i < $size; $i++)
+		{
+			$x = $X->data[$i];
+			$sigmoid = 1.0 / (1.0 + exp(-$x));
+			$localGrad = $sigmoid * (1.0 + $x * (1.0 - $sigmoid));
 			$X->grad[$i] += $Y->grad[$i] * $localGrad;
 		}
 	}

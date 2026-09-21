@@ -181,6 +181,7 @@ namespace PHP2xAI::Runtime::CPP
 		void opApplyPaddingMask(int inputId, int maskId, int outId);
 		void opScale(int inputId, int outId, Scalar scale);
 		virtual void opGelu(int inputId, int outId);
+		virtual void opSilu(int inputId, int outId);
 		void opPositionalEncoding(int inputId, int outId);
 		void opReshape(int inputId, int outId);
 		void opSlice(int inputId, int outId, const std::string &kernel, const std::vector<int> &axes, int start, int end);
@@ -207,6 +208,7 @@ namespace PHP2xAI::Runtime::CPP
 		void backwardLayerNorm(int inputId, int gammaId, int betaId, int outId, const std::string &kernel, const std::vector<int> &axes);
 		void backwardScale(int inputId, int outId, Scalar scale);
 		virtual void backwardGelu(int inputId, int outId);
+		virtual void backwardSilu(int inputId, int outId);
 		void backwardPositionalEncoding(int inputId, int outId);
 		void backwardReshape(int inputId, int outId);
 		void backwardSlice(int inputId, int outId, const std::string &kernel, const std::vector<int> &axes, int start, int end);

@@ -341,6 +341,8 @@ namespace PHP2xAI::Runtime::CPP
 				opScale(inputs[0], outId, op.scale);
 			else if (name == "gelu")
 				opGelu(inputs[0], outId);
+			else if (name == "silu")
+				opSilu(inputs[0], outId);
 			else if (name == "positional_encoding")
 				opPositionalEncoding(inputs[0], outId);
 			else if (name == "reshape")
@@ -442,6 +444,8 @@ namespace PHP2xAI::Runtime::CPP
 				backwardScale(inputs[0], outId, op.scale);
 			else if (name == "gelu")
 				backwardGelu(inputs[0], outId);
+			else if (name == "silu")
+				backwardSilu(inputs[0], outId);
 			else if (name == "positional_encoding")
 				backwardPositionalEncoding(inputs[0], outId);
 			else if (name == "reshape")
@@ -1072,6 +1076,24 @@ namespace PHP2xAI::Runtime::CPP
 			const Scalar x = X.data[i];
 			const Scalar u = scale * (x + 0.044715f * x * x * x);
 			Y.data[i] = 0.5f * x * (1.0f + std::tanh(u));
+		}
+	}
+
+	void GraphRuntime::opSilu(int inputId, int outId)
+	{
+		auto &X = tensors[inputId];
+		auto &Y = tensors[outId];
+		const auto size = X.data.size();
+
+		Y.shape = X.shape;
+		Y.strides = Tensor::computeStrides(Y.shape);
+		Y.data.assign(size, 0.0f);
+
+		for (std::size_t i = 0; i < size; ++i)
+		{
+			const Scalar x = X.data[i];
+			const Scalar sigmoid = 1.0f / (1.0f + std::exp(-x));
+			Y.data[i] = x * sigmoid;
 		}
 	}
 
@@ -3901,6 +3923,27 @@ namespace PHP2xAI::Runtime::CPP
 			const Scalar du = scale * (1.0f + 3.0f * 0.044715f * x * x);
 			const Scalar localGrad = 0.5f * (1.0f + tanhU)
 				+ 0.5f * x * (1.0f - tanhU * tanhU) * du;
+			X.grad[i] += Y.grad[i] * localGrad;
+		}
+	}
+
+	void GraphRuntime::backwardSilu(int inputId, int outId)
+	{
+		auto &X = tensors[inputId];
+		auto &Y = tensors[outId];
+
+		if (!X.requiresGrad)
+			return;
+
+		const auto size = X.data.size();
+		if (size != Y.grad.size())
+			throw std::runtime_error("silu backward: dimension mismatch");
+
+		for (std::size_t i = 0; i < size; ++i)
+		{
+			const Scalar x = X.data[i];
+			const Scalar sigmoid = 1.0f / (1.0f + std::exp(-x));
+			const Scalar localGrad = sigmoid * (1.0f + x * (1.0f - sigmoid));
 			X.grad[i] += Y.grad[i] * localGrad;
 		}
 	}

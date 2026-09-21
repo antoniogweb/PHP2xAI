@@ -690,6 +690,18 @@ class Tensor
 		return $result;
 	}
 
+	/** Sigmoid Linear Unit: silu(x) = x * sigmoid(x). */
+	public function silu() : Tensor
+	{
+		$context = $this->initContextFrom();
+		$inputId = $this->registerInContext($context, $this);
+
+		$result = new Tensor($this->shape, [], 'silu');
+		$context->registerOp('silu', [$inputId], $result);
+
+		return $result;
+	}
+
 	public function scale(float $scale) : Tensor
 	{
 		$context = $this->initContextFrom();
