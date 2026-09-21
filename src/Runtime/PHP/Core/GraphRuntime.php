@@ -319,6 +319,9 @@ class GraphRuntime
 				case 'layer_norm':
 					$this->opLayerNorm($inputs[0], $inputs[1], $inputs[2], $outId, $attributes);
 					break;
+				case 'rms_norm':
+					$this->opRMSNorm($inputs[0], $inputs[1], $outId, $attributes);
+					break;
 				case 'scale':
 					$this->opScale($inputs[0], $outId, $attributes['scale'] ?? 1.0);
 					break;
@@ -703,6 +706,29 @@ class GraphRuntime
 			case "LAYER_NORM_GENERIC":
 				$this->LAYER_NORM_GENERIC($X, $Gamma, $Beta, $Y, $axes);
 				break;
+		}
+	}
+
+	private function opRMSNorm(int $inputId, int $gammaId, int $outId, array $attributes): void
+	{
+		$X = $this->tensors[$inputId];
+		$Gamma = $this->tensors[$gammaId];
+		$Y = $this->tensors[$outId];
+
+		$kernel = $attributes['kernel'] ?? 'RMS_NORM_LAST_AXIS';
+		$axes = $attributes['axes'] ?? [-1];
+		$eps = $attributes['eps'] ?? 1.0e-5;
+
+		switch ($kernel)
+		{
+			case 'RMS_NORM_LAST_AXIS':
+				$this->RMS_NORM_LAST_AXIS($X, $Gamma, $Y, $eps);
+				break;
+			case 'RMS_NORM_GENERIC':
+				$this->RMS_NORM_GENERIC($X, $Gamma, $Y, $axes, $eps);
+				break;
+			default:
+				throw new RuntimeException('rms_norm: kernel not supported');
 		}
 	}
 
@@ -2154,6 +2180,9 @@ class GraphRuntime
 				case 'layer_norm':
 					$this->backwardLayerNorm($inputs[0], $inputs[1], $inputs[2], $outId, $attributes);
 					break;
+				case 'rms_norm':
+					$this->backwardRMSNorm($inputs[0], $inputs[1], $outId, $attributes);
+					break;
 				case 'scale':
 					$this->backwardScale($inputs[0], $outId, $attributes['scale'] ?? 1.0);
 					break;
@@ -2558,6 +2587,32 @@ class GraphRuntime
 			case "LAYER_NORM_GENERIC":
 				$this->BACKWARD_LAYER_NORM_GENERIC($X, $Gamma, $Beta, $Y, $axes);
 				break;
+		}
+	}
+
+	private function backwardRMSNorm(int $inputId, int $gammaId, int $outId, array $attributes): void
+	{
+		$X = $this->tensors[$inputId];
+		$Gamma = $this->tensors[$gammaId];
+		$Y = $this->tensors[$outId];
+
+		if (!$X->requiresGrad && !$Gamma->requiresGrad)
+			return;
+
+		$kernel = $attributes['kernel'] ?? 'RMS_NORM_LAST_AXIS';
+		$axes = $attributes['axes'] ?? [-1];
+		$eps = $attributes['eps'] ?? 1.0e-5;
+
+		switch ($kernel)
+		{
+			case 'RMS_NORM_LAST_AXIS':
+				$this->BACKWARD_RMS_NORM_LAST_AXIS($X, $Gamma, $Y, $eps);
+				break;
+			case 'RMS_NORM_GENERIC':
+				$this->BACKWARD_RMS_NORM_GENERIC($X, $Gamma, $Y, $axes, $eps);
+				break;
+			default:
+				throw new RuntimeException('rms_norm backward: kernel not supported');
 		}
 	}
 
@@ -4036,6 +4091,182 @@ class GraphRuntime
 				$Y->data[$row + $i] = $Gamma->data[$i] * $xHat + $Beta->data[$i];
 			}
 		}
+	}
+
+	private function RMS_NORM_LAST_AXIS(TensorRuntime $X, TensorRuntime $Gamma, TensorRuntime $Y, float $eps): void
+	{
+		$rank = count($X->shape);
+		if ($rank === 0 || $Y->shape !== $X->shape)
+			throw new RuntimeException('rms_norm: dimension mismatch');
+
+		$dim = $X->shape[$rank - 1];
+		if ($dim <= 0 || $Gamma->shape !== [$dim] || $eps <= 0.0)
+			throw new RuntimeException('rms_norm: invalid gamma dimension or eps');
+		if (!$X->isContiguous() || !$Y->isContiguous() || !$Gamma->isContiguous())
+			throw new RuntimeException('rms_norm last axis: tensors must be contiguous');
+
+		$outer = intdiv(array_product($X->shape), $dim);
+		for ($o = 0; $o < $outer; $o++)
+		{
+			$row = $o * $dim;
+			$meanSquare = 0.0;
+			for ($i = 0; $i < $dim; $i++)
+				$meanSquare += $X->data[$row + $i] * $X->data[$row + $i];
+
+			$invRms = 1.0 / sqrt($meanSquare / $dim + $eps);
+			for ($i = 0; $i < $dim; $i++)
+				$Y->data[$row + $i] = $X->data[$row + $i] * $invRms * $Gamma->data[$i];
+		}
+	}
+
+	private function RMS_NORM_GENERIC(TensorRuntime $X, TensorRuntime $Gamma, TensorRuntime $Y, array $axes, float $eps): void
+	{
+		$rank = count($X->shape);
+		if ($rank === 0 || count($axes) !== 1 || $Y->shape !== $X->shape)
+			throw new RuntimeException('rms_norm: dimension mismatch');
+
+		$axis = $axes[0] < 0 ? $axes[0] + $rank : $axes[0];
+		if ($axis < 0 || $axis >= $rank)
+			throw new RuntimeException('rms_norm: axis out of range');
+
+		$dim = $X->shape[$axis];
+		if ($dim <= 0 || $Gamma->shape !== [$dim] || $eps <= 0.0)
+			throw new RuntimeException('rms_norm: invalid gamma dimension or eps');
+
+		$this->forEachSliceAlongAxisIncremental(
+			$X->shape, $X->strides, $axis,
+			function(int $base, int $strideAxis, int $axisLen, array $idxNoAxis) use ($X, $Gamma, $Y, $axis, $eps)
+			{
+				$xBase = $X->baseOffset + $base;
+				$yBase = $Y->baseOffset;
+				foreach ($idxNoAxis as $dimension => $index)
+					if ($dimension !== $axis)
+						$yBase += $index * $Y->strides[$dimension];
+
+				$meanSquare = 0.0;
+				$xOffset = $xBase;
+				for ($i = 0; $i < $axisLen; $i++)
+				{
+					$meanSquare += $X->data[$xOffset] * $X->data[$xOffset];
+					$xOffset += $strideAxis;
+				}
+
+				$invRms = 1.0 / sqrt($meanSquare / $axisLen + $eps);
+				$xOffset = $xBase;
+				$yOffset = $yBase;
+				for ($i = 0; $i < $axisLen; $i++)
+				{
+					$gammaOffset = $Gamma->baseOffset + $i * $Gamma->strides[0];
+					$Y->data[$yOffset] = $X->data[$xOffset] * $invRms * $Gamma->data[$gammaOffset];
+					$xOffset += $strideAxis;
+					$yOffset += $Y->strides[$axis];
+				}
+			}
+		);
+	}
+
+	private function BACKWARD_RMS_NORM_LAST_AXIS(TensorRuntime $X, TensorRuntime $Gamma, TensorRuntime $Y, float $eps): void
+	{
+		$rank = count($X->shape);
+		if ($rank === 0 || $Y->shape !== $X->shape)
+			throw new RuntimeException('rms_norm backward: dimension mismatch');
+
+		$dim = $X->shape[$rank - 1];
+		if ($dim <= 0 || $Gamma->shape !== [$dim] || $eps <= 0.0)
+			throw new RuntimeException('rms_norm backward: invalid gamma dimension or eps');
+		if (!$X->isContiguous() || !$Y->isContiguous() || !$Gamma->isContiguous())
+			throw new RuntimeException('rms_norm last axis backward: tensors must be contiguous');
+
+		$outer = intdiv(array_product($X->shape), $dim);
+		for ($o = 0; $o < $outer; $o++)
+		{
+			$row = $o * $dim;
+			$meanSquare = 0.0;
+			for ($i = 0; $i < $dim; $i++)
+				$meanSquare += $X->data[$row + $i] * $X->data[$row + $i];
+
+			$invRms = 1.0 / sqrt($meanSquare / $dim + $eps);
+			$sumGradTimesX = 0.0;
+			for ($i = 0; $i < $dim; $i++)
+				$sumGradTimesX += $Y->grad[$row + $i] * $Gamma->data[$i] * $X->data[$row + $i];
+
+			for ($i = 0; $i < $dim; $i++)
+			{
+				$index = $row + $i;
+				if ($Gamma->requiresGrad)
+					$Gamma->grad[$i] += $Y->grad[$index] * $X->data[$index] * $invRms;
+				if ($X->requiresGrad)
+				{
+					$gradTimesGamma = $Y->grad[$index] * $Gamma->data[$i];
+					$X->grad[$index] += $invRms * ($gradTimesGamma
+						- $X->data[$index] * $invRms * $invRms * $sumGradTimesX / $dim);
+				}
+			}
+		}
+	}
+
+	private function BACKWARD_RMS_NORM_GENERIC(TensorRuntime $X, TensorRuntime $Gamma, TensorRuntime $Y, array $axes, float $eps): void
+	{
+		$rank = count($X->shape);
+		if ($rank === 0 || count($axes) !== 1 || $Y->shape !== $X->shape)
+			throw new RuntimeException('rms_norm backward: dimension mismatch');
+
+		$axis = $axes[0] < 0 ? $axes[0] + $rank : $axes[0];
+		if ($axis < 0 || $axis >= $rank)
+			throw new RuntimeException('rms_norm backward: axis out of range');
+
+		$dim = $X->shape[$axis];
+		if ($dim <= 0 || $Gamma->shape !== [$dim] || $eps <= 0.0)
+			throw new RuntimeException('rms_norm backward: invalid gamma dimension or eps');
+
+		$this->forEachSliceAlongAxisIncremental(
+			$X->shape, $X->strides, $axis,
+			function(int $base, int $strideAxis, int $axisLen, array $idxNoAxis) use ($X, $Gamma, $Y, $axis, $eps)
+			{
+				$xBase = $X->baseOffset + $base;
+				$yBase = $Y->baseOffset;
+				foreach ($idxNoAxis as $dimension => $index)
+					if ($dimension !== $axis)
+						$yBase += $index * $Y->strides[$dimension];
+
+				$meanSquare = 0.0;
+				$xOffset = $xBase;
+				for ($i = 0; $i < $axisLen; $i++)
+				{
+					$meanSquare += $X->data[$xOffset] * $X->data[$xOffset];
+					$xOffset += $strideAxis;
+				}
+
+				$invRms = 1.0 / sqrt($meanSquare / $axisLen + $eps);
+				$sumGradTimesX = 0.0;
+				$xOffset = $xBase;
+				$yOffset = $yBase;
+				for ($i = 0; $i < $axisLen; $i++)
+				{
+					$gammaOffset = $Gamma->baseOffset + $i * $Gamma->strides[0];
+					$sumGradTimesX += $Y->grad[$yOffset] * $Gamma->data[$gammaOffset] * $X->data[$xOffset];
+					$xOffset += $strideAxis;
+					$yOffset += $Y->strides[$axis];
+				}
+
+				$xOffset = $xBase;
+				$yOffset = $yBase;
+				for ($i = 0; $i < $axisLen; $i++)
+				{
+					$gammaOffset = $Gamma->baseOffset + $i * $Gamma->strides[0];
+					if ($Gamma->requiresGrad)
+						$Gamma->grad[$gammaOffset] += $Y->grad[$yOffset] * $X->data[$xOffset] * $invRms;
+					if ($X->requiresGrad)
+					{
+						$gradTimesGamma = $Y->grad[$yOffset] * $Gamma->data[$gammaOffset];
+						$X->grad[$xOffset] += $invRms * ($gradTimesGamma
+							- $X->data[$xOffset] * $invRms * $invRms * $sumGradTimesX / $axisLen);
+					}
+					$xOffset += $strideAxis;
+					$yOffset += $Y->strides[$axis];
+				}
+			}
+		);
 	}
 
 	private function LAYER_NORM_GENERIC(TensorRuntime $X, TensorRuntime $Gamma, TensorRuntime $Beta, TensorRuntime $Y, array $axes): void

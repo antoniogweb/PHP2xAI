@@ -337,6 +337,8 @@ namespace PHP2xAI::Runtime::CPP
 				opApplyCausalMask(inputs[0], outId);
 			else if (name == "layer_norm")
 				opLayerNorm(inputs[0], inputs[1], inputs[2], outId, op.kernel, op.axes);
+			else if (name == "rms_norm")
+				opRMSNorm(inputs[0], inputs[1], outId, op.kernel, op.axes, op.eps);
 			else if (name == "scale")
 				opScale(inputs[0], outId, op.scale);
 			else if (name == "gelu")
@@ -440,6 +442,8 @@ namespace PHP2xAI::Runtime::CPP
 				backwardApplyCausalMask(inputs[0], outId);
 			else if (name == "layer_norm")
 				backwardLayerNorm(inputs[0], inputs[1], inputs[2], outId, op.kernel, op.axes);
+			else if (name == "rms_norm")
+				backwardRMSNorm(inputs[0], inputs[1], outId, op.kernel, op.axes, op.eps);
 			else if (name == "scale")
 				backwardScale(inputs[0], outId, op.scale);
 			else if (name == "gelu")
@@ -950,6 +954,21 @@ namespace PHP2xAI::Runtime::CPP
 		throw std::runtime_error("layer_norm: kernel not supported");
 	}
 
+	void GraphRuntime::opRMSNorm(int inputId, int gammaId, int outId, const std::string &kernel, const std::vector<int> &axes, Scalar eps)
+	{
+		auto &X = tensors[inputId];
+		auto &Gamma = tensors[gammaId];
+		auto &Y = tensors[outId];
+		const std::string kernelName = kernel.empty() ? "RMS_NORM_LAST_AXIS" : kernel;
+
+		if (kernelName == "RMS_NORM_LAST_AXIS")
+			return RMS_NORM_LAST_AXIS(X, Gamma, Y, eps);
+		if (kernelName == "RMS_NORM_GENERIC")
+			return RMS_NORM_GENERIC(X, Gamma, Y, axes, eps);
+
+		throw std::runtime_error("rms_norm: kernel not supported");
+	}
+
 
 	void GraphRuntime::opSlice(int inputId, int outId, const std::string &kernel, const std::vector<int> &axes, int start, int end)
 	{
@@ -1309,6 +1328,201 @@ namespace PHP2xAI::Runtime::CPP
 					Gamma.data[static_cast<std::size_t>(i)] * xHat + Beta.data[static_cast<std::size_t>(i)];
 			}
 		}
+	}
+
+	void GraphRuntime::RMS_NORM_LAST_AXIS(Tensor &X, Tensor &Gamma, Tensor &Y, Scalar eps)
+	{
+		const int rank = static_cast<int>(X.shape.size());
+		if (rank == 0 || Y.shape != X.shape)
+			throw std::runtime_error("rms_norm: dimension mismatch");
+
+		const int dim = X.shape.back();
+		if (dim <= 0 || Gamma.shape != std::vector<int>{dim} || eps <= 0.0f)
+			throw std::runtime_error("rms_norm: invalid gamma dimension or eps");
+		if (!X.isContiguous() || !Y.isContiguous() || !Gamma.isContiguous())
+			throw std::runtime_error("rms_norm last axis: tensors must be contiguous");
+
+		const int total = std::accumulate(X.shape.begin(), X.shape.end(), 1, std::multiplies<int>());
+		const int outer = total / dim;
+		for (int o = 0; o < outer; ++o)
+		{
+			const int row = o * dim;
+			Scalar meanSquare = 0.0f;
+			for (int i = 0; i < dim; ++i)
+			{
+				const Scalar x = X.data[static_cast<std::size_t>(row + i)];
+				meanSquare += x * x;
+			}
+
+			const Scalar invRms = 1.0f / std::sqrt(meanSquare / static_cast<Scalar>(dim) + eps);
+			for (int i = 0; i < dim; ++i)
+				Y.data[static_cast<std::size_t>(row + i)] =
+					X.data[static_cast<std::size_t>(row + i)] * invRms * Gamma.data[static_cast<std::size_t>(i)];
+		}
+	}
+
+	void GraphRuntime::RMS_NORM_GENERIC(Tensor &X, Tensor &Gamma, Tensor &Y, const std::vector<int> &axes, Scalar eps)
+	{
+		const int rank = static_cast<int>(X.shape.size());
+		if (rank == 0 || axes.size() != 1 || Y.shape != X.shape)
+			throw std::runtime_error("rms_norm: dimension mismatch");
+
+		int axis = axes[0];
+		if (axis < 0) axis += rank;
+		if (axis < 0 || axis >= rank)
+			throw std::runtime_error("rms_norm: axis out of range");
+
+		const int dim = X.shape[static_cast<std::size_t>(axis)];
+		if (dim <= 0 || Gamma.shape != std::vector<int>{dim} || eps <= 0.0f)
+			throw std::runtime_error("rms_norm: invalid gamma dimension or eps");
+
+		forEachSliceAlongAxisIncremental(
+			X.shape, X.strides, axis,
+			[&](int base, int strideAxis, int axisLen, const std::vector<int> &idxNoAxis)
+			{
+				const int xBase = X.baseOffset + base;
+				int yBase = Y.baseOffset;
+				for (int dimension = 0; dimension < rank; ++dimension)
+					if (dimension != axis)
+						yBase += idxNoAxis[static_cast<std::size_t>(dimension)] * Y.strides[static_cast<std::size_t>(dimension)];
+
+				Scalar meanSquare = 0.0f;
+				int xOffset = xBase;
+				for (int i = 0; i < axisLen; ++i)
+				{
+					const Scalar x = X.data[static_cast<std::size_t>(xOffset)];
+					meanSquare += x * x;
+					xOffset += strideAxis;
+				}
+
+				const Scalar invRms = 1.0f / std::sqrt(meanSquare / static_cast<Scalar>(axisLen) + eps);
+				xOffset = xBase;
+				int yOffset = yBase;
+				for (int i = 0; i < axisLen; ++i)
+				{
+					const int gammaOffset = Gamma.baseOffset + i * Gamma.strides[0];
+					Y.data[static_cast<std::size_t>(yOffset)] = X.data[static_cast<std::size_t>(xOffset)]
+						* invRms * Gamma.data[static_cast<std::size_t>(gammaOffset)];
+					xOffset += strideAxis;
+					yOffset += Y.strides[static_cast<std::size_t>(axis)];
+				}
+			});
+	}
+
+	void GraphRuntime::BACKWARD_RMS_NORM_LAST_AXIS(Tensor &X, Tensor &Gamma, Tensor &Y, Scalar eps)
+	{
+		const int rank = static_cast<int>(X.shape.size());
+		if (rank == 0 || Y.shape != X.shape)
+			throw std::runtime_error("rms_norm backward: dimension mismatch");
+
+		const int dim = X.shape.back();
+		if (dim <= 0 || Gamma.shape != std::vector<int>{dim} || eps <= 0.0f)
+			throw std::runtime_error("rms_norm backward: invalid gamma dimension or eps");
+		if (!X.isContiguous() || !Y.isContiguous() || !Gamma.isContiguous())
+			throw std::runtime_error("rms_norm last axis backward: tensors must be contiguous");
+
+		const int total = std::accumulate(X.shape.begin(), X.shape.end(), 1, std::multiplies<int>());
+		const int outer = total / dim;
+		for (int o = 0; o < outer; ++o)
+		{
+			const int row = o * dim;
+			Scalar meanSquare = 0.0f;
+			for (int i = 0; i < dim; ++i)
+			{
+				const Scalar x = X.data[static_cast<std::size_t>(row + i)];
+				meanSquare += x * x;
+			}
+
+			const Scalar invRms = 1.0f / std::sqrt(meanSquare / static_cast<Scalar>(dim) + eps);
+			Scalar sumGradTimesX = 0.0f;
+			for (int i = 0; i < dim; ++i)
+			{
+				const std::size_t index = static_cast<std::size_t>(row + i);
+				sumGradTimesX += Y.grad[index] * Gamma.data[static_cast<std::size_t>(i)] * X.data[index];
+			}
+
+			for (int i = 0; i < dim; ++i)
+			{
+				const std::size_t index = static_cast<std::size_t>(row + i);
+				if (Gamma.requiresGrad)
+					Gamma.grad[static_cast<std::size_t>(i)] += Y.grad[index] * X.data[index] * invRms;
+				if (X.requiresGrad)
+				{
+					const Scalar gradTimesGamma = Y.grad[index] * Gamma.data[static_cast<std::size_t>(i)];
+					X.grad[index] += invRms * (gradTimesGamma
+						- X.data[index] * invRms * invRms * sumGradTimesX / static_cast<Scalar>(dim));
+				}
+			}
+		}
+	}
+
+	void GraphRuntime::BACKWARD_RMS_NORM_GENERIC(Tensor &X, Tensor &Gamma, Tensor &Y, const std::vector<int> &axes, Scalar eps)
+	{
+		const int rank = static_cast<int>(X.shape.size());
+		if (rank == 0 || axes.size() != 1 || Y.shape != X.shape)
+			throw std::runtime_error("rms_norm backward: dimension mismatch");
+
+		int axis = axes[0];
+		if (axis < 0) axis += rank;
+		if (axis < 0 || axis >= rank)
+			throw std::runtime_error("rms_norm backward: axis out of range");
+
+		const int dim = X.shape[static_cast<std::size_t>(axis)];
+		if (dim <= 0 || Gamma.shape != std::vector<int>{dim} || eps <= 0.0f)
+			throw std::runtime_error("rms_norm backward: invalid gamma dimension or eps");
+
+		forEachSliceAlongAxisIncremental(
+			X.shape, X.strides, axis,
+			[&](int base, int strideAxis, int axisLen, const std::vector<int> &idxNoAxis)
+			{
+				const int xBase = X.baseOffset + base;
+				int yBase = Y.baseOffset;
+				for (int dimension = 0; dimension < rank; ++dimension)
+					if (dimension != axis)
+						yBase += idxNoAxis[static_cast<std::size_t>(dimension)] * Y.strides[static_cast<std::size_t>(dimension)];
+
+				Scalar meanSquare = 0.0f;
+				int xOffset = xBase;
+				for (int i = 0; i < axisLen; ++i)
+				{
+					const Scalar x = X.data[static_cast<std::size_t>(xOffset)];
+					meanSquare += x * x;
+					xOffset += strideAxis;
+				}
+
+				const Scalar invRms = 1.0f / std::sqrt(meanSquare / static_cast<Scalar>(axisLen) + eps);
+				Scalar sumGradTimesX = 0.0f;
+				xOffset = xBase;
+				int yOffset = yBase;
+				for (int i = 0; i < axisLen; ++i)
+				{
+					const int gammaOffset = Gamma.baseOffset + i * Gamma.strides[0];
+					sumGradTimesX += Y.grad[static_cast<std::size_t>(yOffset)]
+						* Gamma.data[static_cast<std::size_t>(gammaOffset)] * X.data[static_cast<std::size_t>(xOffset)];
+					xOffset += strideAxis;
+					yOffset += Y.strides[static_cast<std::size_t>(axis)];
+				}
+
+				xOffset = xBase;
+				yOffset = yBase;
+				for (int i = 0; i < axisLen; ++i)
+				{
+					const int gammaOffset = Gamma.baseOffset + i * Gamma.strides[0];
+					if (Gamma.requiresGrad)
+						Gamma.grad[static_cast<std::size_t>(gammaOffset)] +=
+							Y.grad[static_cast<std::size_t>(yOffset)] * X.data[static_cast<std::size_t>(xOffset)] * invRms;
+					if (X.requiresGrad)
+					{
+						const Scalar gradTimesGamma = Y.grad[static_cast<std::size_t>(yOffset)]
+							* Gamma.data[static_cast<std::size_t>(gammaOffset)];
+						X.grad[static_cast<std::size_t>(xOffset)] += invRms * (gradTimesGamma
+							- X.data[static_cast<std::size_t>(xOffset)] * invRms * invRms * sumGradTimesX
+								/ static_cast<Scalar>(axisLen));
+					}
+					xOffset += strideAxis;
+					yOffset += Y.strides[static_cast<std::size_t>(axis)];
+				}
+			});
 	}
 
 	void GraphRuntime::LAYER_NORM_GENERIC(Tensor &X, Tensor &Gamma, Tensor &Beta, Tensor &Y, const std::vector<int> &axes)
@@ -3817,6 +4031,24 @@ namespace PHP2xAI::Runtime::CPP
 		throw std::runtime_error("layer_norm backward: kernel not supported");
 	}
 
+	void GraphRuntime::backwardRMSNorm(int inputId, int gammaId, int outId, const std::string &kernel, const std::vector<int> &axes, Scalar eps)
+	{
+		auto &X = tensors[inputId];
+		auto &Gamma = tensors[gammaId];
+		auto &Y = tensors[outId];
+
+		if (!X.requiresGrad && !Gamma.requiresGrad)
+			return;
+
+		const std::string kernelName = kernel.empty() ? "RMS_NORM_LAST_AXIS" : kernel;
+		if (kernelName == "RMS_NORM_LAST_AXIS")
+			return BACKWARD_RMS_NORM_LAST_AXIS(X, Gamma, Y, eps);
+		if (kernelName == "RMS_NORM_GENERIC")
+			return BACKWARD_RMS_NORM_GENERIC(X, Gamma, Y, axes, eps);
+
+		throw std::runtime_error("rms_norm backward: kernel not supported");
+	}
+
 
 	void GraphRuntime::backwardSlice(int inputId, int outId, const std::string &kernel, const std::vector<int> &axes, int start, int end)
 	{
@@ -6012,6 +6244,8 @@ namespace PHP2xAI::Runtime::CPP
 					op.offset = attrs.at("offset").get<int>();
 				if (attrs.contains("base"))
 					op.base = attrs.at("base").get<Scalar>();
+				if (attrs.contains("eps"))
+					op.eps = attrs.at("eps").get<Scalar>();
 			}
 
 			ops.push_back(std::move(op));

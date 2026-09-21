@@ -753,6 +753,50 @@ class Tensor
 
 		return $result;
 	}
+
+	/**
+	 * Applies Root Mean Square Normalization over one axis.
+	 *
+	 * RMSNorm has no centering term and no beta parameter:
+	 *   y = gamma * x / sqrt(mean(x²) + eps)
+	 *
+	 * gamma must be rank 1 and match the normalized axis. The specialized
+	 * last-axis kernel is selected only for the conventional axis value -1;
+	 * all explicit or non-last axes use the generic kernel.
+	 */
+	public function rmsNorm(Tensor $gamma, float $eps = 1.0e-5, int $axis = -1) : Tensor
+	{
+		$rank = $this->getRank();
+		if ($rank === 0)
+			throw new Exception('RMSNorm requires rank >= 1');
+
+		if ($axis < -$rank || $axis >= $rank)
+			throw new Exception('RMSNorm axis out of range');
+
+		if ($eps <= 0.0)
+			throw new Exception('RMSNorm eps must be > 0');
+
+		$normalizedAxis = $axis < 0 ? $axis + $rank : $axis;
+		$axisSize = $this->shape[$normalizedAxis];
+
+		if ($gamma->getRank() !== 1 || $gamma->shape[0] !== $axisSize)
+			throw new Exception('RMSNorm gamma must have shape [' . $axisSize . ']');
+
+		$kernel = $axis === -1 ? 'RMS_NORM_LAST_AXIS' : 'RMS_NORM_GENERIC';
+
+		$context = $this->initContextFrom($gamma);
+		$inputId = $this->registerInContext($context, $this);
+		$gammaId = $this->registerInContext($context, $gamma);
+
+		$result = new Tensor($this->shape, [], 'rmsNorm');
+		$context->registerOp('rms_norm', [$inputId, $gammaId], $result, [
+			'kernel' => $kernel,
+			'axes' => [$normalizedAxis],
+			'eps' => $eps,
+		]);
+
+		return $result;
+	}
     
     public function ReLU() : Tensor
     {

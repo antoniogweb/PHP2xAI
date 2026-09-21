@@ -109,6 +109,7 @@ namespace PHP2xAI::Runtime::CPP
 		int end{};
 		int offset{};
 		Scalar base{10000.0f};
+		Scalar eps{1.0e-5f};
 	};
 
 	// Controls execution-specific behavior such as dropout and, later, GPT KV-cache handling.
@@ -172,6 +173,7 @@ namespace PHP2xAI::Runtime::CPP
 
 		void opMatmul(int, int, int, const std::string &kernel);
 		void opLayerNorm(int inputId, int gammaId, int betaId, int outId, const std::string &kernel, const std::vector<int> &axes);
+		void opRMSNorm(int inputId, int gammaId, int outId, const std::string &kernel, const std::vector<int> &axes, Scalar eps);
 		void opApplyCausalMask(int inputId, int outId);
 
 		void opEmbeddings(int xIdsId, int embeddingsId, int outId);
@@ -206,6 +208,7 @@ namespace PHP2xAI::Runtime::CPP
 
 		void backwardMatmul(int, int, int, const std::string &kernel);
 		void backwardLayerNorm(int inputId, int gammaId, int betaId, int outId, const std::string &kernel, const std::vector<int> &axes);
+		void backwardRMSNorm(int inputId, int gammaId, int outId, const std::string &kernel, const std::vector<int> &axes, Scalar eps);
 		void backwardScale(int inputId, int outId, Scalar scale);
 		virtual void backwardGelu(int inputId, int outId);
 		virtual void backwardSilu(int inputId, int outId);
@@ -262,6 +265,10 @@ namespace PHP2xAI::Runtime::CPP
 		void LAYER_NORM_GENERIC(Tensor &X, Tensor &Gamma, Tensor &Beta, Tensor &Y, const std::vector<int> &axes);
 		void BACKWARD_LAYER_NORM_LAST_AXIS(Tensor &X, Tensor &Gamma, Tensor &Beta, Tensor &Y);
 		void BACKWARD_LAYER_NORM_GENERIC(Tensor &X, Tensor &Gamma, Tensor &Beta, Tensor &Y, const std::vector<int> &axes);
+		void RMS_NORM_LAST_AXIS(Tensor &X, Tensor &Gamma, Tensor &Y, Scalar eps);
+		void RMS_NORM_GENERIC(Tensor &X, Tensor &Gamma, Tensor &Y, const std::vector<int> &axes, Scalar eps);
+		void BACKWARD_RMS_NORM_LAST_AXIS(Tensor &X, Tensor &Gamma, Tensor &Y, Scalar eps);
+		void BACKWARD_RMS_NORM_GENERIC(Tensor &X, Tensor &Gamma, Tensor &Y, const std::vector<int> &axes, Scalar eps);
 
 		void TRANSPOSE_2D(Tensor &A, Tensor &C);
 		void TRANSPOSE_3D_LAST_TWO(Tensor &A, Tensor &C);
