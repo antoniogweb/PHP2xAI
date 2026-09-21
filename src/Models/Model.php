@@ -174,13 +174,9 @@ abstract class Model
 			'w_up' => $this->createParam(Tensor::init([$hiddenDim, $ffnDim], 0.05)),
 			'w_down' => $this->createParam(Tensor::init([$ffnDim, $hiddenDim], 0.05)),
 
-			// LLaMA normally uses RMSNorm (only a scale parameter). LayerNorm is
-			// used temporarily because it is the normalization op available today.
-			// These beta tensors can disappear when RMSNorm is introduced.
+			// RMSNorm has only a learned scale parameter, no additive beta.
 			'attention_gamma' => $this->createParam(Tensor::createFromData(array_fill(0, $hiddenDim, 1.0))),
-			'attention_beta' => $this->createParam(Tensor::zeros([$hiddenDim])),
 			'ffn_gamma' => $this->createParam(Tensor::createFromData(array_fill(0, $hiddenDim, 1.0))),
-			'ffn_beta' => $this->createParam(Tensor::zeros([$hiddenDim])),
 		];
 	}
 
@@ -230,9 +226,8 @@ abstract class Model
 
 		$params = $this->llamaDecoderParameters[$layer];
 
-		// Pre-attention normalization. Replace layerNorm() with rmsNorm() once
-		// that primitive is available to match LLaMA exactly.
-		$attentionInput = $x->layerNorm($params['attention_gamma'], $params['attention_beta']);
+		// LLaMA pre-attention RMS normalization.
+		$attentionInput = $x->rmsNorm($params['attention_gamma']);
 
 		// Separate dense Q/K/V projections. Keeping them distinct makes the
 		// dataflow clear; a fused QKV projection can be added as an optimization.
@@ -259,7 +254,7 @@ abstract class Model
 		$x = $x->add($attention->matMul($params['wo']));
 
 		// Second pre-norm branch: SwiGLU expansion, gate, and down projection.
-		$ffnInput = $x->layerNorm($params['ffn_gamma'], $params['ffn_beta']);
+		$ffnInput = $x->rmsNorm($params['ffn_gamma']);
 		$ffnOutput = self::swiGLU(
 			$ffnInput,
 			$params['w_gate'],
