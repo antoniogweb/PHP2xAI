@@ -167,18 +167,13 @@ abstract class Model
 
 		$headDim = intdiv($d, $numHeads);
 
-		if ($mask !== null && ($mask->getRank() !== 2
-			|| $mask->shape[0] !== $batchSize
-			|| $mask->shape[1] !== $sequenceLength))
-			throw new RuntimeException("mask must have shape [B, L]");
-
 		if ($mask === null)
-		{
-			$mask = Tensor::createFromData(
-				array_fill(0, $batchSize, array_fill(0, $sequenceLength, 1.0))
-			);
-			$mask->setTrainable(false);
-		}
+			throw new RuntimeException("bertEncoder requires a padding mask with shape [B, L]");
+
+		if ($mask->getRank() !== 2
+			|| $mask->shape[0] !== $batchSize
+			|| $mask->shape[1] !== $sequenceLength)
+			throw new RuntimeException("mask must have shape [B, L]");
 
 		if ($parameterKey === null || !isset($this->bertEncoderParameters[$parameterKey]))
 			throw new RuntimeException("BERT encoder parameters must be initialized in the model constructor");
@@ -286,7 +281,9 @@ abstract class Model
 	 * @param Tensor $V Value tensor [B, L, D]
 	 * @param ?Tensor $mask Optional padding mask [B, Lkv] with 1 for valid tokens, 0 for padding
 	 * @param int $numHeads Number of attention heads
-	 * @param string $maskType Mask type: "PADDING" or "CAUSAL"
+	 * @param string $maskType One or more mask types separated by "+", for
+	 *                         example "PADDING+CAUSAL". Accepted types are
+	 *                         "PADDING" and "CAUSAL".
 	 * @return Tensor Attention output with shape [B, L, D]
 	 *
 	 * Flow:
@@ -342,13 +339,23 @@ abstract class Model
 
 		$dk = intdiv($D, $numHeads);
 
-		$maskType = strtoupper($maskType);
+		// A compound mask such as PADDING+CAUSAL is represented as a sequence
+		// of masking ops in the graph. Both masks write -INF to masked scores,
+		// so their effects compose before softmax.
+		$maskTypes = array_map('trim', explode('+', strtoupper($maskType)));
+		if ($maskTypes === [] || in_array('', $maskTypes, true))
+			throw new RuntimeException('Mask type must contain PADDING, CAUSAL, or both separated by +');
 
-		if ($maskType !== "PADDING" && $maskType !== "CAUSAL")
-			throw new RuntimeException("Mask type {$maskType} is not supported. Use PADDING or CAUSAL.");
+		foreach ($maskTypes as &$currentMaskType)
+		{
+			if ($currentMaskType !== 'PADDING' && $currentMaskType !== 'CAUSAL')
+				throw new RuntimeException("Mask type {$currentMaskType} is not supported. Use PADDING, CAUSAL, or PADDING+CAUSAL.");
+		}
+		unset($currentMaskType);
+
 		if ($kvCacheLayer !== null && $kvCacheLayer < 0)
 			throw new RuntimeException("KV cache layer must be >= 0");
-		if ($kvCacheLayer !== null && $maskType !== "CAUSAL")
+		if ($kvCacheLayer !== null && !in_array('CAUSAL', $maskTypes, true))
 			throw new RuntimeException("KV cache requires causal attention");
 		if ($rope !== null)
 		{
@@ -388,11 +395,15 @@ abstract class Model
 
 		$maskedScores = $scaledScores;
 		
-		// Apply mask
-		if ($maskType === "CAUSAL")
-			$maskedScores = $maskedScores->applyCausalMask();
-		else if ($maskType === "PADDING" && $mask !== null)
-			$maskedScores = $maskedScores->applyPaddingMask($mask);
+		// Apply every requested mask in the order given by maskType. For
+		// PADDING+CAUSAL, scores invalid because of either condition are -INF.
+		foreach ($maskTypes as $currentMaskType)
+		{
+			if ($currentMaskType === 'PADDING' && $mask !== null)
+				$maskedScores = $maskedScores->applyPaddingMask($mask);
+			else if ($currentMaskType === 'CAUSAL')
+				$maskedScores = $maskedScores->applyCausalMask();
+		}
 
 		// Softmax
 		$attentionWeights = $maskedScores->softmax();
