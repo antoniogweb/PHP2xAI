@@ -443,6 +443,27 @@ class Tensor
     }
 
 	/**
+	 * Element-wise multiplication of two tensors with the same shape.
+	 *
+	 * This frontend operation supports every tensor rank; runtime kernels will
+	 * implement the numerical execution separately.
+	 */
+	public function multiply(Tensor $b) : Tensor
+	{
+		if ($this->shape !== $b->shape)
+			throw new Exception("multiply requires equal shapes");
+
+		$context = $this->initContextFrom($b);
+		$leftId = $this->registerInContext($context, $this);
+		$rightId = $this->registerInContext($context, $b);
+
+		$result = new Tensor($this->shape, [], 'multiply');
+		$context->registerOp('multiply', [$leftId, $rightId], $result);
+
+		return $result;
+	}
+
+	/**
 	 * Looks up token embeddings for a training batch.
 	 *
 	 * $this is x_ids [B, L] and $embeddings is the embedding table E [V, D].

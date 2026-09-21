@@ -353,6 +353,8 @@ namespace PHP2xAI::Runtime::CPP
 				opMatmul(inputs[0], inputs[1], outId, op.kernel);
 			else if (name == "add")
 				opAdd(inputs[0], inputs[1], outId, op.kernel);
+			else if (name == "multiply")
+				opMultiply(inputs[0], inputs[1], outId);
 			// else if (name == "sub")
 			// 	opSub(inputs[0], inputs[1], outId);
 			// else if (name == "dot")
@@ -452,6 +454,8 @@ namespace PHP2xAI::Runtime::CPP
 				backwardMatmul(inputs[0], inputs[1], outId, op.kernel);
 			else if (name == "add")
 				backwardAdd(inputs[0], inputs[1], outId, op.kernel);
+			else if (name == "multiply")
+				backwardMultiply(inputs[0], inputs[1], outId);
 			// else if (name == "sub")
 			// 	backwardSub(inputs[0], inputs[1], outId);
 			// else if (name == "dot")
@@ -1881,6 +1885,22 @@ namespace PHP2xAI::Runtime::CPP
 			return ADD_GENERIC_LAST(A, B, C);
 
 		throw std::runtime_error("add: kernel not supported");
+	}
+
+	void GraphRuntime::opMultiply(int aId, int bId, int outId)
+	{
+		auto &A = tensors[aId];
+		auto &B = tensors[bId];
+		auto &C = tensors[outId];
+
+		if (A.shape != B.shape || A.shape != C.shape)
+			throw std::runtime_error("multiply: dimension mismatch");
+		if (A.data.size() != B.data.size())
+			throw std::runtime_error("multiply: data size mismatch");
+
+		C.data.resize(A.data.size());
+		for (std::size_t i = 0; i < A.data.size(); ++i)
+			C.data[i] = A.data[i] * B.data[i];
 	}
 
 	// void GraphRuntime::opSub(int aId, int bId, int outId)
@@ -4387,6 +4407,26 @@ namespace PHP2xAI::Runtime::CPP
 			return BACKWARD_ADD_GENERIC_LAST(A, B, C);
 
 		throw std::runtime_error("add backward: kernel not supported");
+	}
+
+	void GraphRuntime::backwardMultiply(int aId, int bId, int outId)
+	{
+		auto &A = tensors[aId];
+		auto &B = tensors[bId];
+		auto &C = tensors[outId];
+
+		if (A.shape != B.shape || A.shape != C.shape)
+			throw std::runtime_error("multiply backward: dimension mismatch");
+		if (C.grad.size() != A.data.size() || C.grad.size() != B.data.size())
+			throw std::runtime_error("multiply backward: data size mismatch");
+
+		for (std::size_t i = 0; i < C.grad.size(); ++i)
+		{
+			if (A.requiresGrad)
+				A.grad[i] += C.grad[i] * B.data[i];
+			if (B.requiresGrad)
+				B.grad[i] += C.grad[i] * A.data[i];
+		}
 	}
 
 	void GraphRuntime::ADD_1D_LAST(Tensor &A, Tensor &B, Tensor &C)

@@ -343,6 +343,9 @@ class GraphRuntime
 				case 'add':
 					$this->opAdd($inputs[0], $inputs[1], $outId, $attributes);
 					break;
+				case 'multiply':
+					$this->opMultiply($inputs[0], $inputs[1], $outId);
+					break;
 				// case 'sub':
 				// 	$this->opSub($inputs[0], $inputs[1], $outId, $attributes);
 				// 	break;
@@ -896,6 +899,25 @@ class GraphRuntime
 				$this->ADD_GENERIC_LAST($A, $B, $C);
 				break;
 		}
+	}
+
+	/** Forward entry point for the generic element-wise multiply operation. */
+	private function opMultiply(int $aId, int $bId, int $outId): void
+	{
+		$A = $this->tensors[$aId];
+		$B = $this->tensors[$bId];
+		$C = $this->tensors[$outId];
+
+		if ($A->shape !== $B->shape || $A->shape !== $C->shape)
+			throw new RuntimeException('multiply: dimension mismatch');
+
+		$size = count($A->data);
+		if ($size !== count($B->data))
+			throw new RuntimeException('multiply: data size mismatch');
+
+		$C->data = array_fill(0, $size, 0.0);
+		for ($i = 0; $i < $size; $i++)
+			$C->data[$i] = $A->data[$i] * $B->data[$i];
 	}
 
 // 	private function opSub(int $aId, int $bId, int $outId): void
@@ -2134,6 +2156,9 @@ class GraphRuntime
 				case 'add':
 					$this->backwardAdd($inputs[0], $inputs[1], $outId, $attributes);
 					break;
+				case 'multiply':
+					$this->backwardMultiply($inputs[0], $inputs[1], $outId);
+					break;
 				// case 'sub':
 				// 	$this->backwardSub($inputs[0], $inputs[1], $outId, $attributes);
 				// 	break;
@@ -2690,6 +2715,29 @@ class GraphRuntime
 			case "ADD_GENERIC_LAST":
 				$this->BACKWARD_ADD_GENERIC_LAST($A, $B, $C);
 				break;
+		}
+	}
+
+	/** Backward entry point for the generic element-wise multiply operation. */
+	private function backwardMultiply(int $aId, int $bId, int $outId): void
+	{
+		$A = $this->tensors[$aId];
+		$B = $this->tensors[$bId];
+		$C = $this->tensors[$outId];
+
+		if ($A->shape !== $B->shape || $A->shape !== $C->shape)
+			throw new RuntimeException('multiply backward: dimension mismatch');
+
+		$size = count($C->grad);
+		if ($size !== count($A->data) || $size !== count($B->data))
+			throw new RuntimeException('multiply backward: data size mismatch');
+
+		for ($i = 0; $i < $size; $i++)
+		{
+			if ($A->requiresGrad)
+				$A->grad[$i] += $C->grad[$i] * $B->data[$i];
+			if ($B->requiresGrad)
+				$B->grad[$i] += $C->grad[$i] * $A->data[$i];
 		}
 	}
 

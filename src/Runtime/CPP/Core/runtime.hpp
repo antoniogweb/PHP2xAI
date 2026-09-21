@@ -186,6 +186,7 @@ namespace PHP2xAI::Runtime::CPP
 		void opSlice(int inputId, int outId, const std::string &kernel, const std::vector<int> &axes, int start, int end);
 		void opTranspose(int inputId, int outId, const std::string &kernel, const std::vector<int> &axes);
 		void opAdd(int aId, int bId, int outId, const std::string &kernel);
+		void opMultiply(int aId, int bId, int outId);
 		// void opSub(int, int, int);
 		// void opDot(int, int, int);
 		void opDropout(int, int, Scalar);
@@ -211,6 +212,7 @@ namespace PHP2xAI::Runtime::CPP
 		void backwardSlice(int inputId, int outId, const std::string &kernel, const std::vector<int> &axes, int start, int end);
 		void backwardTranspose(int inputId, int outId, const std::string &kernel, const std::vector<int> &axes);
 		void backwardAdd(int, int, int, const std::string &kernel);
+		void backwardMultiply(int, int, int);
 		void backwardApplyCausalMask(int inputId, int outId);
 
 		void backwardEmbeddings(int xIdsId, int embeddingsId, int outId);
