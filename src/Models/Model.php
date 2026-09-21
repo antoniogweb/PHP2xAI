@@ -37,6 +37,8 @@ abstract class Model
 	protected $p = [];
 	/** @var array<string,array<string,Tensor>> */
 	protected array $bertEncoderParameters = [];
+	/** @var array<int,array<string,Tensor>> Parameters indexed by LLaMA decoder layer. */
+	protected array $llamaDecoderParameters = [];
 	public Optimizer $optimizer;
 	
 	// abstract public function forward(Tensor $x) : Tensor;
@@ -137,6 +139,137 @@ abstract class Model
 			'gamma2' => $this->createParam(Tensor::createFromData(array_fill(0, $d, 1.0))),
 			'beta2' => $this->createParam(Tensor::zeros([$d])),
 		];
+	}
+
+	/**
+	 * Creates the parameters for one decoder layer before graph construction.
+	 *
+	 * Invoke this once per layer from the concrete LLaMA model constructor:
+	 *
+	 *   for ($i = 0; $i < $numLayers; $i++)
+	 *       $this->initializeLlamaDecoderParameters($i, $hiddenDim, $ffnDim);
+	 *
+	 * Parameters must exist before generateGraph()/generateModel() registers
+	 * them in GraphContext; they cannot be created lazily by llamaDecoder().
+	 */
+	protected function initializeLlamaDecoderParameters(int $layer, int $hiddenDim, int $ffnDim): void
+	{
+		if ($layer < 0)
+			throw new RuntimeException('LLaMA decoder layer must be >= 0');
+		if ($hiddenDim <= 0 || $ffnDim <= 0)
+			throw new RuntimeException('LLaMA hiddenDim and ffnDim must be positive');
+		if (isset($this->llamaDecoderParameters[$layer]))
+			return;
+
+		$this->llamaDecoderParameters[$layer] = [
+			// Standard dense attention projections. GQA/MQA can later replace
+			// wk/wv with matrices having fewer output head dimensions.
+			'wq' => $this->createParam(Tensor::init([$hiddenDim, $hiddenDim], 0.05)),
+			'wk' => $this->createParam(Tensor::init([$hiddenDim, $hiddenDim], 0.05)),
+			'wv' => $this->createParam(Tensor::init([$hiddenDim, $hiddenDim], 0.05)),
+			'wo' => $this->createParam(Tensor::init([$hiddenDim, $hiddenDim], 0.05)),
+
+			// SwiGLU has two parallel expansions and one down projection.
+			'w_gate' => $this->createParam(Tensor::init([$hiddenDim, $ffnDim], 0.05)),
+			'w_up' => $this->createParam(Tensor::init([$hiddenDim, $ffnDim], 0.05)),
+			'w_down' => $this->createParam(Tensor::init([$ffnDim, $hiddenDim], 0.05)),
+
+			// LLaMA normally uses RMSNorm (only a scale parameter). LayerNorm is
+			// used temporarily because it is the normalization op available today.
+			// These beta tensors can disappear when RMSNorm is introduced.
+			'attention_gamma' => $this->createParam(Tensor::createFromData(array_fill(0, $hiddenDim, 1.0))),
+			'attention_beta' => $this->createParam(Tensor::zeros([$hiddenDim])),
+			'ffn_gamma' => $this->createParam(Tensor::createFromData(array_fill(0, $hiddenDim, 1.0))),
+			'ffn_beta' => $this->createParam(Tensor::zeros([$hiddenDim])),
+		];
+	}
+
+	/**
+	 * Builds one pre-norm LLaMA-style decoder block.
+	 *
+	 * A concrete model can construct a stack as follows:
+	 *
+	 *   for ($i = 0; $i < $numLayers; $i++)
+	 *       $x = $this->llamaDecoder($x, $i, $numHeads, $mask, ...);
+	 *
+	 * The layer index selects the weights and is also passed to kvCache, so
+	 * every decoder layer owns an independent key/value cache slot.
+	 *
+	 * @param Tensor $x Input [B, L, hiddenDim]
+	 * @param int $layer Decoder-layer index initialized in the constructor
+	 * @param int $numHeads Number of query/key/value heads
+	 * @param ?Tensor $mask Optional padding mask [B, L]. When omitted only
+	 *                      causal masking is used, which is useful for decode.
+	 * @param int $ropeOffset Initial absolute position for a prefill request
+	 * @param float $ropeBase RoPE frequency base
+	 * @param string $ropePairing Tensor::INTERLEAVED or Tensor::ROTATE_HALF
+	 */
+	public function llamaDecoder(
+		Tensor $x,
+		int $layer,
+		int $numHeads,
+		?Tensor $mask = null,
+		int $ropeOffset = 0,
+		float $ropeBase = 10000.0,
+		string $ropePairing = Tensor::INTERLEAVED
+	): Tensor
+	{
+		if ($x->getRank() !== 3)
+			throw new RuntimeException('llamaDecoder expects x with shape [B, L, hiddenDim]');
+		if ($layer < 0 || !isset($this->llamaDecoderParameters[$layer]))
+			throw new RuntimeException('LLaMA decoder parameters must be initialized in the model constructor');
+
+		[$batchSize, $sequenceLength, $hiddenDim] = $x->getShape();
+		if ($numHeads <= 0 || $hiddenDim % $numHeads !== 0)
+			throw new RuntimeException('LLaMA hiddenDim must be divisible by numHeads');
+
+		if ($mask !== null && ($mask->getRank() !== 2
+			|| $mask->shape[0] !== $batchSize
+			|| $mask->shape[1] !== $sequenceLength))
+			throw new RuntimeException('LLaMA padding mask must have shape [B, L]');
+
+		$params = $this->llamaDecoderParameters[$layer];
+
+		// Pre-attention normalization. Replace layerNorm() with rmsNorm() once
+		// that primitive is available to match LLaMA exactly.
+		$attentionInput = $x->layerNorm($params['attention_gamma'], $params['attention_beta']);
+
+		// Separate dense Q/K/V projections. Keeping them distinct makes the
+		// dataflow clear; a fused QKV projection can be added as an optimization.
+		$q = $attentionInput->matMul($params['wq']);
+		$k = $attentionInput->matMul($params['wk']);
+		$v = $attentionInput->matMul($params['wv']);
+
+		// Causal attention is mandatory for a decoder. Padding is composed with
+		// it only when a mask is supplied. RoPE rotates Q/K and kvCache stores
+		// the already-rotated K plus V for this specific layer.
+		$maskType = $mask === null ? 'CAUSAL' : 'PADDING+CAUSAL';
+		$attention = self::attention(
+			$q,
+			$k,
+			$v,
+			$mask,
+			$numHeads,
+			$maskType,
+			['offset' => $ropeOffset, 'base' => $ropeBase, 'pairing' => $ropePairing],
+			$layer
+		);
+
+		// Attention output projection followed by the first residual connection.
+		$x = $x->add($attention->matMul($params['wo']));
+
+		// Second pre-norm branch: SwiGLU expansion, gate, and down projection.
+		$ffnInput = $x->layerNorm($params['ffn_gamma'], $params['ffn_beta']);
+		$ffnOutput = self::swiGLU(
+			$ffnInput,
+			$params['w_gate'],
+			$params['w_up'],
+			$params['w_down']
+		);
+
+		// Feed-forward residual. A final model-level norm belongs outside this
+		// per-layer block and can be added by the concrete LLaMA model.
+		return $x->add($ffnOutput);
 	}
 
 	/**
