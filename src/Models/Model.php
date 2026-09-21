@@ -216,6 +216,67 @@ abstract class Model
 
 		return $y->add($feedForward)->layerNorm($gamma2, $beta2);
 	}
+
+	/**
+	 * SwiGLU feed-forward block.
+	 *
+	 * For an input x[..., D], the gate and up projections both produce
+	 * [..., Dff]. SiLU activates only the gate projection; the resulting
+	 * values modulate the up projection element by element. The down
+	 * projection maps the hidden dimension back to the requested output one.
+	 *
+	 *   gate   = x @ wGate                 // [..., Dff]
+	 *   up     = x @ wUp                   // [..., Dff]
+	 *   hidden = silu(gate) * up           // [..., Dff]
+	 *   out    = hidden @ wDown            // [..., Dout]
+	 *
+	 * Bias terms are deliberately not included here: callers can add them to
+	 * each projection when their model architecture requires them.
+	 *
+	 * @param Tensor $x Input tensor with last dimension D
+	 * @param Tensor $wGate Gate projection weights [D, Dff]
+	 * @param Tensor $wUp Up projection weights [D, Dff]
+	 * @param Tensor $wDown Down projection weights [Dff, Dout]
+	 * 
+	 *                      ┌─ Wgate ─→ gate ─→ SiLU ─┐
+	 * X [B,L,D] ───────────┤                         × ─→ Wdown ─→ [B,L,D]
+     *                      └─ Wup   ─→ up ───────────┘
+	 */
+	public static function swiGLU(Tensor $x, Tensor $wGate, Tensor $wUp, Tensor $wDown): Tensor
+	{
+		if ($x->getRank() < 1)
+			throw new RuntimeException('swiGLU expects x to have at least one dimension');
+
+		if ($wGate->getRank() !== 2 || $wUp->getRank() !== 2 || $wDown->getRank() !== 2)
+			throw new RuntimeException('swiGLU weights must be rank-2 matrices');
+
+		$xShape = $x->getShape();
+		$inputDim = $xShape[count($xShape) - 1];
+		[$gateInputDim, $hiddenDim] = $wGate->getShape();
+		[$upInputDim, $upHiddenDim] = $wUp->getShape();
+		[$downInputDim] = $wDown->getShape();
+
+		// Both parallel projections must consume x's last dimension.
+		if ($gateInputDim !== $inputDim || $upInputDim !== $inputDim)
+			throw new RuntimeException('swiGLU gate and up weights must match x last dimension');
+
+		// multiply() intentionally has no broadcast support, so gate and up
+		// must produce precisely the same hidden shape.
+		if ($hiddenDim !== $upHiddenDim)
+			throw new RuntimeException('swiGLU gate and up weights must have the same hidden dimension');
+
+		// The final projection starts from the gated hidden representation.
+		if ($downInputDim !== $hiddenDim)
+			throw new RuntimeException('swiGLU down weight input dimension must match hidden dimension');
+
+		// Gate branch: SiLU controls how much of each up-projection feature passes.
+		$gate = $x->matMul($wGate);
+		$up = $x->matMul($wUp);
+		$hidden = $gate->silu()->multiply($up);
+
+		// Down-project the gated hidden representation to the model/output dimension.
+		return $hidden->matMul($wDown);
+	}
 	
 	/**
 	 * Multi-head attention mechanism.
