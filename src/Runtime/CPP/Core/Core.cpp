@@ -256,18 +256,30 @@ namespace PHP2xAI::Runtime::CPP
 
 		dataset.resetEpoch();
 
-		while (dataset.nextBatch())
+		try
 		{
-			dataset.pack(x, y);
-			
-			graph->setInput(x);
-			graph->setTarget(y);
-			graph->forward();
-			
-			loss += graph->getError();
-			++count;
+			while (dataset.nextBatch())
+			{
+				dataset.pack(x, y);
+				
+				graph->setInput(x);
+				graph->setTarget(y);
+				graph->forward();
+				
+				loss += graph->getError();
+				++count;
+			}
+		}
+		catch (...)
+		{
+			// The same runtime continues the training loop after validation.
+			graph->setMode(ExecutionMode::TRAIN);
+			throw;
 		}
 
-		return count > 0 ? loss / static_cast<Scalar>(count) : 0.0f;
+		const Scalar validationLoss = count > 0 ? loss / static_cast<Scalar>(count) : 0.0f;
+		// Restore dropout and TRAIN-only backward behavior for the next epoch.
+		graph->setMode(ExecutionMode::TRAIN);
+		return validationLoss;
 	}
 }

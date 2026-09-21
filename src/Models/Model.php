@@ -744,19 +744,27 @@ abstract class Model
 		
 		$dataset->resetEpoch();
 		$graph->setMode(ExecutionMode::INFER);
-		
-		while ($dataset->nextBatch())
+
+		try
 		{
-			[$x, $y] = $dataset->pack();
-			
-			$graph->setInput($x);
-			$graph->setTarget($y);
-			
-			$graph->forward();
-			
-			$loss += $graph->getError();
-			
-			$count++;
+			while ($dataset->nextBatch())
+			{
+				[$x, $y] = $dataset->pack();
+				
+				$graph->setInput($x);
+				$graph->setTarget($y);
+				
+				$graph->forward();
+				
+				$loss += $graph->getError();
+				
+				$count++;
+			}
+		}
+		finally
+		{
+			// The training loop reuses this runtime for the next epoch.
+			$graph->setMode(ExecutionMode::TRAIN);
 		}
 		
 		if ($count > 0)
