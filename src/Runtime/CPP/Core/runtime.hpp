@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
-#include "../ThirdParty/nlohmann/json.hpp"
+#include <nlohmann/json.hpp>
 #include "../types.hpp"
 #include "../Utility/Profiler.hpp"
 

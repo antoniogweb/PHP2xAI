@@ -7,7 +7,7 @@
 #include "../types.hpp"
 #include "../Dataset/TrainValidateDataset.hpp"
 #include "../Optimizers/Optimizer.hpp"
-#include "../ThirdParty/nlohmann/json.hpp"
+#include <nlohmann/json.hpp>
 #include "runtime.hpp"
 
 namespace PHP2xAI::Runtime::CPP

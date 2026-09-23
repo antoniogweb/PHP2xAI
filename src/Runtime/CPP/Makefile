@@ -5,7 +5,8 @@ CXX := g++
 OMPFLAGS := -fopenmp
 CXXFLAGS := -std=c++17 -O3 -DNDEBUG -march=native -flto -pipe $(OMPFLAGS)
 SHFLAGS := -std=c++17 -O3 -fPIC -shared $(OMPFLAGS)
-INCLUDES := -I./ -I./ThirdParty/nlohmann -I./ThirdParty/eigen
+CONAN_DIR := $(CURDIR)/build/conan
+INCLUDES := -I./ $(shell PKG_CONFIG_PATH=$(CONAN_DIR) pkg-config --cflags eigen3 nlohmann_json)
 
 ARCH ?= $(shell uname -m)
 PLATFORM := linux-$(ARCH)

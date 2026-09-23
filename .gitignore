@@ -1,7 +1,7 @@
 # Add any directories, files, or patterns you don't want to be tracked by version control
 
 /tmp/
-/src/Runtime/CPP/ThirdParty/eigen/
+/src/Runtime/CPP/build/
 /ThirdParty/
 /src/Tokenizer/Rust/Trainer/target/
 /src/Tokenizer/Rust/Bindings/target/
