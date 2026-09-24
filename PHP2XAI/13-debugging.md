@@ -17,6 +17,12 @@ Check:
 
 Print the shape and number of elements of input and target. `pack()` returns flat vectors, so the shape is determined by the placeholder registered in the graph.
 
+For HDF5, inspect `fieldMetadata('x')`, `fieldMetadata('y')`, and `count()`. The metadata shape describes one sample and excludes the leading sample axis. Check that the number of elements returned by `pack()` equals `batchSize * product(sampleShape)` for each field, and that the field shapes agree with the graph placeholders. The input and target fields must contain the same number of samples.
+
+## HDF5 file cannot be opened
+
+Confirm that the file exists at the path resolved by the running script, that both fields are present, and that no other process holds an incompatible HDF5 file lock. PHP FFI requires the `php2xai_hdf5.so` library for the current platform; native C++ training requires the HDF5-linked runtime built from the C++ sources. When PHP launches C++ training, the framework closes the PHP dataset handles before starting the native process to release their locks. Also check `dataset_type` in the training configuration: it must be `HDF5` for `.h5` paths, and must match the format of both training and validation datasets.
+
 ## Noisy validation
 
 Verify that the runtime has `training = false` during `validationLoss()`. If the graph contains dropout and remains in training mode, the loss changes randomly on every pass.

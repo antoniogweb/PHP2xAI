@@ -9,7 +9,8 @@ Both runtimes execute the same serialized graph.
 | Training | yes | yes |
 | Validation | yes | yes |
 | Inference | yes | yes |
-| Streaming dataset | yes | yes |
+| TXT dataset (`StreamFileDataset`) | yes | yes |
+| HDF5 dataset (`HDF5Dataset`) | yes | yes |
 | Batch `[B,D]` | yes | yes |
 
 With the C++ runtime, the PHP model normally generates:
@@ -19,6 +20,8 @@ With the C++ runtime, the PHP model normally generates:
 - `weights.json` for the best weights.
 
 The C++ runtime reads the configuration, loads graph and weights, constructs the datasets, and starts `Core::train()`.
+
+The training configuration contains `dataset_type`, which selects the native dataset implementation: `TXT` creates `StreamFileDataset`, while `HDF5` creates `HDF5Dataset`. PHP derives this value from the training dataset passed to `TrainValidateDataset`; currently training and validation must use the same file format. Older configurations without `dataset_type` are interpreted as `TXT`. HDF5 requires the `php2xai_hdf5.so` FFI library when PHP creates or reads the files, and the HDF5-linked C++ runtime when native training reads them. See [Datasets and batches](06-datasets-and-batches.md) for setup and file details.
 
 The `training` flag defaults to `false`, which means evaluation mode. `Core::train()` sets it to `true`; validation sets it back to `false`.
 

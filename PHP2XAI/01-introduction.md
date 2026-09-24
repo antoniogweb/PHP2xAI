@@ -24,7 +24,7 @@ PHP model definition
 model.json / config.json
         |
         +--> C++ training executable
-        |      GraphRuntime + Dataset + Optimizer + validation
+        |      GraphRuntime + TXT/HDF5 Dataset + Optimizer + validation
         |      scalar kernels, Eigen/SIMD kernels, future CUDA backend
         |
         +--> PHP application + FFI
@@ -38,7 +38,7 @@ The JSON graph is the boundary between frontend and runtime. It contains tensor 
 When the C++ runtime is selected for training, PHP generates the graph and configuration files, then launches the C++ executable with `config.json`. The native `Core` object reads that file and creates its own:
 
 - `GraphRuntime` for forward and backward execution;
-- streaming training and validation datasets;
+- TXT or HDF5 training and validation datasets;
 - optimizer, such as Adam or Fixed;
 - training loop, validation loop, and weight serialization.
 

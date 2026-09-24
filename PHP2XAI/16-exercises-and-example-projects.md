@@ -48,7 +48,7 @@ python layer_norm.py
 
 It demonstrates an end-to-end image classification workflow: preprocessing images into `DataLabelInt` files, graph generation in PHP, dense-network training, weight serialization, and validation. The model in `src/model.php` uses three dense layers with ReLU activations and ten output logits.
 
-Its prepared training and test files are expected at:
+The original project uses the legacy TXT format, with prepared training and test files at:
 
 ```text
 src/DataLabelInt/Training/train.txt
@@ -63,7 +63,11 @@ php train.php
 php validate.php
 ```
 
-The example is configured to use the C++ runtime and can select the Eigen provider. It writes artifacts such as `model.json` and `weights.json` under `src/`. If the prepared dataset files are missing, `create_data_one_file.php` generates them from the MNIST images expected in `src/images/`.
+The example is configured to use the C++ runtime and can select the Eigen provider. It writes artifacts such as `model.json` and `weights.json` under `src/`. If the prepared TXT files are missing, `create_data_one_file.php` generates them from the MNIST images expected in `src/images/`.
+
+The project also supports HDF5 datasets. The `create_data_hdf5.php` preparation path writes `train.h5` and `test.h5` in the same training and test directories used by the TXT files. Its `x` field stores image samples and its `y` field stores labels; for MNIST, an image sample has shape `[784]` and a label has shape `[1]`. The training and validation scripts can select `HDF5Dataset` instead of `StreamFileDataset`, then pass both readers to the same `TrainValidateDataset` and model training/validation methods. The generated training configuration records `dataset_type: HDF5`, allowing the C++ runtime to load HDF5 files as well. The TXT route remains available and uses the same model graph and training flow.
+
+Both formats produce the same flat row-major batch values for the graph. Their epoch order differs: TXT shuffles batches, while HDF5 shuffles sample indices before making batches. A fixed-size graph drops any incomplete final batch, so pick a batch size that produces at least one full batch for both training and validation. See [Datasets and batches](06-datasets-and-batches.md) for the full format comparison and HDF5 API examples.
 
 ## Sentiment analysis project
 
