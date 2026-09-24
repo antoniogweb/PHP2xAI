@@ -1,12 +1,13 @@
 # Makefile per PHP2xAI C++ Runtime
-# Compila i binari C++ nella cartella Bin/<platform> corretta
+# Compiles binaries into Bin/<platform>
 
 CXX := g++
 OMPFLAGS := -fopenmp
 CXXFLAGS := -std=c++17 -O3 -DNDEBUG -march=native -flto -pipe $(OMPFLAGS)
 SHFLAGS := -std=c++17 -O3 -fPIC -shared $(OMPFLAGS)
 CONAN_DIR := $(CURDIR)/build/conan
-INCLUDES := -I./ $(shell PKG_CONFIG_PATH=$(CONAN_DIR) pkg-config --cflags eigen3 nlohmann_json)
+INCLUDES := -I./ $(shell PKG_CONFIG_PATH=$(CONAN_DIR) pkg-config --cflags eigen3 nlohmann_json hdf5)
+LIBS_HDF5 := $(shell PKG_CONFIG_PATH=$(CONAN_DIR) pkg-config --libs hdf5)
 
 ARCH ?= $(shell uname -m)
 PLATFORM := linux-$(ARCH)
@@ -29,26 +30,32 @@ FFI_SOURCES := $(CPP_SOURCES) Core/ffi.cpp
 BIN_NATIVE := php2xai_runtime
 BIN_EIGEN := php2xai_runtime_eigen
 SO := php2xai_runtime.so
+SO_HDF5 := php2xai_hdf5.so
 
-all: $(BINDIR)/$(BIN_NATIVE) $(BINDIR)/$(BIN_EIGEN) $(BINDIR)/$(SO)
+all: $(BINDIR)/$(BIN_NATIVE) $(BINDIR)/$(BIN_EIGEN) $(BINDIR)/$(SO) $(BINDIR)/$(SO_HDF5)
 
 $(BINDIR):
 	mkdir -p $(BINDIR)
 
-# Compilazione eseguibile NAIVE
+# NAIVE
 $(BINDIR)/$(BIN_NATIVE): $(CPP_SOURCES) main.cpp | $(BINDIR)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -DPHP2XAI_USE_EIGEN=0 \
 		$^ -o $@
 
-# Compilazione eseguibile EIGEN
+# EIGEN
 $(BINDIR)/$(BIN_EIGEN): $(CPP_SOURCES) main.cpp | $(BINDIR)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -DPHP2XAI_USE_EIGEN=1 \
 		$^ -o $@
 
-# Shared library unica: provider scelto a runtime via FFI
+# Unique Shared library for inference: provider chosen at runtime by means of FFI
 $(BINDIR)/$(SO): $(FFI_SOURCES) | $(BINDIR)
 	$(CXX) $(SHFLAGS) $(INCLUDES) \
 		$^ -o $@
+
+# PHP2XAIHDF5 shared library to be used by means of FFI
+$(BINDIR)/$(SO_HDF5): $(FFI_SOURCES) | $(BINDIR)
+	$(CXX) $(SHFLAGS) $(INCLUDES) \
+		$^ -o $@ $(LIBS_HDF5)
 
 clean:
 	rm -rf Bin/
