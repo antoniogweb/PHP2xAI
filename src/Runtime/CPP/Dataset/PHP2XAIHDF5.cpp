@@ -1,5 +1,8 @@
 #include "PHP2XAIHDF5.hpp"
 
+#include <algorithm>
+#include <cstring>
+#include <limits>
 #include <stdexcept>
 
 
@@ -843,198 +846,102 @@ void PHP2XAIHDF5::readIndices(
     }
 
 
-    FieldInfo field =
-        openField(fieldName);
-
-
-    DType dtype;
-
+    FieldInfo field = openField(fieldName);
+    hid_t memorySpace = -1;
 
     try {
+        const DType dtype = getDType(field.datatype);
 
-        dtype =
-            getDType(
-                field.datatype
-            );
-
-    }
-    catch (...) {
-
-        closeField(field);
-
-        throw;
-    }
-
-
-    /*
-     * Numero di elementi contenuti
-     * in un sample.
-     */
-    size_t sampleElements = 1;
-
-
-    for (int i = 1; i < field.rank; i++) {
-
-        sampleElements *=
-            static_cast<size_t>(
-                field.dims[i]
-            );
-    }
-
-
-    /*
-     * Numero di byte di un sample.
-     */
-    size_t sampleBytes =
-        sampleElements *
-        getDTypeSize(dtype);
-
-
-    /*
-     * Memory dataspace per un sample:
-     *
-     * [1, ...shape]
-     */
-    std::vector<hsize_t> sampleDims(
-        field.rank
-    );
-
-
-    sampleDims[0] = 1;
-
-
-    for (int i = 1; i < field.rank; i++) {
-        sampleDims[i] = field.dims[i];
-    }
-
-
-    hid_t memorySpace =
-        H5Screate_simple(
-            field.rank,
-            sampleDims.data(),
-            nullptr
-        );
-
-
-    if (memorySpace < 0) {
-
-        closeField(field);
-
-        throw std::runtime_error(
-            "Unable to create memory dataspace"
-        );
-    }
-
-
-    /*
-     * Usiamo char* per poter avanzare
-     * nel buffer di un numero preciso
-     * di byte.
-     */
-    char* outputBytes =
-        static_cast<char*>(
-            output
-        );
-
-
-    std::vector<hsize_t> start(
-        field.rank,
-        0
-    );
-
-
-    /*
-     * Leggiamo i sample esattamente
-     * nell'ordine degli indici ricevuti.
-     *
-     * indices:
-     *
-     * [5, 2, 7]
-     *
-     * output:
-     *
-     * sample5 | sample2 | sample7
-     */
-    for (
-        size_t i = 0;
-        i < indices.size();
-        i++
-    ) {
-
-        if (
-            indices[i] < 0 ||
-            static_cast<hsize_t>(
-                indices[i]
-            ) >= field.dims[0]
-        ) {
-
-            H5Sclose(memorySpace);
-            closeField(field);
-
-            throw std::runtime_error(
-                "Dataset index out of range"
-            );
+        size_t sampleElements = 1;
+        for (int i = 1; i < field.rank; i++) {
+            const size_t dimension = static_cast<size_t>(field.dims[i]);
+            if (dimension == 0 || sampleElements > std::numeric_limits<size_t>::max() / dimension)
+                throw std::runtime_error("Invalid or oversized sample shape: " + fieldName);
+            sampleElements *= dimension;
         }
 
+        const size_t dtypeSize = getDTypeSize(dtype);
+        if (sampleElements > std::numeric_limits<size_t>::max() / dtypeSize)
+            throw std::runtime_error("Sample buffer is too large: " + fieldName);
+        const size_t sampleBytes = sampleElements * dtypeSize;
 
-        start[0] =
-            static_cast<hsize_t>(
-                indices[i]
-            );
+        std::vector<int64_t> sortedIndices = indices;
+        for (const int64_t index : sortedIndices) {
+            if (index < 0 || static_cast<hsize_t>(index) >= field.dims[0])
+                throw std::runtime_error("Dataset index out of range");
+        }
+        std::sort(sortedIndices.begin(), sortedIndices.end());
+        sortedIndices.erase(
+            std::unique(sortedIndices.begin(), sortedIndices.end()),
+            sortedIndices.end());
 
+        if (sortedIndices.size() > std::numeric_limits<size_t>::max() / sampleBytes)
+            throw std::runtime_error("Output buffer is too large: " + fieldName);
 
-        if (
-            H5Sselect_hyperslab(
-                field.dataspace,
-                H5S_SELECT_SET,
-                start.data(),
-                nullptr,
-                sampleDims.data(),
-                nullptr
-            ) < 0
-        ) {
+        /* Build one file selection containing all requested samples. */
+        if (H5Sselect_none(field.dataspace) < 0)
+            throw std::runtime_error("Unable to clear dataset selection: " + fieldName);
 
-            H5Sclose(memorySpace);
-            closeField(field);
+        std::vector<hsize_t> start(field.rank, 0);
+        std::vector<hsize_t> sampleDims = field.dims;
+        sampleDims[0] = 1;
 
-            throw std::runtime_error(
-                "Unable to select dataset sample"
-            );
+        for (size_t i = 0; i < sortedIndices.size(); ++i) {
+            start[0] = static_cast<hsize_t>(sortedIndices[i]);
+            const H5S_seloper_t operation = i == 0 ? H5S_SELECT_SET : H5S_SELECT_OR;
+
+            if (H5Sselect_hyperslab(
+                    field.dataspace,
+                    operation,
+                    start.data(),
+                    nullptr,
+                    sampleDims.data(),
+                    nullptr) < 0) {
+                throw std::runtime_error("Unable to select dataset samples: " + fieldName);
+            }
         }
 
+        /* Memory layout is [number of unique indices, sample shape...]. */
+        std::vector<hsize_t> memoryDims = field.dims;
+        memoryDims[0] = static_cast<hsize_t>(sortedIndices.size());
+        memorySpace = H5Screate_simple(field.rank, memoryDims.data(), nullptr);
+        if (memorySpace < 0)
+            throw std::runtime_error("Unable to create batch memory dataspace");
 
-        /*
-         * Posizione del sample nel buffer
-         * di output.
-         */
-        void* destination =
-            outputBytes +
-            (i * sampleBytes);
+        const hssize_t filePoints = H5Sget_select_npoints(field.dataspace);
+        const hssize_t memoryPoints = H5Sget_simple_extent_npoints(memorySpace);
+        if (filePoints < 0 || filePoints != memoryPoints)
+            throw std::runtime_error("HDF5 file and memory selections have different sizes");
 
-
-        if (
-            H5Dread(
+        std::vector<char> sortedOutput(sortedIndices.size() * sampleBytes);
+        if (H5Dread(
                 field.dataset,
                 field.datatype,
                 memorySpace,
                 field.dataspace,
                 H5P_DEFAULT,
-                destination
-            ) < 0
-        ) {
-
-            H5Sclose(memorySpace);
-            closeField(field);
-
-            throw std::runtime_error(
-                "Unable to read field: " +
-                fieldName
-            );
+                sortedOutput.data()) < 0) {
+            throw std::runtime_error("Unable to read field: " + fieldName);
         }
+
+        /* Restore the caller's requested order, including repeated indices. */
+        char* outputBytes = static_cast<char*>(output);
+        for (size_t i = 0; i < indices.size(); ++i) {
+            const auto found = std::lower_bound(sortedIndices.begin(), sortedIndices.end(), indices[i]);
+            const size_t sortedPosition = static_cast<size_t>(found - sortedIndices.begin());
+            std::memcpy(
+                outputBytes + i * sampleBytes,
+                sortedOutput.data() + sortedPosition * sampleBytes,
+                sampleBytes);
+        }
+
+        H5Sclose(memorySpace);
+        closeField(field);
     }
-
-
-    H5Sclose(memorySpace);
-
-    closeField(field);
-} 
+    catch (...) {
+        if (memorySpace >= 0)
+            H5Sclose(memorySpace);
+        closeField(field);
+        throw;
+    }
+}
