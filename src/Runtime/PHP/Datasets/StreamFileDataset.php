@@ -4,7 +4,7 @@ namespace PHP2xAI\Runtime\PHP\Datasets;
 
 use PHP2xAI\Tensor\Tensor;
 
-class StreamFileDataset implements \IteratorAggregate
+class StreamFileDataset extends BatchDataset implements \IteratorAggregate
 {
 	private string $path;
 	private int $batchSize;
@@ -22,6 +22,8 @@ class StreamFileDataset implements \IteratorAggregate
 	private int $numLines = 0;
 	private int $curBatchPos = 0;
 	private int $curInBatch = 0;
+	private ?Tensor $xPlaceholder = null;
+	private ?Tensor $yPlaceholder = null;
 
 	public function __construct(string $path, int $batchSize, string $delimiter = '|')
 	{
@@ -61,6 +63,11 @@ class StreamFileDataset implements \IteratorAggregate
 	public function getPath() : string
 	{
 		return $this->path;
+	}
+
+	public function getType(): string
+	{
+		return 'TXT';
 	}
 	
 	public function getXPlaceholder() : ?Tensor

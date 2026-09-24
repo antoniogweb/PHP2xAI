@@ -1,15 +1,15 @@
 #pragma once
 
-#include "stream_file_dataset.hpp"
+#include "BatchDataset.hpp"
 
 namespace PHP2xAI::Runtime::CPP
 {
 	class TrainValidateDataset
 	{
 	public:
-		TrainValidateDataset(StreamFileDataset& trainDataset, StreamFileDataset& valDataset);
+		TrainValidateDataset(BatchDataset& trainDataset, BatchDataset& valDataset);
 
-		StreamFileDataset& train;
-		StreamFileDataset& val;
+		BatchDataset& train;
+		BatchDataset& val;
 	};
 }

@@ -25,7 +25,10 @@ CPP_SOURCES := \
 	Utility/Profiler.cpp \
 	Utility/ProfileWriter.cpp
 
-FFI_SOURCES := $(CPP_SOURCES) Core/ffi.cpp
+CPP_HDF5_SOURCES := Dataset/PHP2XAIHDF5.cpp Dataset/HDF5Dataset.cpp
+NATIVE_SOURCES := $(CPP_SOURCES) $(CPP_HDF5_SOURCES)
+FFI_SOURCES := $(CPP_SOURCES) Core/ffi.cpp $(CPP_HDF5_SOURCES) Dataset/ffi.cpp
+FFI_SOURCES_HDF5 := Dataset/PHP2XAIHDF5.cpp Dataset/ffi.cpp
 
 BIN_NATIVE := php2xai_runtime
 BIN_EIGEN := php2xai_runtime_eigen
@@ -38,22 +41,22 @@ $(BINDIR):
 	mkdir -p $(BINDIR)
 
 # NAIVE
-$(BINDIR)/$(BIN_NATIVE): $(CPP_SOURCES) main.cpp | $(BINDIR)
+$(BINDIR)/$(BIN_NATIVE): $(NATIVE_SOURCES) main.cpp | $(BINDIR)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -DPHP2XAI_USE_EIGEN=0 \
-		$^ -o $@
+		$^ -o $@ $(LIBS_HDF5)
 
 # EIGEN
-$(BINDIR)/$(BIN_EIGEN): $(CPP_SOURCES) main.cpp | $(BINDIR)
+$(BINDIR)/$(BIN_EIGEN): $(NATIVE_SOURCES) main.cpp | $(BINDIR)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -DPHP2XAI_USE_EIGEN=1 \
-		$^ -o $@
+		$^ -o $@ $(LIBS_HDF5)
 
 # Unique Shared library for inference: provider chosen at runtime by means of FFI
 $(BINDIR)/$(SO): $(FFI_SOURCES) | $(BINDIR)
 	$(CXX) $(SHFLAGS) $(INCLUDES) \
-		$^ -o $@
+		$^ -o $@ $(LIBS_HDF5)
 
 # PHP2XAIHDF5 shared library to be used by means of FFI
-$(BINDIR)/$(SO_HDF5): $(FFI_SOURCES) | $(BINDIR)
+$(BINDIR)/$(SO_HDF5): $(FFI_SOURCES_HDF5) | $(BINDIR)
 	$(CXX) $(SHFLAGS) $(INCLUDES) \
 		$^ -o $@ $(LIBS_HDF5)
 

@@ -2,9 +2,6 @@
 
 namespace PHP2xAI\Runtime\PHP\Datasets;
 
-use PHP2xAI\Runtime\PHP\Datasets\StreamFileDataset;
-
-
 /**
  * PHP
  *
@@ -16,10 +13,10 @@ use PHP2xAI\Runtime\PHP\Datasets\StreamFileDataset;
  */
 class TrainValidateDataset
 {
-	public StreamFileDataset $train;
-    public StreamFileDataset $val;
+	public BatchDataset $train;
+	public BatchDataset $val;
 	
-	public function __construct(StreamFileDataset $train, StreamFileDataset $val)
+	public function __construct(BatchDataset $train, BatchDataset $val)
 	{
 		$this->train = $train;
 		$this->val = $val;

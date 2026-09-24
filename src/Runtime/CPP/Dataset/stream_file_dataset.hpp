@@ -8,9 +8,11 @@
 #include <string_view>
 #include <vector>
 
+#include "BatchDataset.hpp"
+
 namespace PHP2xAI::Runtime::CPP
 {
-	class StreamFileDataset
+	class StreamFileDataset : public BatchDataset
 	{
 	public:
 		explicit StreamFileDataset(std::string path,
@@ -19,18 +21,19 @@ namespace PHP2xAI::Runtime::CPP
 								uint32_t seed = 42);
 
 		std::size_t numBatches() const;
+		std::string getType() const override;
 
-		void shuffleEpoch();
-		void resetEpoch();
+		void shuffleEpoch() override;
+		void resetEpoch() override;
 
 		// Equivalente del foreach($dataset as $batch)
-		bool nextBatch();
+		bool nextBatch() override;
 
 		// Equivalente del foreach($batch as [$x,$y])
 		bool nextSampleInBatch(std::vector<float>& x, std::vector<float>& y);
 
 		// Pack del batch corrente in row-major: ritorna xPacked e yPacked
-		void pack(std::vector<float>& xPacked, std::vector<float>& yPacked);
+		void pack(std::vector<float>& xPacked, std::vector<float>& yPacked) override;
 		
 		// Print the vector
 		static void printVec(const char* label, const std::vector<float>& v);

@@ -5,6 +5,7 @@
 #include <optional>
 #include <string>
 #include "../types.hpp"
+#include "../Dataset/BatchDataset.hpp"
 #include "../Dataset/TrainValidateDataset.hpp"
 #include "../Optimizers/Optimizer.hpp"
 #include <nlohmann/json.hpp>
@@ -31,8 +32,8 @@ namespace PHP2xAI::Runtime::CPP
 		std::string graphPath_;
 		std::string weightsPath_;
 		std::unique_ptr<Optimizers::Optimizer> optimizer_;
-		std::optional<StreamFileDataset> trainDataset_;
-		std::optional<StreamFileDataset> valDataset_;
+		std::unique_ptr<BatchDataset> trainDataset_;
+		std::unique_ptr<BatchDataset> valDataset_;
 		std::optional<TrainValidateDataset> trainValDataset_;
 		std::unique_ptr<GraphRuntime> graphRuntime_;
 		std::string outputPath_;

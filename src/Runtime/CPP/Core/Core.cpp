@@ -6,6 +6,8 @@
 #include <vector>
 #include "Core.hpp"
 #include "../Optimizers/Optimizers.hpp"
+#include "../Dataset/stream_file_dataset.hpp"
+#include "../Dataset/HDF5Dataset.hpp"
 #include "../Utility/Utility.hpp"
 #include "../Utility/ProfileWriter.hpp"
 
@@ -91,9 +93,23 @@ namespace PHP2xAI::Runtime::CPP
 		const auto trainPath = configDef.at("train_data_file").get<std::string>();
 		const auto valPath = configDef.at("val_data_file").get<std::string>();
 		const auto batchSize = static_cast<std::size_t>(configDef.at("batch_size").get<int>());
+		const auto datasetType = configDef.value("dataset_type", std::string("TXT"));
 
-		trainDataset_.emplace(trainPath, batchSize);
-		valDataset_.emplace(valPath, batchSize);
+		if (datasetType == "TXT")
+		{
+			trainDataset_ = std::make_unique<StreamFileDataset>(trainPath, batchSize);
+			valDataset_ = std::make_unique<StreamFileDataset>(valPath, batchSize);
+		}
+		else if (datasetType == "HDF5")
+		{
+			trainDataset_ = std::make_unique<HDF5Dataset>(trainPath, batchSize);
+			valDataset_ = std::make_unique<HDF5Dataset>(valPath, batchSize);
+		}
+		else
+		{
+			throw std::runtime_error("Unsupported dataset type: " + datasetType);
+		}
+
 		trainValDataset_.emplace(*trainDataset_, *valDataset_);
 	}
 	

@@ -47,6 +47,7 @@ namespace PHP2xAI::Runtime::CPP
 	}
 
 	std::size_t StreamFileDataset::numBatches() const { return batchOffsets_.size(); }
+	std::string StreamFileDataset::getType() const { return "TXT"; }
 
 	void StreamFileDataset::shuffleEpoch()
 	{

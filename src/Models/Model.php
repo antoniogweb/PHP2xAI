@@ -5,7 +5,8 @@ namespace PHP2xAI\Models;
 use PHP2xAI\Runtime\PHP\Optimizers\Optimizer;
 use PHP2xAI\Tensor\Tensor;
 use PHP2xAI\Runtime\PHP\Datasets\TrainValidateDataset;
-use PHP2xAI\Runtime\PHP\Datasets\StreamFileDataset;
+use PHP2xAI\Runtime\PHP\Datasets\BatchDataset;
+use PHP2xAI\Runtime\PHP\Datasets\HDF5Dataset;
 use PHP2xAI\Graph\GraphContext;
 use PHP2xAI\Runtime\PHP\Core\GraphRuntime;
 use PHP2xAI\Runtime\PHP\Core\ExecutionMode;
@@ -557,6 +558,7 @@ abstract class Model
 			"optimizer"	=>	$this->optimizer->getConfig(),
 			"train_data_file"	=>	$dataset->train->getPath(),
 			"val_data_file"	=>	$dataset->val->getPath(),
+			"dataset_type"	=>	$dataset->train->getType(),
 			"epochs_number"	=>	$epochsNumber,
 			"batch_size"	=>	$dataset->train->getBatchSize(),
 			"save_Path"		=>	$savePath ? $savePath : "",
@@ -569,7 +571,7 @@ abstract class Model
 		return json_encode($jsonConfig);
 	}
 	
-	public function exportModel(StreamFileDataset $dataset) : string
+	public function exportModel(BatchDataset $dataset) : string
 	{
 		$graph = $this->generateModel($dataset);
 		
@@ -737,7 +739,7 @@ abstract class Model
 		exit($exitCode);
 	}
 	
-	public function validationLoss(StreamFileDataset $dataset, GraphRuntime $graph)
+	public function validationLoss(BatchDataset $dataset, GraphRuntime $graph)
 	{
 		$loss = 0;
 		$count = 0;
@@ -782,6 +784,10 @@ abstract class Model
 		{
 			$config = $this->getTrainingConfig($dataset, $epochsNumber, $savePath, $logOnEachXBatch, $profilerOutputPath);
 			file_put_contents($this->configSavePath, $config, LOCK_EX);
+			if ($dataset->train instanceof HDF5Dataset)
+				$dataset->train->close();
+			if ($dataset->val instanceof HDF5Dataset)
+				$dataset->val->close();
 			$this->trainCpp();
 			return;
 		}
@@ -849,7 +855,7 @@ abstract class Model
 		}
 	}
 	
-	public function generateModel(StreamFileDataset $dataset) : array
+	public function generateModel(BatchDataset $dataset) : array
 	{
 		$dataset->initPlaceholders(false);
 		$placeholders = $dataset->getPlaceholders();
@@ -888,7 +894,7 @@ abstract class Model
 		return $graph;
 	}
 	
-	public function generateGraph(StreamFileDataset $dataset) : array
+	public function generateGraph(BatchDataset $dataset) : array
 	{
 		$dataset->initPlaceholders();
 		$placeholders = $dataset->getPlaceholders();
