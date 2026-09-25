@@ -544,6 +544,12 @@ namespace PHP2xAI::Runtime::CPP
 					throw std::runtime_error("matmul: expected two inputs and one output");
 				opMatmul(op.inputs[0], op.inputs[1], op.output, op.kernel);
 			}
+			else if (op.name == "ReLU" || op.name == "relu")
+			{
+				if (op.inputs.size() != 1 || op.output < 0)
+					throw std::runtime_error("ReLU: expected one input and one output");
+				opRelu(op.inputs[0], op.output);
+			}
 			else
 			{
 				throw std::runtime_error("Op not supported: " + op.name);
@@ -579,6 +585,12 @@ namespace PHP2xAI::Runtime::CPP
 				if (op.inputs.size() != 2 || op.output < 0)
 					throw std::runtime_error("matmul backward: expected two inputs and one output");
 				backwardMatmul(op.inputs[0], op.inputs[1], op.output, op.kernel);
+			}
+			else if (op.name == "relu" || op.name == "ReLU")
+			{
+				if (op.inputs.size() != 1 || op.output < 0)
+					throw std::runtime_error("ReLU backward: expected one input and one output");
+				backwardRelu(op.inputs[0], op.output);
 			}
 			else
 			{
@@ -667,6 +679,22 @@ namespace PHP2xAI::Runtime::CPP
 			BACKWARD_MATMUL_GENERIC_B_2D_2D_BROADCAST(A, B, C);
 		else
 			throw std::runtime_error("matmul backward: kernel not supported: " + kernelName);
+	}
+
+	void GraphRuntime::opRelu(int inputId, int outputId)
+	{
+		Tensor &X = impl_->tensor(inputId);
+		Tensor &Y = impl_->tensor(outputId);
+		RELU(X, Y);
+	}
+
+	void GraphRuntime::backwardRelu(int inputId, int outputId)
+	{
+		Tensor &X = impl_->tensor(inputId);
+		Tensor &Y = impl_->tensor(outputId);
+		if (!X.requiresGrad)
+			return;
+		BACKWARD_RELU(X, Y);
 	}
 
 	std::size_t GraphRuntime::inputSize() const

@@ -85,6 +85,8 @@ namespace PHP2xAI::Runtime::CPP
 		void backwardAdd(int aId, int bId, int outId, const std::string &kernel);
 		void opMatmul(int aId, int bId, int outId, const std::string &kernel);
 		void backwardMatmul(int aId, int bId, int outId, const std::string &kernel);
+		void opRelu(int inputId, int outputId);
+		void backwardRelu(int inputId, int outputId);
 
 	protected:
 		// Backend-specific kernel entry points. GraphRuntime provides NAIVE;
@@ -106,5 +108,8 @@ namespace PHP2xAI::Runtime::CPP
 		virtual void BACKWARD_MATMUL_2B_2D_2D(Tensor &A, Tensor &B, Tensor &C);
 		virtual void BACKWARD_MATMUL_1B_2D_2D_LINEAR(Tensor &A, Tensor &B, Tensor &C);
 		virtual void BACKWARD_MATMUL_GENERIC_B_2D_2D_BROADCAST(Tensor &A, Tensor &B, Tensor &C);
+
+		virtual void RELU(Tensor &X, Tensor &Y);
+		virtual void BACKWARD_RELU(Tensor &X, Tensor &Y);
 	};
 }

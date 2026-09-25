@@ -18,6 +18,7 @@ CPP_SOURCES := \
 	Core/runtime.cpp \
 	Core/Kernels/NAIVE/add.cpp \
 	Core/Kernels/NAIVE/matmul.cpp \
+	Core/Kernels/NAIVE/relu.cpp \
 	Dataset/TrainValidateDataset.cpp \
 	Dataset/stream_file_dataset.cpp \
 	Optimizers/Optimizer.cpp \
