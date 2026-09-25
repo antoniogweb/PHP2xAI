@@ -73,6 +73,7 @@ namespace PHP2xAI::Runtime::CPP
 		void saveToJson(const std::string &path) const;
 
 		void setMode(ExecutionMode mode);
+		void resetKvCache(int layer = -1);
 		void enableProfiler();
 		bool isProfilingEnabled() const;
 		void setProfilingEnabled(bool enabled);
@@ -135,6 +136,8 @@ namespace PHP2xAI::Runtime::CPP
 		void backwardCe(int predId, int targetId, int outputId, const std::string &kernel);
 		void opCeLogits(int logitsId, int targetId, int outputId, const std::string &kernel);
 		void backwardCeLogits(int logitsId, int targetId, int outputId, const std::string &kernel);
+		void opKvCache(int keyId, int valueId, int keyOutputId, int valueOutputId, int layer);
+		void backwardKvCache(int keyId, int valueId, int keyOutputId, int valueOutputId);
 
 	protected:
 		// Backend-specific kernel entry points. GraphRuntime provides NAIVE;

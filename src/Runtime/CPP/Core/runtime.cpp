@@ -46,6 +46,24 @@ namespace PHP2xAI::Runtime::CPP
 			for (std::size_t i = 0; i < count; ++i)
 				values[i] = static_cast<T>(0);
 		}
+
+		template <typename T>
+		void copyValues(const T *source, T *destination, std::size_t count)
+		{
+			for (std::size_t i = 0; i < count; ++i)
+				destination[i] = source[i];
+		}
+
+		void computeStrides(const std::vector<int> &shape, std::vector<int> &strides)
+		{
+			strides.resize(shape.size());
+			int stride = 1;
+			for (std::size_t i = shape.size(); i > 0; --i)
+			{
+				strides[i - 1] = stride;
+				stride *= shape[i - 1];
+			}
+		}
 	}
 
 	// Owns one typed allocation. Keeping its deleter beside the pointer means the
@@ -290,6 +308,53 @@ namespace PHP2xAI::Runtime::CPP
 		}
 	};
 
+	namespace
+	{
+		template <typename T>
+		void appendCacheValues(const T *cached, const T *newValues, T *destination,
+			std::size_t outerCount, std::size_t oldBlockSize, std::size_t newBlockSize)
+		{
+			for (std::size_t outer = 0; outer < outerCount; ++outer)
+			{
+				const std::size_t oldOffset = outer * oldBlockSize;
+				const std::size_t newOffset = outer * newBlockSize;
+				const std::size_t outputOffset = outer * (oldBlockSize + newBlockSize);
+				copyValues(cached + oldOffset, destination + outputOffset, oldBlockSize);
+				copyValues(newValues + newOffset, destination + outputOffset + oldBlockSize, newBlockSize);
+			}
+		}
+
+		template <typename T>
+		void copyIntoBuffer(const void *source, TensorBuffer &destination, std::size_t count)
+		{
+			destination.allocate<T>(count);
+			copyValues(static_cast<const T *>(source), static_cast<T *>(destination.data()), count);
+		}
+
+		template <typename T>
+		void appendIntoBuffer(const TensorBuffer &cached, const void *newValues,
+			TensorBuffer &destination, std::size_t outerCount,
+			std::size_t oldBlockSize, std::size_t newBlockSize)
+		{
+			destination.allocate<T>(outerCount * (oldBlockSize + newBlockSize));
+			appendCacheValues(static_cast<const T *>(cached.data()),
+				static_cast<const T *>(newValues), static_cast<T *>(destination.data()),
+				outerCount, oldBlockSize, newBlockSize);
+		}
+
+		template <typename Func>
+		void withDType(DType dtype, Func function)
+		{
+			switch (dtype)
+			{
+				case DType::FLOAT32: function.template operator()<float>(); break;
+				case DType::FLOAT64: function.template operator()<double>(); break;
+				case DType::INT32: function.template operator()<std::int32_t>(); break;
+				case DType::INT64: function.template operator()<std::int64_t>(); break;
+			}
+		}
+	}
+
 	// Give kernel implementation files a small non-owning view of Tensor while
 	// keeping the owning Tensor definition private to this translation unit.
 	TensorAccess accessTensor(Tensor &tensor)
@@ -307,7 +372,9 @@ namespace PHP2xAI::Runtime::CPP
 	{
 		std::string name;
 		std::vector<int> inputs;
+		std::vector<int> outputs;
 		int output;
+		int layer;
 		std::string kernel;
 		Scalar dropoutPerc;
 		int padId;
@@ -319,8 +386,18 @@ namespace PHP2xAI::Runtime::CPP
 		Scalar base;
 		Scalar eps;
 
-		RuntimeOp() : output(-1), dropoutPerc(50.0f), padId(0), start(0), end(0),
+		RuntimeOp() : output(-1), layer(-1), dropoutPerc(50.0f), padId(0), start(0), end(0),
 			offset(0), scale(1.0f), base(10000.0f), eps(1.0e-5f) {}
+	};
+
+	struct KvCacheEntry
+	{
+		DType dtype;
+		std::vector<int> shape;
+		TensorBuffer key;
+		TensorBuffer value;
+
+		KvCacheEntry() : dtype(DType::FLOAT32) {}
 	};
 
 	struct GraphRuntime::Impl
@@ -331,19 +408,24 @@ namespace PHP2xAI::Runtime::CPP
 		std::unordered_map<int, std::size_t> tensorIndices;
 		std::vector<int> trainable;
 		std::unordered_map<int, std::vector<Scalar> > dropoutMasks;
+		std::unordered_map<int, KvCacheEntry> kvCaches;
 		std::uint64_t dropoutSeed;
 		int inputId;
 		int targetId;
 		int outputId;
 		int lossId;
 		ExecutionMode mode;
+		int ropeOffset;
+		int ropeOffsetIncrement;
+		bool hasKvCacheInForward;
 		std::unique_ptr<Profiler> profiler;
 		bool profilingEnabled;
 
 		Impl(const json &definition)
 			: graphDef(definition), dropoutSeed(0x9e3779b97f4a7c15ULL),
 			  inputId(-1), targetId(-1), outputId(-1), lossId(-1),
-			  mode(ExecutionMode::INFER), profilingEnabled(false)
+			  mode(ExecutionMode::INFER), ropeOffset(-1), ropeOffsetIncrement(1),
+			  hasKvCacheInForward(false), profilingEnabled(false)
 		{
 		}
 
@@ -461,6 +543,8 @@ namespace PHP2xAI::Runtime::CPP
 				RuntimeOp op;
 				op.name = definition.at("op").get<std::string>();
 				op.inputs = definition.at("inputs").get<std::vector<int> >();
+				if (definition.contains("outputs"))
+					op.outputs = definition.at("outputs").get<std::vector<int> >();
 				if (definition.contains("output"))
 					op.output = definition.at("output").get<int>();
 				if (definition.contains("attributes")
@@ -480,6 +564,7 @@ namespace PHP2xAI::Runtime::CPP
 					op.scale = attributes.value("scale", 1.0f);
 					op.base = attributes.value("base", 10000.0f);
 					op.eps = attributes.value("eps", 1.0e-5f);
+					op.layer = attributes.value("layer", -1);
 				}
 				ops.push_back(op);
 			}
@@ -556,6 +641,11 @@ namespace PHP2xAI::Runtime::CPP
 
 	void GraphRuntime::forward()
 	{
+		impl_->ropeOffsetIncrement = 1;
+		impl_->hasKvCacheInForward = false;
+		if (impl_->mode == ExecutionMode::PREFILL)
+			impl_->ropeOffset = -1;
+
 		for (std::size_t i = 0; i < impl_->ops.size(); ++i)
 		{
 			const RuntimeOp &op = impl_->ops[i];
@@ -669,7 +759,18 @@ namespace PHP2xAI::Runtime::CPP
 			else if (op.name == "rms_norm" && op.inputs.size() == 2 && op.output >= 0)
 				opRMSNorm(op.inputs[0], op.inputs[1], op.output, op.kernel, op.eps);
 			else if (op.name == "rope" && op.inputs.size() == 1 && op.output >= 0)
-				opRope(op.inputs[0], op.output, op.kernel, op.axes, op.offset, op.base);
+			{
+				if (impl_->mode == ExecutionMode::PREFILL && impl_->ropeOffset < 0)
+					impl_->ropeOffset = op.offset;
+				const int offset = impl_->ropeOffset < 0 ? op.offset : impl_->ropeOffset;
+				opRope(op.inputs[0], op.output, op.kernel, op.axes, offset, op.base);
+			}
+			else if (op.name == "kv_cache")
+			{
+				if (op.inputs.size() != 2 || op.outputs.size() != 2 || op.layer < 0)
+					throw std::runtime_error("kv_cache: expected two inputs, two outputs, and a layer");
+				opKvCache(op.inputs[0], op.inputs[1], op.outputs[0], op.outputs[1], op.layer);
+			}
 			else if (op.name == "CE" && op.inputs.size() == 2 && op.output >= 0)
 				opCe(op.inputs[0], op.inputs[1], op.output, op.kernel);
 			else if (op.name == "softmax_ce_logits" && op.inputs.size() == 2 && op.output >= 0)
@@ -679,6 +780,9 @@ namespace PHP2xAI::Runtime::CPP
 				throw std::runtime_error("Op not supported: " + op.name);
 			}
 		}
+
+		if (impl_->hasKvCacheInForward)
+			impl_->ropeOffset += impl_->ropeOffsetIncrement;
 	}
 
 	void GraphRuntime::backward()
@@ -811,6 +915,12 @@ namespace PHP2xAI::Runtime::CPP
 				backwardCe(op.inputs[0], op.inputs[1], op.output, op.kernel);
 			else if (op.name == "softmax_ce_logits" && op.inputs.size() == 2 && op.output >= 0)
 				backwardCeLogits(op.inputs[0], op.inputs[1], op.output, op.kernel);
+			else if (op.name == "kv_cache")
+			{
+				if (op.inputs.size() != 2 || op.outputs.size() != 2)
+					throw std::runtime_error("kv_cache backward: expected two inputs and outputs");
+				backwardKvCache(op.inputs[0], op.inputs[1], op.outputs[0], op.outputs[1]);
+			}
 			else
 			{
 				throw std::runtime_error("Op backward not supported: " + op.name);
@@ -1571,6 +1681,160 @@ namespace PHP2xAI::Runtime::CPP
 	void GraphRuntime::setMode(ExecutionMode mode)
 	{
 		impl_->mode = mode;
+	}
+
+	void GraphRuntime::opKvCache(int keyId, int valueId, int keyOutputId,
+		int valueOutputId, int layer)
+	{
+		Tensor &keyInput = impl_->tensor(keyId);
+		Tensor &valueInput = impl_->tensor(valueId);
+
+		if (keyInput.shape.size() != 4 || keyInput.shape != valueInput.shape)
+			throw std::runtime_error("kv_cache: expected matching rank-4 [B, H, L, Dk] tensors");
+		if (keyInput.dtype != valueInput.dtype)
+			throw std::runtime_error("kv_cache: key and value dtypes must match");
+		if (layer < 0)
+			throw std::runtime_error("kv_cache: layer must be non-negative");
+
+		const int batch = keyInput.shape[0];
+		const int heads = keyInput.shape[1];
+		const int newLength = keyInput.shape[2];
+		const int dimension = keyInput.shape[3];
+		if (batch <= 0 || heads <= 0 || newLength <= 0 || dimension <= 0)
+			throw std::runtime_error("kv_cache: dimensions must be positive");
+		if (keyOutputId == valueOutputId)
+			throw std::runtime_error("kv_cache: key and value outputs must be distinct");
+
+		const bool usesPersistentCache =
+			impl_->mode == ExecutionMode::PREFILL || impl_->mode == ExecutionMode::DECODE;
+		if (usesPersistentCache)
+		{
+			if (impl_->hasKvCacheInForward && impl_->ropeOffsetIncrement != newLength)
+				throw std::runtime_error("kv_cache: layers must share Lnew");
+			impl_->ropeOffsetIncrement = newLength;
+			impl_->hasKvCacheInForward = true;
+		}
+
+		if (impl_->mode == ExecutionMode::PREFILL)
+		{
+			KvCacheEntry &cache = impl_->kvCaches[layer];
+			cache.dtype = keyInput.dtype;
+			cache.shape = keyInput.shape;
+			withDType(cache.dtype, [&]<typename T>()
+			{
+				copyIntoBuffer<T>(keyInput.data, cache.key, keyInput.size);
+				copyIntoBuffer<T>(valueInput.data, cache.value, valueInput.size);
+			});
+		}
+		else if (impl_->mode == ExecutionMode::DECODE)
+		{
+			auto found = impl_->kvCaches.find(layer);
+			if (found == impl_->kvCaches.end())
+				throw std::runtime_error("kv_cache: PREFILL required before DECODE");
+			KvCacheEntry &existing = found->second;
+			if (existing.dtype != keyInput.dtype || existing.shape.size() != 4 ||
+				existing.shape[0] != batch || existing.shape[1] != heads ||
+				existing.shape[3] != dimension)
+				throw std::runtime_error("kv_cache: decode shape or dtype mismatch");
+
+			const std::size_t outerCount = static_cast<std::size_t>(batch) * heads;
+			const std::size_t oldBlockSize =
+				static_cast<std::size_t>(existing.shape[2]) * dimension;
+			const std::size_t newBlockSize =
+				static_cast<std::size_t>(newLength) * dimension;
+			TensorBuffer mergedKey;
+			TensorBuffer mergedValue;
+			withDType(existing.dtype, [&]<typename T>()
+			{
+				appendIntoBuffer<T>(existing.key, keyInput.data, mergedKey,
+					outerCount, oldBlockSize, newBlockSize);
+				appendIntoBuffer<T>(existing.value, valueInput.data, mergedValue,
+					outerCount, oldBlockSize, newBlockSize);
+			});
+			existing.key = std::move(mergedKey);
+			existing.value = std::move(mergedValue);
+			existing.shape[2] += newLength;
+		}
+		else if (impl_->mode != ExecutionMode::TRAIN && impl_->mode != ExecutionMode::INFER)
+		{
+			throw std::runtime_error("kv_cache: unsupported execution mode");
+		}
+
+		const TensorBuffer *keySource = 0;
+		const TensorBuffer *valueSource = 0;
+		const std::vector<int> *outputShape = &keyInput.shape;
+		if (!usesPersistentCache)
+		{
+			// TRAIN and ordinary INFER preserve the stateless identity behavior.
+		}
+		else
+		{
+			const KvCacheEntry &cache = impl_->kvCaches.at(layer);
+			keySource = &cache.key;
+			valueSource = &cache.value;
+			outputShape = &cache.shape;
+		}
+
+		Tensor &keyOutput = impl_->tensor(keyOutputId);
+		Tensor &valueOutput = impl_->tensor(valueOutputId);
+		const std::size_t outputSize = elementCount(*outputShape);
+		auto prepareOutput = [&](Tensor &output)
+		{
+			if (output.dtype != keyInput.dtype || output.size != outputSize)
+				output.allocate(keyInput.dtype, outputSize);
+			output.shape = *outputShape;
+			computeStrides(output.shape, output.strides);
+		};
+		prepareOutput(keyOutput);
+		prepareOutput(valueOutput);
+
+		withDType(keyInput.dtype, [&]<typename T>()
+		{
+			const T *keyValues = keySource
+				? static_cast<const T *>(keySource->data())
+				: keyInput.dataAs<T>();
+			const T *valueValues = valueSource
+				? static_cast<const T *>(valueSource->data())
+				: valueInput.dataAs<T>();
+			copyValues(keyValues, keyOutput.dataAs<T>(), outputSize);
+			copyValues(valueValues, valueOutput.dataAs<T>(), outputSize);
+		});
+	}
+
+	void GraphRuntime::backwardKvCache(int keyId, int valueId,
+		int keyOutputId, int valueOutputId)
+	{
+		if (impl_->mode != ExecutionMode::TRAIN)
+			return;
+
+		auto accumulateGradient = [&](int inputId, int outputId)
+		{
+			Tensor &input = impl_->tensor(inputId);
+			Tensor &output = impl_->tensor(outputId);
+			if (!input.requiresGrad)
+				return;
+			if (input.dtype != output.dtype || input.size != output.size)
+				throw std::runtime_error("kv_cache backward: input/output shape or dtype mismatch");
+
+			withDType(input.dtype, [&]<typename T>()
+			{
+				T *inputGrad = input.gradAs<T>();
+				const T *outputGrad = output.gradAs<T>();
+				for (std::size_t i = 0; i < input.size; ++i)
+					inputGrad[i] += outputGrad[i];
+			});
+		};
+
+		accumulateGradient(keyId, keyOutputId);
+		accumulateGradient(valueId, valueOutputId);
+	}
+
+	void GraphRuntime::resetKvCache(int layer)
+	{
+		if (layer < 0)
+			impl_->kvCaches.clear();
+		else
+			impl_->kvCaches.erase(layer);
 	}
 
 	void GraphRuntime::enableProfiler()
