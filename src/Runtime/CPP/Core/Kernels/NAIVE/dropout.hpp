@@ -31,10 +31,14 @@ namespace PHP2xAI::Runtime::CPP::Templates
 
 		const Scalar keepProbability = 1.0f - dropoutPerc / 100.0f;
 		const Scalar scale = keepProbability > 0.0f ? 1.0f / keepProbability : 0.0f;
-		for (std::size_t i = 0; i < elementCount; ++i)
+		// Each index gets its own deterministic random value, so workers can
+		// fill disjoint output and mask elements without sharing RNG state.
+		#pragma omp parallel for schedule(static)
+		for (std::int64_t index = 0;
+			index < static_cast<std::int64_t>(elementCount); ++index)
 		{
-			const std::uint64_t randomBits = DropoutDetail::splitmix64(
-				seed + static_cast<std::uint64_t>(i));
+			const std::size_t i = static_cast<std::size_t>(index);
+			const std::uint64_t randomBits = DropoutDetail::splitmix64(seed + i);
 			const Scalar randomUnit = static_cast<Scalar>(randomBits >> 40U)
 				* (1.0f / 16777216.0f);
 			const Scalar multiplier = randomUnit >= dropoutPerc / 100.0f ? scale : 0.0f;

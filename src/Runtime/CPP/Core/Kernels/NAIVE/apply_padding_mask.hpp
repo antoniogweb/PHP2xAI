@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <limits>
 
 #include "../../../types.hpp"
@@ -12,8 +13,11 @@ namespace PHP2xAI::Runtime::CPP::Templates
 		std::size_t outer, int batchRows, int rowSize)
 	{
 		const Scalar negativeInfinity = -std::numeric_limits<Scalar>::infinity();
-		for (std::size_t row = 0; row < outer; ++row)
+		#pragma omp parallel for schedule(static)
+		for (std::int64_t rowIndex = 0;
+			rowIndex < static_cast<std::int64_t>(outer); ++rowIndex)
 		{
+			const std::size_t row = static_cast<std::size_t>(rowIndex);
 			const std::size_t batch = row / static_cast<std::size_t>(batchRows);
 			for (int column = 0; column < rowSize; ++column)
 			{
@@ -28,8 +32,11 @@ namespace PHP2xAI::Runtime::CPP::Templates
 	void BACKWARD_APPLY_PADDING_MASK_TEMPLATE(const M *mask, T *inputGrad,
 		const T *outputGrad, std::size_t outer, int batchRows, int rowSize)
 	{
-		for (std::size_t row = 0; row < outer; ++row)
+		#pragma omp parallel for schedule(static)
+		for (std::int64_t rowIndex = 0;
+			rowIndex < static_cast<std::int64_t>(outer); ++rowIndex)
 		{
+			const std::size_t row = static_cast<std::size_t>(rowIndex);
 			const std::size_t batch = row / static_cast<std::size_t>(batchRows);
 			for (int column = 0; column < rowSize; ++column)
 			{

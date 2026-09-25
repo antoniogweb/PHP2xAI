@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 
 namespace PHP2xAI::Runtime::CPP::Templates
 {
@@ -54,22 +55,32 @@ namespace PHP2xAI::Runtime::CPP::Templates
 	void SLICE_LAST_TEMPLATE(const T *input, T *output, std::size_t outer,
 		int axisSize, int start, int sliceSize)
 	{
-		for (std::size_t row = 0; row < outer; ++row)
+		#pragma omp parallel for schedule(static)
+		for (std::int64_t rowIndex = 0;
+			rowIndex < static_cast<std::int64_t>(outer); ++rowIndex)
+		{
+			const std::size_t row = static_cast<std::size_t>(rowIndex);
 			for (int i = 0; i < sliceSize; ++i)
 				output[row * static_cast<std::size_t>(sliceSize) + i] =
 					input[row * static_cast<std::size_t>(axisSize) + start + i];
+		}
 	}
 
 	template <typename T>
 	void BACKWARD_SLICE_LAST_TEMPLATE(const T *outputGrad, T *inputGrad,
 		std::size_t outer, int axisSize, int start, int sliceSize)
 	{
-		for (std::size_t row = 0; row < outer; ++row)
+		#pragma omp parallel for schedule(static)
+		for (std::int64_t rowIndex = 0;
+			rowIndex < static_cast<std::int64_t>(outer); ++rowIndex)
+		{
+			const std::size_t row = static_cast<std::size_t>(rowIndex);
 			for (int i = 0; i < sliceSize; ++i)
 			{
 				const std::size_t inputIndex = row * static_cast<std::size_t>(axisSize) + start + i;
 				inputGrad[inputIndex] = static_cast<T>(inputGrad[inputIndex]
 					+ outputGrad[row * static_cast<std::size_t>(sliceSize) + i]);
 			}
+		}
 	}
 }
