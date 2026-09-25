@@ -91,6 +91,8 @@ namespace PHP2xAI::Runtime::CPP
 		void backwardGelu(int inputId, int outputId);
 		void opSilu(int inputId, int outputId);
 		void backwardSilu(int inputId, int outputId);
+		void opCeLogitsLabelInt(int logitsId, int targetId, int outputId, const std::string &kernel);
+		void backwardCeLogitsLabelInt(int logitsId, int targetId, int outputId, const std::string &kernel);
 
 	protected:
 		// Backend-specific kernel entry points. GraphRuntime provides NAIVE;
@@ -119,5 +121,13 @@ namespace PHP2xAI::Runtime::CPP
 		virtual void BACKWARD_GELU(Tensor &X, Tensor &Y);
 		virtual void SILU(Tensor &X, Tensor &Y);
 		virtual void BACKWARD_SILU(Tensor &X, Tensor &Y);
+		virtual void CE_LOGITS_LABEL_INT_1D_LAST(Tensor &logits, Tensor &target, Tensor &output);
+		virtual void CE_LOGITS_LABEL_INT_2D_LAST(Tensor &logits, Tensor &target, Tensor &output);
+		virtual void CE_LOGITS_LABEL_INT_3D_LAST(Tensor &logits, Tensor &target, Tensor &output);
+		virtual void CE_LOGITS_LABEL_INT_GENERIC_AXIS(Tensor &logits, Tensor &target, Tensor &output);
+		virtual void BACKWORD_CE_LOGITS_LABEL_INT_1D_LAST(Tensor &logits, Tensor &target, Tensor &output);
+		virtual void BACKWORD_CE_LOGITS_LABEL_INT_2D_LAST(Tensor &logits, Tensor &target, Tensor &output);
+		virtual void BACKWORD_CE_LOGITS_LABEL_INT_3D_LAST(Tensor &logits, Tensor &target, Tensor &output);
+		virtual void BACKWORD_CE_LOGITS_LABEL_INT_GENERIC_AXIS(Tensor &logits, Tensor &target, Tensor &output);
 	};
 }

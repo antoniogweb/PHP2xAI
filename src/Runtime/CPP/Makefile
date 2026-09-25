@@ -21,6 +21,7 @@ CPP_SOURCES := \
 	Core/Kernels/NAIVE/relu.cpp \
 	Core/Kernels/NAIVE/gelu.cpp \
 	Core/Kernels/NAIVE/silu.cpp \
+	Core/Kernels/NAIVE/ce_label_input.cpp \
 	Dataset/TrainValidateDataset.cpp \
 	Dataset/stream_file_dataset.cpp \
 	Optimizers/Optimizer.cpp \

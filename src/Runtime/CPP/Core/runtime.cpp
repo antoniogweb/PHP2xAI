@@ -562,6 +562,12 @@ namespace PHP2xAI::Runtime::CPP
 					throw std::runtime_error("silu: expected one input and one output");
 				opSilu(op.inputs[0], op.output);
 			}
+			else if (op.name == "softmax_ce_logits_label_int")
+			{
+				if (op.inputs.size() != 2 || op.output < 0)
+					throw std::runtime_error("CE logits label int: expected two inputs and one output");
+				opCeLogitsLabelInt(op.inputs[0], op.inputs[1], op.output, op.kernel);
+			}
 			else
 			{
 				throw std::runtime_error("Op not supported: " + op.name);
@@ -615,6 +621,12 @@ namespace PHP2xAI::Runtime::CPP
 				if (op.inputs.size() != 1 || op.output < 0)
 					throw std::runtime_error("silu backward: expected one input and one output");
 				backwardSilu(op.inputs[0], op.output);
+			}
+			else if (op.name == "softmax_ce_logits_label_int")
+			{
+				if (op.inputs.size() != 2 || op.output < 0)
+					throw std::runtime_error("CE logits label int backward: expected two inputs and one output");
+				backwardCeLogitsLabelInt(op.inputs[0], op.inputs[1], op.output, op.kernel);
 			}
 			else
 			{
@@ -751,6 +763,57 @@ namespace PHP2xAI::Runtime::CPP
 		if (!X.requiresGrad)
 			return;
 		BACKWARD_SILU(X, Y);
+	}
+
+	void GraphRuntime::opCeLogitsLabelInt(
+		int logitsId,
+		int targetId,
+		int outputId,
+		const std::string &kernel)
+	{
+		Tensor &logits = impl_->tensor(logitsId);
+		Tensor &target = impl_->tensor(targetId);
+		Tensor &output = impl_->tensor(outputId);
+		const std::string kernelName = kernel.empty()
+			? "CE_LOGITS_LABEL_INT_GENERIC_AXIS" : kernel;
+
+		if (kernelName == "CE_LOGITS_LABEL_INT_1D_LAST")
+			CE_LOGITS_LABEL_INT_1D_LAST(logits, target, output);
+		else if (kernelName == "CE_LOGITS_LABEL_INT_2D_LAST")
+			CE_LOGITS_LABEL_INT_2D_LAST(logits, target, output);
+		else if (kernelName == "CE_LOGITS_LABEL_INT_3D_LAST")
+			CE_LOGITS_LABEL_INT_3D_LAST(logits, target, output);
+		else if (kernelName == "CE_LOGITS_LABEL_INT_GENERIC_AXIS")
+			CE_LOGITS_LABEL_INT_GENERIC_AXIS(logits, target, output);
+		else
+			throw std::runtime_error("CE logits label int: kernel not supported: " + kernelName);
+	}
+
+	void GraphRuntime::backwardCeLogitsLabelInt(
+		int logitsId,
+		int targetId,
+		int outputId,
+		const std::string &kernel)
+	{
+		Tensor &logits = impl_->tensor(logitsId);
+		if (!logits.requiresGrad || logits.size == 0)
+			return;
+
+		Tensor &target = impl_->tensor(targetId);
+		Tensor &output = impl_->tensor(outputId);
+		const std::string kernelName = kernel.empty()
+			? "CE_LOGITS_LABEL_INT_GENERIC_AXIS" : kernel;
+
+		if (kernelName == "CE_LOGITS_LABEL_INT_1D_LAST")
+			BACKWORD_CE_LOGITS_LABEL_INT_1D_LAST(logits, target, output);
+		else if (kernelName == "CE_LOGITS_LABEL_INT_2D_LAST")
+			BACKWORD_CE_LOGITS_LABEL_INT_2D_LAST(logits, target, output);
+		else if (kernelName == "CE_LOGITS_LABEL_INT_3D_LAST")
+			BACKWORD_CE_LOGITS_LABEL_INT_3D_LAST(logits, target, output);
+		else if (kernelName == "CE_LOGITS_LABEL_INT_GENERIC_AXIS")
+			BACKWORD_CE_LOGITS_LABEL_INT_GENERIC_AXIS(logits, target, output);
+		else
+			throw std::runtime_error("CE logits label int backward: kernel not supported: " + kernelName);
 	}
 
 	std::size_t GraphRuntime::inputSize() const
