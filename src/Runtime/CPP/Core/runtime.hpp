@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -91,6 +92,12 @@ namespace PHP2xAI::Runtime::CPP
 		void backwardGelu(int inputId, int outputId);
 		void opSilu(int inputId, int outputId);
 		void backwardSilu(int inputId, int outputId);
+		void opEmbeddings(int idsId, int tableId, int outputId);
+		void backwardEmbeddings(int idsId, int tableId, int outputId);
+		void opMeanPooling(int inputId, int maskId, int outputId);
+		void backwardMeanPooling(int inputId, int maskId, int outputId);
+		void opDropout(int inputId, int outputId, Scalar dropoutPerc);
+		void backwardDropout(int inputId, int outputId);
 		void opCeLogitsLabelInt(int logitsId, int targetId, int outputId, const std::string &kernel);
 		void backwardCeLogitsLabelInt(int logitsId, int targetId, int outputId, const std::string &kernel);
 		void opMean(int inputId, int outputId, const std::string &kernel);
@@ -125,6 +132,13 @@ namespace PHP2xAI::Runtime::CPP
 		virtual void BACKWARD_GELU(Tensor &X, Tensor &Y);
 		virtual void SILU(Tensor &X, Tensor &Y);
 		virtual void BACKWARD_SILU(Tensor &X, Tensor &Y);
+		virtual void EMBEDDINGS(Tensor &ids, Tensor &table, Tensor &output);
+		virtual void BACKWARD_EMBEDDINGS(Tensor &ids, Tensor &table, Tensor &output);
+		virtual void MEAN_POOLING(Tensor &input, Tensor &mask, Tensor &output);
+		virtual void BACKWARD_MEAN_POOLING(Tensor &input, Tensor &mask, Tensor &output);
+		virtual void DROPOUT(Tensor &input, Tensor &output, Scalar dropoutPerc,
+			Scalar *mask, std::uint64_t seed, bool training);
+		virtual void BACKWARD_DROPOUT(Tensor &input, Tensor &output, const Scalar *mask);
 		virtual void CE_LOGITS_LABEL_INT_1D_LAST(Tensor &logits, Tensor &target, Tensor &output);
 		virtual void CE_LOGITS_LABEL_INT_2D_LAST(Tensor &logits, Tensor &target, Tensor &output);
 		virtual void CE_LOGITS_LABEL_INT_3D_LAST(Tensor &logits, Tensor &target, Tensor &output);

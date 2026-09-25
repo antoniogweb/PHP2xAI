@@ -308,8 +308,9 @@ namespace PHP2xAI::Runtime::CPP
 		std::vector<int> inputs;
 		int output;
 		std::string kernel;
+		Scalar dropoutPerc;
 
-		RuntimeOp() : output(-1) {}
+		RuntimeOp() : output(-1), dropoutPerc(50.0f) {}
 	};
 
 	struct GraphRuntime::Impl
@@ -319,6 +320,8 @@ namespace PHP2xAI::Runtime::CPP
 		std::vector<RuntimeOp> ops;
 		std::unordered_map<int, std::size_t> tensorIndices;
 		std::vector<int> trainable;
+		std::unordered_map<int, std::vector<Scalar> > dropoutMasks;
+		std::uint64_t dropoutSeed;
 		int inputId;
 		int targetId;
 		int outputId;
@@ -328,7 +331,8 @@ namespace PHP2xAI::Runtime::CPP
 		bool profilingEnabled;
 
 		Impl(const json &definition)
-			: graphDef(definition), inputId(-1), targetId(-1), outputId(-1), lossId(-1),
+			: graphDef(definition), dropoutSeed(0x9e3779b97f4a7c15ULL),
+			  inputId(-1), targetId(-1), outputId(-1), lossId(-1),
 			  mode(ExecutionMode::INFER), profilingEnabled(false)
 		{
 		}
@@ -454,6 +458,11 @@ namespace PHP2xAI::Runtime::CPP
 				{
 					op.kernel = definition.at("attributes").at("kernel").get<std::string>();
 				}
+				if (definition.contains("attributes"))
+				{
+					const json &attributes = definition.at("attributes");
+					op.dropoutPerc = attributes.value("dropoutPerc", 50.0f);
+				}
 				ops.push_back(op);
 			}
 		}
@@ -544,6 +553,24 @@ namespace PHP2xAI::Runtime::CPP
 					throw std::runtime_error("matmul: expected two inputs and one output");
 				opMatmul(op.inputs[0], op.inputs[1], op.output, op.kernel);
 			}
+			else if (op.name == "embeddings")
+			{
+				if (op.inputs.size() != 2 || op.output < 0)
+					throw std::runtime_error("embeddings: expected two inputs and one output");
+				opEmbeddings(op.inputs[0], op.inputs[1], op.output);
+			}
+			else if (op.name == "mean_pooling")
+			{
+				if (op.inputs.size() != 2 || op.output < 0)
+					throw std::runtime_error("mean_pooling: expected input, mask, and output");
+				opMeanPooling(op.inputs[0], op.inputs[1], op.output);
+			}
+			else if (op.name == "dropout")
+			{
+				if (op.inputs.size() != 1 || op.output < 0)
+					throw std::runtime_error("dropout: expected one input and one output");
+				opDropout(op.inputs[0], op.output, op.dropoutPerc);
+			}
 			else if (op.name == "ReLU" || op.name == "relu")
 			{
 				if (op.inputs.size() != 1 || op.output < 0)
@@ -615,6 +642,24 @@ namespace PHP2xAI::Runtime::CPP
 				if (op.inputs.size() != 2 || op.output < 0)
 					throw std::runtime_error("matmul backward: expected two inputs and one output");
 				backwardMatmul(op.inputs[0], op.inputs[1], op.output, op.kernel);
+			}
+			else if (op.name == "embeddings")
+			{
+				if (op.inputs.size() != 2 || op.output < 0)
+					throw std::runtime_error("embeddings backward: expected two inputs and one output");
+				backwardEmbeddings(op.inputs[0], op.inputs[1], op.output);
+			}
+			else if (op.name == "mean_pooling")
+			{
+				if (op.inputs.size() != 2 || op.output < 0)
+					throw std::runtime_error("mean_pooling backward: expected input, mask, and output");
+				backwardMeanPooling(op.inputs[0], op.inputs[1], op.output);
+			}
+			else if (op.name == "dropout")
+			{
+				if (op.inputs.size() != 1 || op.output < 0)
+					throw std::runtime_error("dropout backward: expected one input and one output");
+				backwardDropout(op.inputs[0], op.output);
 			}
 			else if (op.name == "relu" || op.name == "ReLU")
 			{
@@ -787,6 +832,78 @@ namespace PHP2xAI::Runtime::CPP
 		if (!X.requiresGrad)
 			return;
 		BACKWARD_SILU(X, Y);
+	}
+
+	void GraphRuntime::opEmbeddings(int idsId, int tableId, int outputId)
+	{
+		Tensor &ids = impl_->tensor(idsId);
+		Tensor &table = impl_->tensor(tableId);
+		Tensor &output = impl_->tensor(outputId);
+		EMBEDDINGS(ids, table, output);
+	}
+
+	void GraphRuntime::backwardEmbeddings(int idsId, int tableId, int outputId)
+	{
+		Tensor &ids = impl_->tensor(idsId);
+		Tensor &table = impl_->tensor(tableId);
+		Tensor &output = impl_->tensor(outputId);
+		if (!table.requiresGrad)
+			return;
+		BACKWARD_EMBEDDINGS(ids, table, output);
+	}
+
+	void GraphRuntime::opMeanPooling(int inputId, int maskId, int outputId)
+	{
+		Tensor &input = impl_->tensor(inputId);
+		Tensor &mask = impl_->tensor(maskId);
+		Tensor &output = impl_->tensor(outputId);
+		MEAN_POOLING(input, mask, output);
+	}
+
+	void GraphRuntime::backwardMeanPooling(int inputId, int maskId, int outputId)
+	{
+		Tensor &input = impl_->tensor(inputId);
+		Tensor &mask = impl_->tensor(maskId);
+		Tensor &output = impl_->tensor(outputId);
+		if (!input.requiresGrad)
+			return;
+		BACKWARD_MEAN_POOLING(input, mask, output);
+	}
+
+	void GraphRuntime::opDropout(int inputId, int outputId, Scalar dropoutPerc)
+	{
+		Tensor &input = impl_->tensor(inputId);
+		Tensor &output = impl_->tensor(outputId);
+		const bool training = impl_->mode == ExecutionMode::TRAIN;
+		if (training)
+		{
+			std::vector<Scalar> &mask = impl_->dropoutMasks[outputId];
+			mask.resize(input.size);
+			impl_->dropoutSeed += 0x9e3779b97f4a7c15ULL;
+			DROPOUT(input, output, dropoutPerc, mask.empty() ? 0 : mask.data(),
+				impl_->dropoutSeed, true);
+		}
+		else
+		{
+			impl_->dropoutMasks.erase(outputId);
+			DROPOUT(input, output, dropoutPerc, 0, 0, false);
+		}
+	}
+
+	void GraphRuntime::backwardDropout(int inputId, int outputId)
+	{
+		Tensor &input = impl_->tensor(inputId);
+		Tensor &output = impl_->tensor(outputId);
+		if (!input.requiresGrad)
+			return;
+		std::unordered_map<int, std::vector<Scalar> >::const_iterator found =
+			impl_->dropoutMasks.find(outputId);
+		if (found == impl_->dropoutMasks.end())
+			throw std::runtime_error("dropout backward: forward mask is missing");
+		const std::vector<Scalar> &mask = found->second;
+		if (mask.size() != input.size)
+			throw std::runtime_error("dropout backward: forward mask size mismatch");
+		BACKWARD_DROPOUT(input, output, mask.empty() ? 0 : mask.data());
 	}
 
 	void GraphRuntime::opCeLogitsLabelInt(

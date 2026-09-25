@@ -24,6 +24,9 @@ CPP_SOURCES := \
 	Core/Kernels/NAIVE/ce_label_input.cpp \
 	Core/Kernels/NAIVE/mean.cpp \
 	Core/Kernels/NAIVE/softmax.cpp \
+	Core/Kernels/NAIVE/embeddings.cpp \
+	Core/Kernels/NAIVE/mean_pooling.cpp \
+	Core/Kernels/NAIVE/dropout.cpp \
 	Core/Kernels/EIGEN/matmul.cpp \
 	Dataset/TrainValidateDataset.cpp \
 	Dataset/stream_file_dataset.cpp \
