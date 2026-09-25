@@ -18,6 +18,11 @@ class Tensor
 {
 	use TensorUtility;
 
+	public const FLOAT32 = 1;
+	public const FLOAT64 = 2;
+	public const INT32 = 3;
+	public const INT64 = 4;
+
 	public const INTERLEAVED = 'INTERLEAVED';
 	public const ROTATE_HALF = 'ROTATE_HALF';
 	
@@ -31,6 +36,8 @@ class Tensor
 	public array $shape = [];
 	
 	public array $data = []; // tensor data in row-major
+
+	public int $dtype = self::FLOAT32;
 
 	public ?string $initType = null;
 
@@ -61,9 +68,11 @@ class Tensor
 		?string $name = null,
 		?string $initType = null,
 		float $initScale = 0.05,
-		?int $initSeed = null
+		?int $initSeed = null,
+		int $dtype = self::FLOAT32
 	)
 	{
+		self::validateDType($dtype);
 		if ($initType !== null && !in_array($initType, ['zeros', 'rand'], true))
 			throw new Exception("Unsupported tensor init type: {$initType}");
 
@@ -78,6 +87,7 @@ class Tensor
 
 		$this->shape = $shape;
 		$this->data = $data;
+		$this->dtype = $dtype;
 		$this->name = $name;
 		$this->initType = $initType;
 		$this->initScale = $initScale;
@@ -87,7 +97,7 @@ class Tensor
 		$this->strides = self::computeStrides($shape);
 	}
 	
-	public static function createFromData(array $multidimensionalArrayOfData, ?string $name = null) : Tensor
+	public static function createFromData(array $multidimensionalArrayOfData, ?string $name = null, int $dtype = self::FLOAT32) : Tensor
 	{
 		$inferShape = function ($data) use (&$inferShape) : array
 		{
@@ -139,10 +149,10 @@ class Tensor
 		$shape = $inferShape($multidimensionalArrayOfData);
 		$flatten($multidimensionalArrayOfData);
 		
-		return new Tensor($shape, $data, $name);
+		return new Tensor($shape, $data, $name, dtype: $dtype);
 	}
 	
-	public static function random(array $shape, ?string $name = null) : Tensor
+	public static function random(array $shape, ?string $name = null, int $dtype = self::FLOAT32) : Tensor
 	{
 		$count = array_product($shape);
 		$data = array();
@@ -154,22 +164,29 @@ class Tensor
 			$data[$i] = mt_rand() / $max;
 		}
 		
-		return new Tensor($shape, $data, $name);
+		return new Tensor($shape, $data, $name, dtype: $dtype);
 	}
 	
-	public static function zeros(array $shape, ?string $name = null) : Tensor
+	public static function zeros(array $shape, ?string $name = null, int $dtype = self::FLOAT32) : Tensor
 	{
-		return new Tensor($shape, [], $name, 'zeros', 0.0);
+		return new Tensor($shape, [], $name, 'zeros', 0.0, dtype: $dtype);
 	}
 	
 	public static function init(
 		array $shape,
 		float $scale = 0.05,
 		?string $name = null,
-		?int $seed = null
+		?int $seed = null,
+		int $dtype = self::FLOAT32
 	) : Tensor
 	{
-		return new Tensor($shape, [], $name, 'rand', $scale, $seed);
+		return new Tensor($shape, [], $name, 'rand', $scale, $seed, $dtype);
+	}
+
+	private static function validateDType(int $dtype) : void
+	{
+		if (!in_array($dtype, [self::FLOAT32, self::FLOAT64, self::INT32, self::INT64], true))
+			throw new Exception("Unsupported tensor dtype: {$dtype}");
 	}
 	
 	public function setTrainable(bool $trainable) : void
@@ -250,7 +267,7 @@ class Tensor
 				throw new Exception("Matmul dimensions mismatch");
 		}
 		
-		$result = new Tensor($outputShape, [], 'matmul');
+		$result = new Tensor($outputShape, [], 'matmul', dtype: $this->dtype);
 		$context->registerOp('matmul', [$leftId, $rightId], $result, array("kernel" => $kernel));
 		
 		return $result;
@@ -309,7 +326,7 @@ class Tensor
 
 		$context = $this->initContextFrom();
 		$inputId = $this->registerInContext($context, $this);
-		$result = new Tensor($outputShape, [], 'transpose');
+		$result = new Tensor($outputShape, [], 'transpose', dtype: $this->dtype);
 		$context->registerOp('transpose', [$inputId], $result, [
 			"kernel" => $kernel,
 			"axes" => $normalizedAxes,
@@ -365,7 +382,7 @@ class Tensor
 
 		$context = $this->initContextFrom();
 		$inputId = $this->registerInContext($context, $this);
-		$result = new Tensor($outputShape, [], 'reshape');
+		$result = new Tensor($outputShape, [], 'reshape', dtype: $this->dtype);
 		$context->registerOp('reshape', [$inputId], $result);
 
 		return $result;
@@ -390,7 +407,7 @@ class Tensor
 		$outputShape[$axis] = $end - $start;
 		$context = $this->initContextFrom();
 		$inputId = $this->registerInContext($context, $this);
-		$result = new Tensor($outputShape, [], 'slice');
+		$result = new Tensor($outputShape, [], 'slice', dtype: $this->dtype);
 		$context->registerOp('slice', [$inputId], $result, [
 			"kernel" => $axis === $rank - 1 ? "SLICE_LAST" : "SLICE_GENERIC_AXIS",
 			"axes" => [$axis],
@@ -411,7 +428,7 @@ class Tensor
 
 		$context = $this->initContextFrom();
 		$inputId = $this->registerInContext($context, $this);
-		$result = new Tensor($this->shape, [], 'positionalEncoding');
+		$result = new Tensor($this->shape, [], 'positionalEncoding', dtype: $this->dtype);
 		$context->registerOp('positional_encoding', [$inputId], $result);
 
 		return $result;
@@ -436,7 +453,7 @@ class Tensor
 		else 
 			$kernel = "ADD_GENERIC_LAST";
 		
-		$result = new Tensor($this->shape, [], 'add');
+		$result = new Tensor($this->shape, [], 'add', dtype: $this->dtype);
 		$context->registerOp('add', [$leftId, $rightId], $result, array("kernel" => $kernel));
 		
 		return $result;
@@ -457,7 +474,7 @@ class Tensor
 		$leftId = $this->registerInContext($context, $this);
 		$rightId = $this->registerInContext($context, $b);
 
-		$result = new Tensor($this->shape, [], 'multiply');
+		$result = new Tensor($this->shape, [], 'multiply', dtype: $this->dtype);
 		$context->registerOp('multiply', [$leftId, $rightId], $result);
 
 		return $result;
@@ -481,7 +498,7 @@ class Tensor
 		$inputId = $this->registerInContext($context, $this);
 		$embeddingsId = $this->registerInContext($context, $embeddings);
 
-		$result = new Tensor([$this->shape[0], $this->shape[1], $embeddings->shape[1]], [], 'embeddings');
+		$result = new Tensor([$this->shape[0], $this->shape[1], $embeddings->shape[1]], [], 'embeddings', dtype: $embeddings->dtype);
 		$context->registerOp('embeddings', [$inputId, $embeddingsId], $result);
 
 		return $result;
@@ -506,7 +523,7 @@ class Tensor
 		$inputId = $this->registerInContext($context, $this);
 		$embeddingsId = $this->registerInContext($context, $embeddings);
 
-		$result = new Tensor([$this->shape[0], $embeddings->shape[1]], [], "embeddingsMeanPooling");
+		$result = new Tensor([$this->shape[0], $embeddings->shape[1]], [], "embeddingsMeanPooling", dtype: $embeddings->dtype);
 		$context->registerOp("embeddings_mean_pooling", [$inputId, $embeddingsId], $result, [
 			"padId" => $padId,
 		]);
@@ -528,7 +545,7 @@ class Tensor
 		$context = $this->initContextFrom();
 		$inputId = $this->registerInContext($context, $this);
 
-		$result = new Tensor($this->shape, [], 'paddingMask');
+		$result = new Tensor($this->shape, [], 'paddingMask', dtype: $this->dtype);
 		$context->registerOp('padding_mask', [$inputId], $result, array("padId" => $padId));
 
 		return $result;
@@ -559,7 +576,7 @@ class Tensor
 		$inputId = $this->registerInContext($context, $this);
 		$maskId = $this->registerInContext($context, $mask);
 
-		$result = new Tensor($this->shape, [], 'applyPaddingMask');
+		$result = new Tensor($this->shape, [], 'applyPaddingMask', dtype: $this->dtype);
 		$context->registerOp('apply_padding_mask', [$inputId, $maskId], $result);
 
 		return $result;
@@ -586,8 +603,8 @@ class Tensor
 		$keyId = $key->registerInContext($context, $key);
 		$valueId = $key->registerInContext($context, $value);
 
-		$keyCache = new Tensor($key->shape, [], "kvCacheK");
-		$valueCache = new Tensor($value->shape, [], "kvCacheV");
+		$keyCache = new Tensor($key->shape, [], "kvCacheK", dtype: $key->dtype);
+		$valueCache = new Tensor($value->shape, [], "kvCacheV", dtype: $value->dtype);
 		$context->registerMultiOutputOp("kv_cache", [$keyId, $valueId], [$keyCache, $valueCache], [
 			"layer" => $layer,
 		]);
@@ -605,7 +622,7 @@ class Tensor
 		$context = $this->initContextFrom();
 		$inputId = $this->registerInContext($context, $this);
 
-		$result = new Tensor($this->shape, [], "applyCausalMask");
+		$result = new Tensor($this->shape, [], "applyCausalMask", dtype: $this->dtype);
 		$context->registerOp(
 			"apply_causal_mask",
 			[$inputId],
@@ -636,7 +653,7 @@ class Tensor
 		$inputId = $this->registerInContext($context, $this);
 		$maskId = $this->registerInContext($context, $mask);
 
-		$result = new Tensor([$this->shape[0], $this->shape[2]], [], 'meanPooling');
+		$result = new Tensor([$this->shape[0], $this->shape[2]], [], 'meanPooling', dtype: $this->dtype);
 		$context->registerOp('mean_pooling', [$inputId, $maskId], $result);
 
 		return $result;
@@ -662,7 +679,7 @@ class Tensor
 		$context = $this->initContextFrom();
 		$inputId = $this->registerInContext($context, $this);
 		
-		$result = new Tensor($this->shape, [], 'dropout');
+		$result = new Tensor($this->shape, [], 'dropout', dtype: $this->dtype);
 		$context->registerOp('dropout', [$inputId], $result, ['dropoutPerc' => $perc]);
 		
 		return $result;
@@ -673,7 +690,7 @@ class Tensor
 		$context = $this->initContextFrom();
 		$inputId = $this->registerInContext($context, $this);
 		
-		$result = new Tensor($this->shape, [], 'sig');
+		$result = new Tensor($this->shape, [], 'sig', dtype: $this->dtype);
 		$context->registerOp('sig', [$inputId], $result);
 		
 		return $result;
@@ -684,7 +701,7 @@ class Tensor
 		$context = $this->initContextFrom();
 		$inputId = $this->registerInContext($context, $this);
 
-		$result = new Tensor($this->shape, [], 'gelu');
+		$result = new Tensor($this->shape, [], 'gelu', dtype: $this->dtype);
 		$context->registerOp('gelu', [$inputId], $result);
 
 		return $result;
@@ -696,7 +713,7 @@ class Tensor
 		$context = $this->initContextFrom();
 		$inputId = $this->registerInContext($context, $this);
 
-		$result = new Tensor($this->shape, [], 'silu');
+		$result = new Tensor($this->shape, [], 'silu', dtype: $this->dtype);
 		$context->registerOp('silu', [$inputId], $result);
 
 		return $result;
@@ -707,7 +724,7 @@ class Tensor
 		$context = $this->initContextFrom();
 		$inputId = $this->registerInContext($context, $this);
 
-		$result = new Tensor($this->shape, [], 'scale');
+		$result = new Tensor($this->shape, [], 'scale', dtype: $this->dtype);
 		$context->registerOp('scale', [$inputId], $result, ['scale' => $scale]);
 
 		return $result;
@@ -745,7 +762,7 @@ class Tensor
 		$gammaId = $this->registerInContext($context, $gamma);
 		$betaId = $this->registerInContext($context, $beta);
 
-		$result = new Tensor($this->shape, [], 'layerNorm');
+		$result = new Tensor($this->shape, [], 'layerNorm', dtype: $this->dtype);
 		$context->registerOp('layer_norm', [$inputId, $gammaId, $betaId], $result, [
 			"kernel" => $kernel,
 			"axes" => [$normalizedAxis],
@@ -788,7 +805,7 @@ class Tensor
 		$inputId = $this->registerInContext($context, $this);
 		$gammaId = $this->registerInContext($context, $gamma);
 
-		$result = new Tensor($this->shape, [], 'rmsNorm');
+		$result = new Tensor($this->shape, [], 'rmsNorm', dtype: $this->dtype);
 		$context->registerOp('rms_norm', [$inputId, $gammaId], $result, [
 			'kernel' => $kernel,
 			'axes' => [$normalizedAxis],
@@ -803,7 +820,7 @@ class Tensor
 		$context = $this->initContextFrom();
 		$inputId = $this->registerInContext($context, $this);
 		
-		$result = new Tensor($this->shape, [], 'ReLU');
+		$result = new Tensor($this->shape, [], 'ReLU', dtype: $this->dtype);
 		$context->registerOp('ReLU', [$inputId], $result);
 		
 		return $result;
@@ -842,7 +859,7 @@ class Tensor
 			"axes"		=>	array($axis),
 		);
 		
-		$result = new Tensor($this->shape, [], 'softmax');
+		$result = new Tensor($this->shape, [], 'softmax', dtype: $this->dtype);
 		$context->registerOp('softmax', [$inputId], $result, $attributes);
 		
 		return $result;
@@ -894,7 +911,7 @@ class Tensor
 
 		$context = $this->initContextFrom();
 		$inputId = $this->registerInContext($context, $this);
-		$result = new Tensor($this->shape, [], 'rope');
+		$result = new Tensor($this->shape, [], 'rope', dtype: $this->dtype);
 		$context->registerOp('rope', [$inputId], $result, [
 			"kernel" => $kernel,
 			"axes" => [$positionAxis, $rotationAxis],
@@ -958,7 +975,7 @@ class Tensor
 			"axes"		=>	array($axis),
 		);
 
-		$result = new Tensor($this->shapeReduced($axis), [], 'CE');
+		$result = new Tensor($this->shapeReduced($axis), [], 'CE', dtype: $this->dtype);
 		$context->registerOp('CE', [$logitsId, $targetId], $result, $attributes);
 		
 		return $result;
@@ -984,7 +1001,7 @@ class Tensor
 			"axes"		=>	array($axis),
 		);
 		
-		$result = new Tensor($this->shapeReduced($axis), [], 'CELogitsLabelInt');
+		$result = new Tensor($this->shapeReduced($axis), [], 'CELogitsLabelInt', dtype: $this->dtype);
 		$context->registerOp('softmax_ce_logits_label_int', [$logitsId, $targetId], $result, $attributes);
 		
 		return $result;
@@ -1014,7 +1031,7 @@ class Tensor
 			"axes"		=>	array($axis),
 		);
 
-		$result = new Tensor($this->shapeReduced($axis), [], 'CELogits');
+		$result = new Tensor($this->shapeReduced($axis), [], 'CELogits', dtype: $this->dtype);
 		$context->registerOp('softmax_ce_logits', [$logitsId, $targetId], $result, $attributes);
 		
 		return $result;
@@ -1040,7 +1057,7 @@ class Tensor
 			"axes"		=>	array($axis),
 		);
 		
-		$result = new Tensor($this->shapeReduced($axis), [], 'mean');
+		$result = new Tensor($this->shapeReduced($axis), [], 'mean', dtype: $this->dtype);
 		$context->registerOp('mean', [$inputId], $result, $attributes);
 		
 		return $result;

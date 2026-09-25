@@ -140,8 +140,8 @@ class HDF5Dataset extends BatchDataset implements \IteratorAggregate
 			? [$batch]
 			: array_merge([$batch], $this->yMetadata['shape']);
 
-		$this->xPlaceholder = Tensor::zeros($xShape, 'x');
-		$this->yPlaceholder = Tensor::zeros($yShape, 'y');
+		$this->xPlaceholder = Tensor::zeros($xShape, 'x', $this->xMetadata['dtype']);
+		$this->yPlaceholder = Tensor::zeros($yShape, 'y', $this->yMetadata['dtype']);
 	}
 
 	public function getPlaceholders(): array

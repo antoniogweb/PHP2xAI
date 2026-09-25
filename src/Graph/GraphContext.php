@@ -68,6 +68,7 @@ class GraphContext
 			'kind' => $kind,
 			'name' => $name ?? $tensor->getName(),
 			'shape' => $shape,
+			'dtype' => $tensor->dtype,
 			'trainable' => $tensor->isTrainable(),
 			'requiresGrad' => $requiresGrad,
 		];
@@ -111,7 +112,7 @@ class GraphContext
 			"op" => $op,
 			"inputs" => $inputs,
 			"output" => $outputId,
-			"attributes" => $attributes,
+			"attributes" => array_merge($attributes, ['dtype' => $output->dtype]),
 		];
 
 		return $opId;
@@ -149,6 +150,11 @@ class GraphContext
 			$output->setRequiresGrad($inputRequiresGrad);
 		}
 
+		$outputDType = $outputs[0]->dtype;
+		foreach ($outputs as $output)
+			if ($output->dtype !== $outputDType)
+				throw new \InvalidArgumentException("Multi-output operation outputs must have the same dtype");
+
 		$outputIds = [];
 		foreach ($outputs as $output)
 			$outputIds[] = $this->registerTensor($output, "intermediate", $output->getName() ?? $op, $output->getShape());
@@ -159,7 +165,7 @@ class GraphContext
 			"op" => $op,
 			"inputs" => $inputs,
 			"outputs" => $outputIds,
-			"attributes" => $attributes,
+			"attributes" => array_merge($attributes, ['dtype' => $outputDType]),
 		];
 
 		return $opId;
