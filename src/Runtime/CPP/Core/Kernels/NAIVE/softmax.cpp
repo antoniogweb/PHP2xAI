@@ -93,9 +93,32 @@ namespace PHP2xAI::Runtime::CPP
 		});
 	}
 
-	void GraphRuntime::SOFTMAX_GENERIC_AXIS(Tensor &, Tensor &)
+	void GraphRuntime::SOFTMAX_GENERIC_AXIS(Tensor &inputTensor,
+		Tensor &outputTensor, int axis)
 	{
-		throw std::runtime_error("softmax: generic axis kernel is not implemented for the NAIVE backend");
+		TensorAccess input = accessTensor(inputTensor);
+		TensorAccess output = accessTensor(outputTensor);
+		const int rank = static_cast<int>(input.shape.size());
+		if (rank == 0 || input.shape != output.shape || input.size != output.size
+			|| input.dtype != output.dtype)
+			throw std::runtime_error("softmax generic: input and output dimensions or dtypes differ");
+		if (axis < 0)
+			axis += rank;
+		if (axis < 0 || axis >= rank || input.shape[static_cast<std::size_t>(axis)] <= 0)
+			throw std::runtime_error("softmax generic: axis is invalid or empty");
+
+		std::size_t outer = 1;
+		std::size_t inner = 1;
+		for (int i = 0; i < axis; ++i)
+			outer *= static_cast<std::size_t>(input.shape[static_cast<std::size_t>(i)]);
+		for (int i = axis + 1; i < rank; ++i)
+			inner *= static_cast<std::size_t>(input.shape[static_cast<std::size_t>(i)]);
+		const int axisSize = input.shape[static_cast<std::size_t>(axis)];
+		dispatchDType(input.dtype, [&]<typename T>()
+		{
+			Templates::SOFTMAX_GENERIC_AXIS_TEMPLATE<T>(input.dataAs<T>(),
+				output.dataAs<T>(), outer, inner, axisSize);
+		});
 	}
 
 	void GraphRuntime::BACKWORD_SOFTMAX_1D_LAST(Tensor &inputTensor, Tensor &outputTensor)
@@ -178,9 +201,32 @@ namespace PHP2xAI::Runtime::CPP
 		});
 	}
 
-	void GraphRuntime::BACKWORD_SOFTMAX_GENERIC_AXIS(Tensor &, Tensor &)
+	void GraphRuntime::BACKWORD_SOFTMAX_GENERIC_AXIS(Tensor &inputTensor,
+		Tensor &outputTensor, int axis)
 	{
-		throw std::runtime_error(
-			"softmax backward: generic axis kernel is not implemented for the NAIVE backend");
+		TensorAccess input = accessTensor(inputTensor);
+		TensorAccess output = accessTensor(outputTensor);
+		const int rank = static_cast<int>(input.shape.size());
+		if (rank == 0 || input.shape != output.shape || input.size != output.size
+			|| input.dtype != output.dtype)
+			throw std::runtime_error("softmax generic backward: input and output dimensions or dtypes differ");
+		if (axis < 0)
+			axis += rank;
+		if (axis < 0 || axis >= rank || input.shape[static_cast<std::size_t>(axis)] <= 0)
+			throw std::runtime_error("softmax generic backward: axis is invalid or empty");
+
+		std::size_t outer = 1;
+		std::size_t inner = 1;
+		for (int i = 0; i < axis; ++i)
+			outer *= static_cast<std::size_t>(input.shape[static_cast<std::size_t>(i)]);
+		for (int i = axis + 1; i < rank; ++i)
+			inner *= static_cast<std::size_t>(input.shape[static_cast<std::size_t>(i)]);
+		const int axisSize = input.shape[static_cast<std::size_t>(axis)];
+		dispatchDType(input.dtype, [&]<typename T>()
+		{
+			Templates::BACKWARD_SOFTMAX_GENERIC_AXIS_TEMPLATE<T>(
+				output.dataAs<T>(), output.gradAs<T>(), input.gradAs<T>(),
+				outer, inner, axisSize);
+		});
 	}
 }

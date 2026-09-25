@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <limits>
@@ -8,6 +9,81 @@
 
 namespace PHP2xAI::Runtime::CPP::Templates
 {
+	template <typename T>
+	void SOFTMAX_GENERIC_AXIS_TEMPLATE(const T *input, T *output,
+		std::size_t outer, std::size_t inner, int axisSize)
+	{
+		for (std::size_t outerIndex = 0; outerIndex < outer; ++outerIndex)
+		{
+			for (std::size_t innerIndex = 0; innerIndex < inner; ++innerIndex)
+			{
+				Scalar maximum = -std::numeric_limits<Scalar>::infinity();
+				for (int axisIndex = 0; axisIndex < axisSize; ++axisIndex)
+				{
+					const std::size_t index =
+						(outerIndex * static_cast<std::size_t>(axisSize)
+							+ static_cast<std::size_t>(axisIndex)) * inner + innerIndex;
+					maximum = std::max(maximum, static_cast<Scalar>(input[index]));
+				}
+
+				Scalar sum = 0.0f;
+				for (int axisIndex = 0; axisIndex < axisSize; ++axisIndex)
+				{
+					const std::size_t index =
+						(outerIndex * static_cast<std::size_t>(axisSize)
+							+ static_cast<std::size_t>(axisIndex)) * inner + innerIndex;
+					const Scalar value = std::exp(static_cast<Scalar>(input[index]) - maximum);
+					output[index] = static_cast<T>(value);
+					sum += value;
+				}
+
+				if (sum > 0.0f)
+				{
+					const Scalar inverseSum = 1.0f / sum;
+					for (int axisIndex = 0; axisIndex < axisSize; ++axisIndex)
+					{
+						const std::size_t index =
+							(outerIndex * static_cast<std::size_t>(axisSize)
+								+ static_cast<std::size_t>(axisIndex)) * inner + innerIndex;
+						output[index] = static_cast<T>(
+							static_cast<Scalar>(output[index]) * inverseSum);
+					}
+				}
+			}
+		}
+	}
+
+	template <typename T>
+	void BACKWARD_SOFTMAX_GENERIC_AXIS_TEMPLATE(const T *output, const T *outputGrad,
+		T *inputGrad, std::size_t outer, std::size_t inner, int axisSize)
+	{
+		for (std::size_t outerIndex = 0; outerIndex < outer; ++outerIndex)
+		{
+			for (std::size_t innerIndex = 0; innerIndex < inner; ++innerIndex)
+			{
+				Scalar dot = 0.0f;
+				for (int axisIndex = 0; axisIndex < axisSize; ++axisIndex)
+				{
+					const std::size_t index =
+						(outerIndex * static_cast<std::size_t>(axisSize)
+							+ static_cast<std::size_t>(axisIndex)) * inner + innerIndex;
+					dot += static_cast<Scalar>(output[index])
+						* static_cast<Scalar>(outputGrad[index]);
+				}
+				for (int axisIndex = 0; axisIndex < axisSize; ++axisIndex)
+				{
+					const std::size_t index =
+						(outerIndex * static_cast<std::size_t>(axisSize)
+							+ static_cast<std::size_t>(axisIndex)) * inner + innerIndex;
+					const Scalar contribution = static_cast<Scalar>(output[index])
+						* (static_cast<Scalar>(outputGrad[index]) - dot);
+					inputGrad[index] = static_cast<T>(
+						static_cast<Scalar>(inputGrad[index]) + contribution);
+				}
+			}
+		}
+	}
+
 	namespace
 	{
 		template <typename T>

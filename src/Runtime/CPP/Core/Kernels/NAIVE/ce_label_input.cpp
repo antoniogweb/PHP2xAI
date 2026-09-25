@@ -99,10 +99,44 @@ namespace PHP2xAI::Runtime::CPP
 		});
 	}
 
-	void GraphRuntime::CE_LOGITS_LABEL_INT_GENERIC_AXIS(Tensor &, Tensor &, Tensor &)
+	void GraphRuntime::CE_LOGITS_LABEL_INT_GENERIC_AXIS(Tensor &logitsTensor,
+		Tensor &targetTensor, Tensor &outputTensor, int axis)
 	{
-		throw std::runtime_error(
-			"CE logits label int: generic axis kernel is not implemented for the NAIVE backend");
+		TensorAccess logits = accessTensor(logitsTensor);
+		TensorAccess target = accessTensor(targetTensor);
+		TensorAccess output = accessTensor(outputTensor);
+		const int rank = static_cast<int>(logits.shape.size());
+		if (rank == 0 || output.dtype != logits.dtype)
+			throw std::runtime_error("CE logits label int generic: invalid logits or output dtype");
+		if (axis < 0)
+			axis += rank;
+		if (axis < 0 || axis >= rank || logits.shape[static_cast<std::size_t>(axis)] <= 0)
+			throw std::runtime_error("CE logits label int generic: invalid or empty class axis");
+
+		std::vector<int> expectedShape = logits.shape;
+		expectedShape.erase(expectedShape.begin() + axis);
+		const int classCount = logits.shape[static_cast<std::size_t>(axis)];
+		if (target.shape != expectedShape || output.shape != expectedShape
+			|| target.size != logits.size / static_cast<std::size_t>(classCount)
+			|| output.size != target.size)
+			throw std::runtime_error("CE logits label int generic: reduced shapes do not match");
+
+		std::size_t outer = 1;
+		std::size_t inner = 1;
+		for (int i = 0; i < axis; ++i)
+			outer *= static_cast<std::size_t>(logits.shape[static_cast<std::size_t>(i)]);
+		for (int i = axis + 1; i < rank; ++i)
+			inner *= static_cast<std::size_t>(logits.shape[static_cast<std::size_t>(i)]);
+
+		dispatchDType(logits.dtype, [&]<typename T>()
+		{
+			dispatchDType(target.dtype, [&]<typename TargetT>()
+			{
+				Templates::CE_LOGITS_LABEL_INT_GENERIC_AXIS_TEMPLATE<T, TargetT>(
+					logits.dataAs<T>(), target.dataAs<TargetT>(), output.dataAs<T>(),
+					outer, inner, classCount);
+			});
+		});
 	}
 
 	void GraphRuntime::BACKWORD_CE_LOGITS_LABEL_INT_1D_LAST(
@@ -200,9 +234,43 @@ namespace PHP2xAI::Runtime::CPP
 		});
 	}
 
-	void GraphRuntime::BACKWORD_CE_LOGITS_LABEL_INT_GENERIC_AXIS(Tensor &, Tensor &, Tensor &)
+	void GraphRuntime::BACKWORD_CE_LOGITS_LABEL_INT_GENERIC_AXIS(Tensor &logitsTensor,
+		Tensor &targetTensor, Tensor &outputTensor, int axis)
 	{
-		throw std::runtime_error(
-			"CE logits label int backward: generic axis kernel is not implemented for the NAIVE backend");
+		TensorAccess logits = accessTensor(logitsTensor);
+		TensorAccess target = accessTensor(targetTensor);
+		TensorAccess output = accessTensor(outputTensor);
+		const int rank = static_cast<int>(logits.shape.size());
+		if (rank == 0 || output.dtype != logits.dtype)
+			throw std::runtime_error("CE logits label int generic backward: invalid logits or output dtype");
+		if (axis < 0)
+			axis += rank;
+		if (axis < 0 || axis >= rank || logits.shape[static_cast<std::size_t>(axis)] <= 0)
+			throw std::runtime_error("CE logits label int generic backward: invalid or empty class axis");
+
+		std::vector<int> expectedShape = logits.shape;
+		expectedShape.erase(expectedShape.begin() + axis);
+		const int classCount = logits.shape[static_cast<std::size_t>(axis)];
+		if (target.shape != expectedShape || output.shape != expectedShape
+			|| target.size != logits.size / static_cast<std::size_t>(classCount)
+			|| output.size != target.size)
+			throw std::runtime_error("CE logits label int generic backward: reduced shapes do not match");
+
+		std::size_t outer = 1;
+		std::size_t inner = 1;
+		for (int i = 0; i < axis; ++i)
+			outer *= static_cast<std::size_t>(logits.shape[static_cast<std::size_t>(i)]);
+		for (int i = axis + 1; i < rank; ++i)
+			inner *= static_cast<std::size_t>(logits.shape[static_cast<std::size_t>(i)]);
+
+		dispatchDType(logits.dtype, [&]<typename T>()
+		{
+			dispatchDType(target.dtype, [&]<typename TargetT>()
+			{
+				Templates::BACKWARD_CE_LOGITS_LABEL_INT_GENERIC_AXIS_TEMPLATE<T, TargetT>(
+					logits.dataAs<T>(), target.dataAs<TargetT>(), logits.gradAs<T>(),
+					output.gradAs<T>(), outer, inner, classCount);
+			});
+		});
 	}
 }

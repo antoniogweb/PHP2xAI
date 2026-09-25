@@ -8,7 +8,7 @@ namespace PHP2xAI::Runtime::CPP
 	namespace
 	{
 		void transposeKernel(Tensor &input, Tensor &output,
-			const std::vector<int> &permutation, bool backward)
+			const std::vector<int> &permutation, bool backward, bool generic = false)
 		{
 			TensorAccess X = accessTensor(input);
 			TensorAccess Y = accessTensor(output);
@@ -29,7 +29,10 @@ namespace PHP2xAI::Runtime::CPP
 			{
 				if (backward)
 				{
-					if (permutation == std::vector<int>{1, 0})
+					if (generic)
+						Templates::BACKWARD_TRANSPOSE_GENERIC_TEMPLATE<T>(
+							Y.gradAs<T>(), X.gradAs<T>(), X.shape, permutation);
+					else if (permutation == std::vector<int>{1, 0})
 						Templates::BACKWARD_TRANSPOSE_2D_TEMPLATE<T>(Y.gradAs<T>(), X.gradAs<T>(), X.shape);
 					else if (permutation == std::vector<int>{0, 2, 1})
 						Templates::BACKWARD_TRANSPOSE_3D_LAST_TWO_TEMPLATE<T>(Y.gradAs<T>(), X.gradAs<T>(), X.shape);
@@ -40,7 +43,10 @@ namespace PHP2xAI::Runtime::CPP
 				}
 				else
 				{
-					if (permutation == std::vector<int>{1, 0})
+					if (generic)
+						Templates::TRANSPOSE_GENERIC_TEMPLATE<T>(
+							X.dataAs<T>(), Y.dataAs<T>(), X.shape, permutation);
+					else if (permutation == std::vector<int>{1, 0})
 						Templates::TRANSPOSE_2D_TEMPLATE<T>(X.dataAs<T>(), Y.dataAs<T>(), X.shape);
 					else if (permutation == std::vector<int>{0, 2, 1})
 						Templates::TRANSPOSE_3D_LAST_TWO_TEMPLATE<T>(X.dataAs<T>(), Y.dataAs<T>(), X.shape);
@@ -91,5 +97,17 @@ namespace PHP2xAI::Runtime::CPP
 	void GraphRuntime::BACKWARD_TRANSPOSE_4D_AXIS_1_2(Tensor &input, Tensor &output)
 	{
 		transposeKernel(input, output, {0, 2, 1, 3}, true);
+	}
+
+	void GraphRuntime::TRANSPOSE_GENERIC(Tensor &input, Tensor &output,
+		const std::vector<int> &permutation)
+	{
+		transposeKernel(input, output, permutation, false, true);
+	}
+
+	void GraphRuntime::BACKWARD_TRANSPOSE_GENERIC(Tensor &input, Tensor &output,
+		const std::vector<int> &permutation)
+	{
+		transposeKernel(input, output, permutation, true, true);
 	}
 }

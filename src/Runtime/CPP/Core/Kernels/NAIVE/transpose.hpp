@@ -84,6 +84,20 @@ namespace PHP2xAI::Runtime::CPP::Templates
 	}
 
 	template <typename T>
+	void TRANSPOSE_GENERIC_TEMPLATE(const T *input, T *output,
+		const std::vector<int> &shape, const std::vector<int> &permutation)
+	{
+		TRANSPOSE_TEMPLATE<T>(input, output, shape, permutation);
+	}
+
+	template <typename T>
+	void BACKWARD_TRANSPOSE_GENERIC_TEMPLATE(const T *outputGrad, T *inputGrad,
+		const std::vector<int> &shape, const std::vector<int> &permutation)
+	{
+		BACKWARD_TRANSPOSE_TEMPLATE<T>(outputGrad, inputGrad, shape, permutation);
+	}
+
+	template <typename T>
 	void TRANSPOSE_2D_TEMPLATE(const T *x, T *y, const std::vector<int> &shape)
 	{
 		TRANSPOSE_TEMPLATE<T>(x, y, shape, {1, 0});

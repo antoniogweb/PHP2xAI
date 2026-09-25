@@ -120,9 +120,44 @@ namespace PHP2xAI::Runtime::CPP
 		});
 	}
 
-	void GraphRuntime::MATMUL_GENERIC_B_2D_2D_BROADCAST(Tensor &, Tensor &, Tensor &)
+	void GraphRuntime::MATMUL_GENERIC_B_2D_2D_BROADCAST(
+		Tensor &aTensor, Tensor &bTensor, Tensor &cTensor)
 	{
-		throw std::runtime_error("matmul: generic broadcast kernel is not implemented for the NAIVE backend");
+		TensorAccess A = accessTensor(aTensor);
+		TensorAccess B = accessTensor(bTensor);
+		TensorAccess C = accessTensor(cTensor);
+		if (A.shape.size() < 2 || B.shape.size() < 2
+			|| C.shape.size() != std::max(A.shape.size(), B.shape.size()))
+			throw std::runtime_error("matmul generic: expected rank-2-or-higher inputs");
+		if (A.shape.back() != B.shape[B.shape.size() - 2])
+			throw std::runtime_error("matmul generic: inner dimensions do not match");
+
+		const std::size_t batchRank = C.shape.size() - 2;
+		const std::size_t batchRankA = A.shape.size() - 2;
+		const std::size_t batchRankB = B.shape.size() - 2;
+		std::vector<int> expected(batchRank + 2, 1);
+		for (std::size_t axis = 0; axis < batchRank; ++axis)
+		{
+			const std::size_t offsetA = batchRank - batchRankA;
+			const std::size_t offsetB = batchRank - batchRankB;
+			const int aDim = axis < offsetA ? 1 : A.shape[axis - offsetA];
+			const int bDim = axis < offsetB ? 1 : B.shape[axis - offsetB];
+			if (aDim != bDim && aDim != 1 && bDim != 1)
+				throw std::runtime_error("matmul generic: batch dimensions cannot be broadcast");
+			expected[axis] = aDim > bDim ? aDim : bDim;
+		}
+		expected[batchRank] = A.shape[A.shape.size() - 2];
+		expected[batchRank + 1] = B.shape.back();
+		if (C.shape != expected)
+			throw std::runtime_error("matmul generic: output shape mismatch");
+		if (A.dtype != B.dtype || A.dtype != C.dtype)
+			throw std::runtime_error("matmul generic: input and output dtypes must match");
+
+		dispatchDType(A.dtype, [&]<typename T>()
+		{
+			Templates::MATMUL_GENERIC_B_2D_2D_BROADCAST_TEMPLATE<T>(
+				A.dataAs<T>(), B.dataAs<T>(), C.dataAs<T>(), A.shape, B.shape, C.shape);
+		});
 	}
 
 	void GraphRuntime::BACKWARD_MATMUL_2D_2D(Tensor &aTensor, Tensor &bTensor, Tensor &cTensor)
@@ -214,9 +249,25 @@ namespace PHP2xAI::Runtime::CPP
 		});
 	}
 
-	void GraphRuntime::BACKWARD_MATMUL_GENERIC_B_2D_2D_BROADCAST(Tensor &, Tensor &, Tensor &)
+	void GraphRuntime::BACKWARD_MATMUL_GENERIC_B_2D_2D_BROADCAST(
+		Tensor &aTensor, Tensor &bTensor, Tensor &cTensor)
 	{
-		throw std::runtime_error("matmul backward: generic broadcast kernel is not implemented for the NAIVE backend");
+		TensorAccess A = accessTensor(aTensor);
+		TensorAccess B = accessTensor(bTensor);
+		TensorAccess C = accessTensor(cTensor);
+		if (A.shape.size() < 2 || B.shape.size() < 2
+			|| C.shape.size() != std::max(A.shape.size(), B.shape.size())
+			|| A.shape.back() != B.shape[B.shape.size() - 2])
+			throw std::runtime_error("matmul generic backward: incompatible tensor ranks");
+		if (A.dtype != B.dtype || A.dtype != C.dtype)
+			throw std::runtime_error("matmul generic backward: input and output dtypes must match");
+
+		dispatchDType(A.dtype, [&]<typename T>()
+		{
+			Templates::BACKWARD_MATMUL_GENERIC_B_2D_2D_BROADCAST_TEMPLATE<T>(
+				A.dataAs<T>(), B.dataAs<T>(), A.gradAs<T>(), B.gradAs<T>(), C.gradAs<T>(),
+				A.shape, B.shape, C.shape, A.requiresGrad, B.requiresGrad);
+		});
 	}
 
 }

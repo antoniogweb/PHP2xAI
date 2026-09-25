@@ -7,6 +7,55 @@
 
 namespace PHP2xAI::Runtime::CPP::Templates
 {
+	template <typename T>
+	void ADD_GENERIC_LAST_TEMPLATE(const T *input, const T *bias, T *output,
+		std::size_t outer, int featureCount)
+	{
+		for (std::size_t row = 0; row < outer; ++row)
+		{
+			for (int feature = 0; feature < featureCount; ++feature)
+			{
+				const std::size_t index = row * static_cast<std::size_t>(featureCount) + feature;
+				output[index] = static_cast<T>(static_cast<Scalar>(input[index])
+					+ static_cast<Scalar>(bias[feature]));
+			}
+		}
+	}
+
+	template <typename T>
+	void BACKWARD_ADD_GENERIC_LAST_TEMPLATE(T *inputGrad, T *biasGrad,
+		const T *outputGrad, std::size_t outer, int featureCount,
+		bool inputNeedsGrad, bool biasNeedsGrad)
+	{
+		std::vector<Scalar> accumulatedBias;
+		if (biasNeedsGrad)
+		{
+			accumulatedBias.resize(static_cast<std::size_t>(featureCount));
+			for (int feature = 0; feature < featureCount; ++feature)
+				accumulatedBias[static_cast<std::size_t>(feature)] =
+					static_cast<Scalar>(biasGrad[feature]);
+		}
+
+		for (std::size_t row = 0; row < outer; ++row)
+		{
+			for (int feature = 0; feature < featureCount; ++feature)
+			{
+				const std::size_t index = row * static_cast<std::size_t>(featureCount) + feature;
+				const Scalar gradient = static_cast<Scalar>(outputGrad[index]);
+				if (inputNeedsGrad)
+					inputGrad[index] = static_cast<T>(static_cast<Scalar>(inputGrad[index]) + gradient);
+				if (biasNeedsGrad)
+					accumulatedBias[static_cast<std::size_t>(feature)] += gradient;
+			}
+		}
+
+		if (biasNeedsGrad)
+		{
+			for (int feature = 0; feature < featureCount; ++feature)
+				biasGrad[feature] = static_cast<T>(accumulatedBias[static_cast<std::size_t>(feature)]);
+		}
+	}
+
 	// Equal-shape element-wise addition.
 	template <typename T>
 	void ADD_1D_LAST_TEMPLATE(

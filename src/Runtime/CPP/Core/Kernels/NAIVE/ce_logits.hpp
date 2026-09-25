@@ -3,11 +3,95 @@
 #include <cmath>
 #include <algorithm>
 #include <cstddef>
+#include <limits>
 
 #include "../../../types.hpp"
 
 namespace PHP2xAI::Runtime::CPP::Templates
 {
+	template <typename T>
+	void CE_LOGITS_GENERIC_AXIS_TEMPLATE(const T *logits, const T *target,
+		T *output, std::size_t outer, std::size_t inner, int axisSize)
+	{
+		for (std::size_t outerIndex = 0; outerIndex < outer; ++outerIndex)
+		{
+			for (std::size_t innerIndex = 0; innerIndex < inner; ++innerIndex)
+			{
+				Scalar maximum = -std::numeric_limits<Scalar>::infinity();
+				Scalar targetSum = 0.0f;
+				Scalar targetLogit = 0.0f;
+				for (int axisIndex = 0; axisIndex < axisSize; ++axisIndex)
+				{
+					const std::size_t index =
+						(outerIndex * static_cast<std::size_t>(axisSize)
+							+ static_cast<std::size_t>(axisIndex)) * inner + innerIndex;
+					maximum = std::max(maximum, static_cast<Scalar>(logits[index]));
+					targetSum += static_cast<Scalar>(target[index]);
+					targetLogit += static_cast<Scalar>(target[index])
+						* static_cast<Scalar>(logits[index]);
+				}
+
+				Scalar sumExp = 0.0f;
+				for (int axisIndex = 0; axisIndex < axisSize; ++axisIndex)
+				{
+					const std::size_t index =
+						(outerIndex * static_cast<std::size_t>(axisSize)
+							+ static_cast<std::size_t>(axisIndex)) * inner + innerIndex;
+					sumExp += std::exp(static_cast<Scalar>(logits[index]) - maximum);
+				}
+				output[outerIndex * inner + innerIndex] = static_cast<T>(
+					maximum + std::log(sumExp) * targetSum - targetLogit);
+			}
+		}
+	}
+
+	template <typename T>
+	void BACKWARD_CE_LOGITS_GENERIC_AXIS_TEMPLATE(const T *logits, const T *target,
+		const T *outputGrad, T *logitsGrad, std::size_t outer,
+		std::size_t inner, int axisSize, bool logitsNeedGrad)
+	{
+		if (!logitsNeedGrad)
+			return;
+		for (std::size_t outerIndex = 0; outerIndex < outer; ++outerIndex)
+		{
+			for (std::size_t innerIndex = 0; innerIndex < inner; ++innerIndex)
+			{
+				Scalar maximum = -std::numeric_limits<Scalar>::infinity();
+				Scalar targetSum = 0.0f;
+				for (int axisIndex = 0; axisIndex < axisSize; ++axisIndex)
+				{
+					const std::size_t index =
+						(outerIndex * static_cast<std::size_t>(axisSize)
+							+ static_cast<std::size_t>(axisIndex)) * inner + innerIndex;
+					maximum = std::max(maximum, static_cast<Scalar>(logits[index]));
+					targetSum += static_cast<Scalar>(target[index]);
+				}
+				Scalar sumExp = 0.0f;
+				for (int axisIndex = 0; axisIndex < axisSize; ++axisIndex)
+				{
+					const std::size_t index =
+						(outerIndex * static_cast<std::size_t>(axisSize)
+							+ static_cast<std::size_t>(axisIndex)) * inner + innerIndex;
+					sumExp += std::exp(static_cast<Scalar>(logits[index]) - maximum);
+				}
+				const Scalar outputGradient = static_cast<Scalar>(
+					outputGrad[outerIndex * inner + innerIndex]);
+				for (int axisIndex = 0; axisIndex < axisSize; ++axisIndex)
+				{
+					const std::size_t index =
+						(outerIndex * static_cast<std::size_t>(axisSize)
+							+ static_cast<std::size_t>(axisIndex)) * inner + innerIndex;
+					const Scalar probability =
+						std::exp(static_cast<Scalar>(logits[index]) - maximum) / sumExp;
+					const Scalar contribution = (probability * targetSum
+						- static_cast<Scalar>(target[index])) * outputGradient;
+					logitsGrad[index] = static_cast<T>(
+						static_cast<Scalar>(logitsGrad[index]) + contribution);
+				}
+			}
+		}
+	}
+
 	template <typename T>
 	void CE_LOGITS_LAST_TEMPLATE(const T *logits, const T *target, T *output,
 		int rows, int classes)

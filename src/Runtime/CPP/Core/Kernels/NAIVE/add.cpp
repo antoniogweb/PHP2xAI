@@ -5,6 +5,51 @@
 
 namespace PHP2xAI::Runtime::CPP
 {
+	void GraphRuntime::ADD_GENERIC_LAST(Tensor &inputTensor, Tensor &biasTensor,
+		Tensor &outputTensor)
+	{
+		TensorAccess input = accessTensor(inputTensor);
+		TensorAccess bias = accessTensor(biasTensor);
+		TensorAccess output = accessTensor(outputTensor);
+		if (input.shape.empty() || bias.shape.size() != 1
+			|| input.shape.back() != bias.shape[0] || input.shape != output.shape
+			|| input.size != output.size)
+			throw std::runtime_error("add generic: expected tensor plus matching last-axis bias");
+		if (input.dtype != bias.dtype || input.dtype != output.dtype)
+			throw std::runtime_error("add generic: input and output dtypes must match");
+
+		const int featureCount = input.shape.back();
+		const std::size_t outer = input.size / static_cast<std::size_t>(featureCount);
+		dispatchDType(input.dtype, [&]<typename T>()
+		{
+			Templates::ADD_GENERIC_LAST_TEMPLATE<T>(input.dataAs<T>(),
+				bias.dataAs<T>(), output.dataAs<T>(), outer, featureCount);
+		});
+	}
+
+	void GraphRuntime::BACKWARD_ADD_GENERIC_LAST(Tensor &inputTensor,
+		Tensor &biasTensor, Tensor &outputTensor)
+	{
+		TensorAccess input = accessTensor(inputTensor);
+		TensorAccess bias = accessTensor(biasTensor);
+		TensorAccess output = accessTensor(outputTensor);
+		if (input.shape.empty() || bias.shape.size() != 1
+			|| input.shape.back() != bias.shape[0] || input.shape != output.shape
+			|| input.size != output.size)
+			throw std::runtime_error("add generic backward: tensor shapes do not match");
+		if (input.dtype != bias.dtype || input.dtype != output.dtype)
+			throw std::runtime_error("add generic backward: tensor dtypes do not match");
+
+		const int featureCount = input.shape.back();
+		const std::size_t outer = input.size / static_cast<std::size_t>(featureCount);
+		dispatchDType(input.dtype, [&]<typename T>()
+		{
+			Templates::BACKWARD_ADD_GENERIC_LAST_TEMPLATE<T>(input.gradAs<T>(),
+				bias.gradAs<T>(), output.gradAs<T>(), outer, featureCount,
+				input.requiresGrad, bias.requiresGrad);
+		});
+	}
+
 	void GraphRuntime::ADD_1D_LAST(Tensor &aTensor, Tensor &bTensor, Tensor &cTensor)
 	{
 		TensorAccess A = accessTensor(aTensor);

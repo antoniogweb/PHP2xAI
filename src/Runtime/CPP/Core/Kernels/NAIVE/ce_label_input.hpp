@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <stdexcept>
@@ -8,6 +9,78 @@
 
 namespace PHP2xAI::Runtime::CPP::Templates
 {
+	template <typename T, typename TargetT>
+	void CE_LOGITS_LABEL_INT_GENERIC_AXIS_TEMPLATE(const T *logits,
+		const TargetT *target, T *output, std::size_t outer, std::size_t inner,
+		int classCount)
+	{
+		for (std::size_t row = 0; row < outer; ++row)
+		{
+			for (std::size_t innerIndex = 0; innerIndex < inner; ++innerIndex)
+			{
+				const int label = static_cast<int>(target[row * inner + innerIndex]);
+				if (label < 0 || label >= classCount)
+					throw std::out_of_range("CE logits label int: label is outside the class range");
+				const std::size_t base = row * static_cast<std::size_t>(classCount) * inner + innerIndex;
+				Scalar maximum = static_cast<Scalar>(logits[base]);
+				for (int classIndex = 1; classIndex < classCount; ++classIndex)
+				{
+					const std::size_t index = base + static_cast<std::size_t>(classIndex) * inner;
+					maximum = std::max(maximum, static_cast<Scalar>(logits[index]));
+				}
+				Scalar sumExp = 0.0f;
+				for (int classIndex = 0; classIndex < classCount; ++classIndex)
+				{
+					const std::size_t index = base + static_cast<std::size_t>(classIndex) * inner;
+					sumExp += std::exp(static_cast<Scalar>(logits[index]) - maximum);
+				}
+				const std::size_t labelIndex = base + static_cast<std::size_t>(label) * inner;
+				output[row * inner + innerIndex] = static_cast<T>(
+					std::log(sumExp) + maximum - static_cast<Scalar>(logits[labelIndex]));
+			}
+		}
+	}
+
+	template <typename T, typename TargetT>
+	void BACKWARD_CE_LOGITS_LABEL_INT_GENERIC_AXIS_TEMPLATE(const T *logits,
+		const TargetT *target, T *logitsGrad, const T *outputGrad,
+		std::size_t outer, std::size_t inner, int classCount)
+	{
+		for (std::size_t row = 0; row < outer; ++row)
+		{
+			for (std::size_t innerIndex = 0; innerIndex < inner; ++innerIndex)
+			{
+				const int label = static_cast<int>(target[row * inner + innerIndex]);
+				if (label < 0 || label >= classCount)
+					throw std::out_of_range("CE logits label int: label is outside the class range");
+				const std::size_t base = row * static_cast<std::size_t>(classCount) * inner + innerIndex;
+				Scalar maximum = static_cast<Scalar>(logits[base]);
+				for (int classIndex = 1; classIndex < classCount; ++classIndex)
+				{
+					const std::size_t index = base + static_cast<std::size_t>(classIndex) * inner;
+					maximum = std::max(maximum, static_cast<Scalar>(logits[index]));
+				}
+				Scalar sumExp = 0.0f;
+				for (int classIndex = 0; classIndex < classCount; ++classIndex)
+				{
+					const std::size_t index = base + static_cast<std::size_t>(classIndex) * inner;
+					sumExp += std::exp(static_cast<Scalar>(logits[index]) - maximum);
+				}
+				const Scalar outputGradient = static_cast<Scalar>(
+					outputGrad[row * inner + innerIndex]);
+				for (int classIndex = 0; classIndex < classCount; ++classIndex)
+				{
+					const std::size_t index = base + static_cast<std::size_t>(classIndex) * inner;
+					Scalar probability = std::exp(static_cast<Scalar>(logits[index]) - maximum) / sumExp;
+					if (classIndex == label)
+						probability -= 1.0f;
+					logitsGrad[index] = static_cast<T>(static_cast<Scalar>(logitsGrad[index])
+						+ outputGradient * probability);
+				}
+			}
+		}
+	}
+
 	namespace
 	{
 		template <typename T>

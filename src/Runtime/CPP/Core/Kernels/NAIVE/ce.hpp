@@ -9,6 +9,56 @@
 namespace PHP2xAI::Runtime::CPP::Templates
 {
 	template <typename T>
+	void CE_GENERIC_AXIS_TEMPLATE(const T *prediction, const T *target, T *output,
+		std::size_t outer, std::size_t inner, int axisSize)
+	{
+		const Scalar epsilon = 1.0e-12f;
+		for (std::size_t outerIndex = 0; outerIndex < outer; ++outerIndex)
+		{
+			for (std::size_t innerIndex = 0; innerIndex < inner; ++innerIndex)
+			{
+				Scalar loss = 0.0f;
+				for (int axisIndex = 0; axisIndex < axisSize; ++axisIndex)
+				{
+					const std::size_t inputIndex =
+						(outerIndex * static_cast<std::size_t>(axisSize)
+							+ static_cast<std::size_t>(axisIndex)) * inner + innerIndex;
+					loss -= static_cast<Scalar>(target[inputIndex])
+						* std::log(static_cast<Scalar>(prediction[inputIndex]) + epsilon);
+				}
+				output[outerIndex * inner + innerIndex] = static_cast<T>(loss);
+			}
+		}
+	}
+
+	template <typename T>
+	void BACKWARD_CE_GENERIC_AXIS_TEMPLATE(const T *prediction, const T *target,
+		const T *outputGrad, T *predictionGrad, std::size_t outer,
+		std::size_t inner, int axisSize, bool predictionNeedsGrad)
+	{
+		if (!predictionNeedsGrad)
+			return;
+		const Scalar epsilon = 1.0e-12f;
+		for (std::size_t outerIndex = 0; outerIndex < outer; ++outerIndex)
+		{
+			for (std::size_t innerIndex = 0; innerIndex < inner; ++innerIndex)
+			{
+				const Scalar grad = static_cast<Scalar>(outputGrad[outerIndex * inner + innerIndex]);
+				for (int axisIndex = 0; axisIndex < axisSize; ++axisIndex)
+				{
+					const std::size_t inputIndex =
+						(outerIndex * static_cast<std::size_t>(axisSize)
+							+ static_cast<std::size_t>(axisIndex)) * inner + innerIndex;
+					const Scalar contribution = -static_cast<Scalar>(target[inputIndex])
+						/ (static_cast<Scalar>(prediction[inputIndex]) + epsilon) * grad;
+					predictionGrad[inputIndex] = static_cast<T>(
+						static_cast<Scalar>(predictionGrad[inputIndex]) + contribution);
+				}
+			}
+		}
+	}
+
+	template <typename T>
 	void CE_LAST_TEMPLATE(const T *prediction, const T *target, T *output,
 		int rows, int classes)
 	{
