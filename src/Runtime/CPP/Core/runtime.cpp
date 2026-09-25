@@ -39,6 +39,29 @@ namespace PHP2xAI::Runtime::CPP
 			}
 		}
 
+		// Select the C++ storage type associated with a tensor's runtime dtype.
+		template <typename Func>
+		void dispatchDType(DType dtype, Func &&func)
+		{
+			switch (dtype)
+			{
+				case DType::FLOAT32:
+					func.template operator()<float>();
+					break;
+				case DType::FLOAT64:
+					func.template operator()<double>();
+					break;
+				case DType::INT32:
+					func.template operator()<std::int32_t>();
+					break;
+				case DType::INT64:
+					func.template operator()<std::int64_t>();
+					break;
+				default:
+					throw std::invalid_argument("Unsupported dtype");
+			}
+		}
+
 		template <typename T>
 		void fillZeros(T *values, std::size_t count)
 		{
@@ -606,25 +629,11 @@ namespace PHP2xAI::Runtime::CPP
 		if (A.dtype != B.dtype || A.dtype != C.dtype)
 			throw std::runtime_error("add: input and output dtypes must match");
 
-		switch (A.dtype)
+		dispatchDType(A.dtype, [&]<typename T>()
 		{
-			case DType::FLOAT32:
-				Templates::ADD_1D_LAST_TEMPLATE<Scalar>(
-					A.dataAs<Scalar>(), B.dataAs<Scalar>(), C.dataAs<Scalar>(), A.size);
-				break;
-			case DType::FLOAT64:
-				Templates::ADD_1D_LAST_TEMPLATE<double>(
-					A.dataAs<double>(), B.dataAs<double>(), C.dataAs<double>(), A.size);
-				break;
-			case DType::INT32:
-				Templates::ADD_1D_LAST_TEMPLATE<std::int32_t>(
-					A.dataAs<std::int32_t>(), B.dataAs<std::int32_t>(), C.dataAs<std::int32_t>(), A.size);
-				break;
-			case DType::INT64:
-				Templates::ADD_1D_LAST_TEMPLATE<std::int64_t>(
-					A.dataAs<std::int64_t>(), B.dataAs<std::int64_t>(), C.dataAs<std::int64_t>(), A.size);
-				break;
-		}
+			Templates::ADD_1D_LAST_TEMPLATE<T>(
+				A.dataAs<T>(), B.dataAs<T>(), C.dataAs<T>(), A.size);
+		});
 	}
 
 	void GraphRuntime::ADD_2D_LAST(Tensor &A, Tensor &B, Tensor &C)
@@ -641,25 +650,11 @@ namespace PHP2xAI::Runtime::CPP
 		if (A.dtype != B.dtype || A.dtype != C.dtype)
 			throw std::runtime_error("add: input and output dtypes must match");
 
-		switch (A.dtype)
+		dispatchDType(A.dtype, [&]<typename T>()
 		{
-			case DType::FLOAT32:
-				Templates::ADD_2D_LAST_TEMPLATE<Scalar>(
-					A.dataAs<Scalar>(), B.dataAs<Scalar>(), C.dataAs<Scalar>(), batchSize, featureCount);
-				break;
-			case DType::FLOAT64:
-				Templates::ADD_2D_LAST_TEMPLATE<double>(
-					A.dataAs<double>(), B.dataAs<double>(), C.dataAs<double>(), batchSize, featureCount);
-				break;
-			case DType::INT32:
-				Templates::ADD_2D_LAST_TEMPLATE<std::int32_t>(
-					A.dataAs<std::int32_t>(), B.dataAs<std::int32_t>(), C.dataAs<std::int32_t>(), batchSize, featureCount);
-				break;
-			case DType::INT64:
-				Templates::ADD_2D_LAST_TEMPLATE<std::int64_t>(
-					A.dataAs<std::int64_t>(), B.dataAs<std::int64_t>(), C.dataAs<std::int64_t>(), batchSize, featureCount);
-				break;
-		}
+			Templates::ADD_2D_LAST_TEMPLATE<T>(
+				A.dataAs<T>(), B.dataAs<T>(), C.dataAs<T>(), batchSize, featureCount);
+		});
 	}
 
 	void GraphRuntime::ADD_3D_LAST(Tensor &A, Tensor &B, Tensor &C)
@@ -678,29 +673,12 @@ namespace PHP2xAI::Runtime::CPP
 		if (A.dtype != B.dtype || A.dtype != C.dtype)
 			throw std::runtime_error("add: input and output dtypes must match");
 
-		switch (A.dtype)
+		dispatchDType(A.dtype, [&]<typename T>()
 		{
-			case DType::FLOAT32:
-				Templates::ADD_3D_LAST_TEMPLATE<Scalar>(
-					A.dataAs<Scalar>(), B.dataAs<Scalar>(), C.dataAs<Scalar>(),
-					batchSize, timeSize, featureCount);
-				break;
-			case DType::FLOAT64:
-				Templates::ADD_3D_LAST_TEMPLATE<double>(
-					A.dataAs<double>(), B.dataAs<double>(), C.dataAs<double>(),
-					batchSize, timeSize, featureCount);
-				break;
-			case DType::INT32:
-				Templates::ADD_3D_LAST_TEMPLATE<std::int32_t>(
-					A.dataAs<std::int32_t>(), B.dataAs<std::int32_t>(), C.dataAs<std::int32_t>(),
-					batchSize, timeSize, featureCount);
-				break;
-			case DType::INT64:
-				Templates::ADD_3D_LAST_TEMPLATE<std::int64_t>(
-					A.dataAs<std::int64_t>(), B.dataAs<std::int64_t>(), C.dataAs<std::int64_t>(),
-					batchSize, timeSize, featureCount);
-				break;
-		}
+			Templates::ADD_3D_LAST_TEMPLATE<T>(
+				A.dataAs<T>(), B.dataAs<T>(), C.dataAs<T>(),
+				batchSize, timeSize, featureCount);
+		});
 	}
 
 	void GraphRuntime::BACKWARD_ADD_1D_LAST(Tensor &A, Tensor &B, Tensor &C)
@@ -711,29 +689,12 @@ namespace PHP2xAI::Runtime::CPP
 		if (A.dtype != B.dtype || A.dtype != C.dtype)
 			throw std::runtime_error("add backward: input and output dtypes must match");
 
-		switch (A.dtype)
+		dispatchDType(A.dtype, [&]<typename T>()
 		{
-			case DType::FLOAT32:
-				Templates::BACKWARD_ADD_1D_LAST_TEMPLATE<Scalar>(
-					A.gradAs<Scalar>(), B.gradAs<Scalar>(), C.gradAs<Scalar>(), A.size,
-					A.requiresGrad, B.requiresGrad);
-				break;
-			case DType::FLOAT64:
-				Templates::BACKWARD_ADD_1D_LAST_TEMPLATE<double>(
-					A.gradAs<double>(), B.gradAs<double>(), C.gradAs<double>(), A.size,
-					A.requiresGrad, B.requiresGrad);
-				break;
-			case DType::INT32:
-				Templates::BACKWARD_ADD_1D_LAST_TEMPLATE<std::int32_t>(
-					A.gradAs<std::int32_t>(), B.gradAs<std::int32_t>(), C.gradAs<std::int32_t>(), A.size,
-					A.requiresGrad, B.requiresGrad);
-				break;
-			case DType::INT64:
-				Templates::BACKWARD_ADD_1D_LAST_TEMPLATE<std::int64_t>(
-					A.gradAs<std::int64_t>(), B.gradAs<std::int64_t>(), C.gradAs<std::int64_t>(), A.size,
-					A.requiresGrad, B.requiresGrad);
-				break;
-		}
+			Templates::BACKWARD_ADD_1D_LAST_TEMPLATE<T>(
+				A.gradAs<T>(), B.gradAs<T>(), C.gradAs<T>(), A.size,
+				A.requiresGrad, B.requiresGrad);
+		});
 	}
 
 	void GraphRuntime::BACKWARD_ADD_2D_LAST(Tensor &A, Tensor &B, Tensor &C)
@@ -748,29 +709,12 @@ namespace PHP2xAI::Runtime::CPP
 		if (A.dtype != B.dtype || A.dtype != C.dtype)
 			throw std::runtime_error("add backward: input and output dtypes must match");
 
-		switch (A.dtype)
+		dispatchDType(A.dtype, [&]<typename T>()
 		{
-			case DType::FLOAT32:
-				Templates::BACKWARD_ADD_2D_LAST_TEMPLATE<Scalar>(
-					A.gradAs<Scalar>(), B.gradAs<Scalar>(), C.gradAs<Scalar>(),
-					batchSize, featureCount, A.requiresGrad, B.requiresGrad);
-				break;
-			case DType::FLOAT64:
-				Templates::BACKWARD_ADD_2D_LAST_TEMPLATE<double>(
-					A.gradAs<double>(), B.gradAs<double>(), C.gradAs<double>(),
-					batchSize, featureCount, A.requiresGrad, B.requiresGrad);
-				break;
-			case DType::INT32:
-				Templates::BACKWARD_ADD_2D_LAST_TEMPLATE<std::int32_t>(
-					A.gradAs<std::int32_t>(), B.gradAs<std::int32_t>(), C.gradAs<std::int32_t>(),
-					batchSize, featureCount, A.requiresGrad, B.requiresGrad);
-				break;
-			case DType::INT64:
-				Templates::BACKWARD_ADD_2D_LAST_TEMPLATE<std::int64_t>(
-					A.gradAs<std::int64_t>(), B.gradAs<std::int64_t>(), C.gradAs<std::int64_t>(),
-					batchSize, featureCount, A.requiresGrad, B.requiresGrad);
-				break;
-		}
+			Templates::BACKWARD_ADD_2D_LAST_TEMPLATE<T>(
+				A.gradAs<T>(), B.gradAs<T>(), C.gradAs<T>(),
+				batchSize, featureCount, A.requiresGrad, B.requiresGrad);
+		});
 	}
 
 	void GraphRuntime::BACKWARD_ADD_3D_LAST(Tensor &A, Tensor &B, Tensor &C)
@@ -786,29 +730,12 @@ namespace PHP2xAI::Runtime::CPP
 		if (A.dtype != B.dtype || A.dtype != C.dtype)
 			throw std::runtime_error("add backward: input and output dtypes must match");
 
-		switch (A.dtype)
+		dispatchDType(A.dtype, [&]<typename T>()
 		{
-			case DType::FLOAT32:
-				Templates::BACKWARD_ADD_3D_LAST_TEMPLATE<Scalar>(
-					A.gradAs<Scalar>(), B.gradAs<Scalar>(), C.gradAs<Scalar>(),
-					batchSize, timeSize, featureCount, A.requiresGrad, B.requiresGrad);
-				break;
-			case DType::FLOAT64:
-				Templates::BACKWARD_ADD_3D_LAST_TEMPLATE<double>(
-					A.gradAs<double>(), B.gradAs<double>(), C.gradAs<double>(),
-					batchSize, timeSize, featureCount, A.requiresGrad, B.requiresGrad);
-				break;
-			case DType::INT32:
-				Templates::BACKWARD_ADD_3D_LAST_TEMPLATE<std::int32_t>(
-					A.gradAs<std::int32_t>(), B.gradAs<std::int32_t>(), C.gradAs<std::int32_t>(),
-					batchSize, timeSize, featureCount, A.requiresGrad, B.requiresGrad);
-				break;
-			case DType::INT64:
-				Templates::BACKWARD_ADD_3D_LAST_TEMPLATE<std::int64_t>(
-					A.gradAs<std::int64_t>(), B.gradAs<std::int64_t>(), C.gradAs<std::int64_t>(),
-					batchSize, timeSize, featureCount, A.requiresGrad, B.requiresGrad);
-				break;
-		}
+			Templates::BACKWARD_ADD_3D_LAST_TEMPLATE<T>(
+				A.gradAs<T>(), B.gradAs<T>(), C.gradAs<T>(),
+				batchSize, timeSize, featureCount, A.requiresGrad, B.requiresGrad);
+		});
 	}
 
 	std::size_t GraphRuntime::inputSize() const

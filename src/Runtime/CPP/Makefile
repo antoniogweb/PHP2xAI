@@ -3,8 +3,8 @@
 
 CXX := g++
 OMPFLAGS := -fopenmp
-CXXFLAGS := -std=c++17 -O3 -DNDEBUG -march=native -flto -pipe $(OMPFLAGS)
-SHFLAGS := -std=c++17 -O3 -fPIC -shared $(OMPFLAGS)
+CXXFLAGS := -std=c++20 -O3 -DNDEBUG -march=native -flto -pipe $(OMPFLAGS)
+SHFLAGS := -std=c++20 -O3 -fPIC -shared $(OMPFLAGS)
 CONAN_DIR := $(CURDIR)/build/conan
 INCLUDES := -I./ $(shell PKG_CONFIG_PATH=$(CONAN_DIR) pkg-config --cflags nlohmann_json hdf5)
 LIBS_HDF5 := $(shell PKG_CONFIG_PATH=$(CONAN_DIR) pkg-config --libs hdf5)
