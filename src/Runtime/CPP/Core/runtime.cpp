@@ -310,8 +310,16 @@ namespace PHP2xAI::Runtime::CPP
 		std::string kernel;
 		Scalar dropoutPerc;
 		int padId;
+		std::vector<int> axes;
+		int start;
+		int end;
+		int offset;
+		Scalar scale;
+		Scalar base;
+		Scalar eps;
 
-		RuntimeOp() : output(-1), dropoutPerc(50.0f), padId(0) {}
+		RuntimeOp() : output(-1), dropoutPerc(50.0f), padId(0), start(0), end(0),
+			offset(0), scale(1.0f), base(10000.0f), eps(1.0e-5f) {}
 	};
 
 	struct GraphRuntime::Impl
@@ -464,6 +472,13 @@ namespace PHP2xAI::Runtime::CPP
 					const json &attributes = definition.at("attributes");
 					op.dropoutPerc = attributes.value("dropoutPerc", 50.0f);
 					op.padId = attributes.value("padId", 0);
+					op.axes = attributes.value("axes", std::vector<int>());
+					op.start = attributes.value("start", 0);
+					op.end = attributes.value("end", 0);
+					op.offset = attributes.value("offset", 0);
+					op.scale = attributes.value("scale", 1.0f);
+					op.base = attributes.value("base", 10000.0f);
+					op.eps = attributes.value("eps", 1.0e-5f);
 				}
 				ops.push_back(op);
 			}
@@ -621,6 +636,34 @@ namespace PHP2xAI::Runtime::CPP
 					throw std::runtime_error("softmax: expected one input and one output");
 				opSoftmax(op.inputs[0], op.output, op.kernel);
 			}
+			else if (op.name == "multiply" && op.inputs.size() == 2 && op.output >= 0)
+				opMultiply(op.inputs[0], op.inputs[1], op.output);
+			else if (op.name == "scale" && op.inputs.size() == 1 && op.output >= 0)
+				opScale(op.inputs[0], op.output, op.scale);
+			else if (op.name == "sig" && op.inputs.size() == 1 && op.output >= 0)
+				opSig(op.inputs[0], op.output);
+			else if (op.name == "reshape" && op.inputs.size() == 1 && op.output >= 0)
+				opReshape(op.inputs[0], op.output);
+			else if (op.name == "transpose" && op.inputs.size() == 1 && op.output >= 0)
+				opTranspose(op.inputs[0], op.output, op.kernel, op.axes);
+			else if (op.name == "slice" && op.inputs.size() == 1 && op.output >= 0)
+				opSlice(op.inputs[0], op.output, op.kernel, op.axes, op.start, op.end);
+			else if (op.name == "positional_encoding" && op.inputs.size() == 1 && op.output >= 0)
+				opPositionalEncoding(op.inputs[0], op.output);
+			else if (op.name == "apply_padding_mask" && op.inputs.size() == 2 && op.output >= 0)
+				opApplyPaddingMask(op.inputs[0], op.inputs[1], op.output);
+			else if (op.name == "apply_causal_mask" && op.inputs.size() == 1 && op.output >= 0)
+				opApplyCausalMask(op.inputs[0], op.output);
+			else if (op.name == "layer_norm" && op.inputs.size() == 3 && op.output >= 0)
+				opLayerNorm(op.inputs[0], op.inputs[1], op.inputs[2], op.output, op.kernel);
+			else if (op.name == "rms_norm" && op.inputs.size() == 2 && op.output >= 0)
+				opRMSNorm(op.inputs[0], op.inputs[1], op.output, op.kernel, op.eps);
+			else if (op.name == "rope" && op.inputs.size() == 1 && op.output >= 0)
+				opRope(op.inputs[0], op.output, op.kernel, op.axes, op.offset, op.base);
+			else if (op.name == "CE" && op.inputs.size() == 2 && op.output >= 0)
+				opCe(op.inputs[0], op.inputs[1], op.output, op.kernel);
+			else if (op.name == "softmax_ce_logits" && op.inputs.size() == 2 && op.output >= 0)
+				opCeLogits(op.inputs[0], op.inputs[1], op.output, op.kernel);
 			else
 			{
 				throw std::runtime_error("Op not supported: " + op.name);
@@ -721,6 +764,34 @@ namespace PHP2xAI::Runtime::CPP
 					throw std::runtime_error("softmax backward: expected one input and one output");
 				backwardSoftmax(op.inputs[0], op.output, op.kernel);
 			}
+			else if (op.name == "multiply" && op.inputs.size() == 2 && op.output >= 0)
+				backwardMultiply(op.inputs[0], op.inputs[1], op.output);
+			else if (op.name == "scale" && op.inputs.size() == 1 && op.output >= 0)
+				backwardScale(op.inputs[0], op.output, op.scale);
+			else if (op.name == "sig" && op.inputs.size() == 1 && op.output >= 0)
+				backwardSig(op.inputs[0], op.output);
+			else if (op.name == "reshape" && op.inputs.size() == 1 && op.output >= 0)
+				backwardReshape(op.inputs[0], op.output);
+			else if (op.name == "transpose" && op.inputs.size() == 1 && op.output >= 0)
+				backwardTranspose(op.inputs[0], op.output, op.kernel, op.axes);
+			else if (op.name == "slice" && op.inputs.size() == 1 && op.output >= 0)
+				backwardSlice(op.inputs[0], op.output, op.kernel, op.axes, op.start, op.end);
+			else if (op.name == "positional_encoding" && op.inputs.size() == 1 && op.output >= 0)
+				backwardPositionalEncoding(op.inputs[0], op.output);
+			else if (op.name == "apply_padding_mask" && op.inputs.size() == 2 && op.output >= 0)
+				backwardApplyPaddingMask(op.inputs[0], op.inputs[1], op.output);
+			else if (op.name == "apply_causal_mask" && op.inputs.size() == 1 && op.output >= 0)
+				backwardApplyCausalMask(op.inputs[0], op.output);
+			else if (op.name == "layer_norm" && op.inputs.size() == 3 && op.output >= 0)
+				backwardLayerNorm(op.inputs[0], op.inputs[1], op.inputs[2], op.output, op.kernel);
+			else if (op.name == "rms_norm" && op.inputs.size() == 2 && op.output >= 0)
+				backwardRMSNorm(op.inputs[0], op.inputs[1], op.output, op.kernel, op.eps);
+			else if (op.name == "rope" && op.inputs.size() == 1 && op.output >= 0)
+				backwardRope(op.inputs[0], op.output, op.kernel, op.axes, op.offset, op.base);
+			else if (op.name == "CE" && op.inputs.size() == 2 && op.output >= 0)
+				backwardCe(op.inputs[0], op.inputs[1], op.output, op.kernel);
+			else if (op.name == "softmax_ce_logits" && op.inputs.size() == 2 && op.output >= 0)
+				backwardCeLogits(op.inputs[0], op.inputs[1], op.output, op.kernel);
 			else
 			{
 				throw std::runtime_error("Op backward not supported: " + op.name);
@@ -742,6 +813,246 @@ namespace PHP2xAI::Runtime::CPP
 			ADD_3D_LAST(A, B, C);
 		else
 			throw std::runtime_error("add: kernel not supported: " + kernel);
+	}
+
+	void GraphRuntime::opMultiply(int aId, int bId, int outId)
+	{
+		MULTIPLY(impl_->tensor(aId), impl_->tensor(bId), impl_->tensor(outId));
+	}
+
+	void GraphRuntime::backwardMultiply(int aId, int bId, int outId)
+	{
+		BACKWARD_MULTIPLY(impl_->tensor(aId), impl_->tensor(bId), impl_->tensor(outId));
+	}
+
+	void GraphRuntime::opScale(int inputId, int outputId, Scalar scale)
+	{
+		SCALE(impl_->tensor(inputId), impl_->tensor(outputId), scale);
+	}
+
+	void GraphRuntime::backwardScale(int inputId, int outputId, Scalar scale)
+	{
+		BACKWARD_SCALE(impl_->tensor(inputId), impl_->tensor(outputId), scale);
+	}
+
+	void GraphRuntime::opSig(int inputId, int outputId)
+	{
+		SIG(impl_->tensor(inputId), impl_->tensor(outputId));
+	}
+
+	void GraphRuntime::backwardSig(int inputId, int outputId)
+	{
+		BACKWARD_SIG(impl_->tensor(inputId), impl_->tensor(outputId));
+	}
+
+	void GraphRuntime::opReshape(int inputId, int outputId)
+	{
+		Tensor &input = impl_->tensor(inputId);
+		Tensor &output = impl_->tensor(outputId);
+		if (input.size != output.size)
+			throw std::runtime_error("reshape: element counts differ");
+		RESHAPE(input, output);
+	}
+
+	void GraphRuntime::backwardReshape(int inputId, int outputId)
+	{
+		BACKWARD_RESHAPE(impl_->tensor(inputId), impl_->tensor(outputId));
+	}
+
+	void GraphRuntime::opTranspose(int inputId, int outputId,
+		const std::string &kernel, const std::vector<int> &)
+	{
+		Tensor &input = impl_->tensor(inputId);
+		Tensor &output = impl_->tensor(outputId);
+		if (kernel == "TRANSPOSE_2D") TRANSPOSE_2D(input, output);
+		else if (kernel == "TRANSPOSE_3D_LAST_TWO") TRANSPOSE_3D_LAST_TWO(input, output);
+		else if (kernel == "TRANSPOSE_4D_LAST_TWO") TRANSPOSE_4D_LAST_TWO(input, output);
+		else if (kernel == "TRANSPOSE_4D_AXIS_1_2") TRANSPOSE_4D_AXIS_1_2(input, output);
+		else throw std::runtime_error("transpose: unsupported kernel (GENERIC kernels are disabled)");
+	}
+
+	void GraphRuntime::backwardTranspose(int inputId, int outputId,
+		const std::string &kernel, const std::vector<int> &)
+	{
+		Tensor &input = impl_->tensor(inputId);
+		Tensor &output = impl_->tensor(outputId);
+		if (kernel == "TRANSPOSE_2D") BACKWARD_TRANSPOSE_2D(input, output);
+		else if (kernel == "TRANSPOSE_3D_LAST_TWO") BACKWARD_TRANSPOSE_3D_LAST_TWO(input, output);
+		else if (kernel == "TRANSPOSE_4D_LAST_TWO") BACKWARD_TRANSPOSE_4D_LAST_TWO(input, output);
+		else if (kernel == "TRANSPOSE_4D_AXIS_1_2") BACKWARD_TRANSPOSE_4D_AXIS_1_2(input, output);
+		else throw std::runtime_error("transpose backward: unsupported kernel (GENERIC kernels are disabled)");
+	}
+
+	void GraphRuntime::opSlice(int inputId, int outputId, const std::string &kernel,
+		const std::vector<int> &axes, int start, int end)
+	{
+		Tensor &input = impl_->tensor(inputId);
+		Tensor &output = impl_->tensor(outputId);
+		const int rank = static_cast<int>(input.shape.size());
+		const int axis = axes.size() == 1 && axes[0] < 0 ? axes[0] + rank
+			: (axes.size() == 1 ? axes[0] : -1);
+		if (kernel != "SLICE_LAST" || rank == 0 || axis != rank - 1
+			|| start < 0 || end <= start || end > input.shape.back())
+			throw std::runtime_error("slice: unsupported kernel (GENERIC kernels are disabled)");
+		std::vector<int> expectedShape = input.shape;
+		expectedShape.back() = end - start;
+		if (output.shape != expectedShape)
+			throw std::runtime_error("slice: output shape mismatch");
+		SLICE_LAST(input, output, start, end);
+	}
+
+	void GraphRuntime::backwardSlice(int inputId, int outputId, const std::string &kernel,
+		const std::vector<int> &axes, int start, int end)
+	{
+		Tensor &input = impl_->tensor(inputId);
+		Tensor &output = impl_->tensor(outputId);
+		const int rank = static_cast<int>(input.shape.size());
+		const int axis = axes.size() == 1 && axes[0] < 0 ? axes[0] + rank
+			: (axes.size() == 1 ? axes[0] : -1);
+		if (kernel != "SLICE_LAST" || rank == 0 || axis != rank - 1
+			|| start < 0 || end <= start || end > input.shape.back())
+			throw std::runtime_error("slice backward: unsupported kernel (GENERIC kernels are disabled)");
+		BACKWARD_SLICE_LAST(input, output, start, end);
+	}
+
+	void GraphRuntime::opPositionalEncoding(int inputId, int outputId)
+	{
+		POSITIONAL_ENCODING(impl_->tensor(inputId), impl_->tensor(outputId));
+	}
+
+	void GraphRuntime::backwardPositionalEncoding(int inputId, int outputId)
+	{
+		BACKWARD_POSITIONAL_ENCODING(impl_->tensor(inputId), impl_->tensor(outputId));
+	}
+
+	void GraphRuntime::opApplyPaddingMask(int inputId, int maskId, int outputId)
+	{
+		APPLY_PADDING_MASK(impl_->tensor(inputId), impl_->tensor(maskId), impl_->tensor(outputId));
+	}
+
+	void GraphRuntime::backwardApplyPaddingMask(int inputId, int maskId, int outputId)
+	{
+		BACKWARD_APPLY_PADDING_MASK(impl_->tensor(inputId), impl_->tensor(maskId), impl_->tensor(outputId));
+	}
+
+	void GraphRuntime::opApplyCausalMask(int inputId, int outputId)
+	{
+		APPLY_CAUSAL_MASK(impl_->tensor(inputId), impl_->tensor(outputId));
+	}
+
+	void GraphRuntime::backwardApplyCausalMask(int inputId, int outputId)
+	{
+		BACKWARD_APPLY_CAUSAL_MASK(impl_->tensor(inputId), impl_->tensor(outputId));
+	}
+
+	void GraphRuntime::opLayerNorm(int inputId, int gammaId, int betaId,
+		int outputId, const std::string &kernel)
+	{
+		if (!kernel.empty() && kernel != "LAYER_NORM_LAST_AXIS")
+			throw std::runtime_error("layer_norm: unsupported kernel (GENERIC kernels are disabled)");
+		LAYER_NORM_LAST_AXIS(impl_->tensor(inputId), impl_->tensor(gammaId),
+			impl_->tensor(betaId), impl_->tensor(outputId));
+	}
+
+	void GraphRuntime::backwardLayerNorm(int inputId, int gammaId, int betaId,
+		int outputId, const std::string &kernel)
+	{
+		if (!kernel.empty() && kernel != "LAYER_NORM_LAST_AXIS")
+			throw std::runtime_error("layer_norm backward: unsupported kernel (GENERIC kernels are disabled)");
+		BACKWARD_LAYER_NORM_LAST_AXIS(impl_->tensor(inputId), impl_->tensor(gammaId),
+			impl_->tensor(betaId), impl_->tensor(outputId));
+	}
+
+	void GraphRuntime::opRMSNorm(int inputId, int gammaId, int outputId,
+		const std::string &kernel, Scalar epsilon)
+	{
+		if (!kernel.empty() && kernel != "RMS_NORM_LAST_AXIS")
+			throw std::runtime_error("rms_norm: unsupported kernel (GENERIC kernels are disabled)");
+		RMS_NORM_LAST_AXIS(impl_->tensor(inputId), impl_->tensor(gammaId),
+			impl_->tensor(outputId), epsilon);
+	}
+
+	void GraphRuntime::backwardRMSNorm(int inputId, int gammaId, int outputId,
+		const std::string &kernel, Scalar epsilon)
+	{
+		if (!kernel.empty() && kernel != "RMS_NORM_LAST_AXIS")
+			throw std::runtime_error("rms_norm backward: unsupported kernel (GENERIC kernels are disabled)");
+		BACKWARD_RMS_NORM_LAST_AXIS(impl_->tensor(inputId), impl_->tensor(gammaId),
+			impl_->tensor(outputId), epsilon);
+	}
+
+	void GraphRuntime::opRope(int inputId, int outputId, const std::string &kernel,
+		const std::vector<int> &, int offset, Scalar base)
+	{
+		Tensor &input = impl_->tensor(inputId);
+		Tensor &output = impl_->tensor(outputId);
+		if (kernel == "ROPE_INTERLEAVED_LAST_TWO")
+			ROPE_INTERLEAVED_LAST_TWO(input, output, offset, base);
+		else if (kernel == "ROPE_ROTATE_HALF_LAST_TWO")
+			ROPE_ROTATE_HALF_LAST_TWO(input, output, offset, base);
+		else
+			throw std::runtime_error("rope: unsupported kernel (GENERIC kernels are disabled)");
+	}
+
+	void GraphRuntime::backwardRope(int inputId, int outputId, const std::string &kernel,
+		const std::vector<int> &, int offset, Scalar base)
+	{
+		Tensor &input = impl_->tensor(inputId);
+		Tensor &output = impl_->tensor(outputId);
+		if (kernel == "ROPE_INTERLEAVED_LAST_TWO")
+			BACKWARD_ROPE_INTERLEAVED_LAST_TWO(input, output, offset, base);
+		else if (kernel == "ROPE_ROTATE_HALF_LAST_TWO")
+			BACKWARD_ROPE_ROTATE_HALF_LAST_TWO(input, output, offset, base);
+		else
+			throw std::runtime_error("rope backward: unsupported kernel (GENERIC kernels are disabled)");
+	}
+
+	void GraphRuntime::opCe(int predictionId, int targetId, int outputId,
+		const std::string &kernel)
+	{
+		Tensor &prediction = impl_->tensor(predictionId);
+		Tensor &target = impl_->tensor(targetId);
+		Tensor &output = impl_->tensor(outputId);
+		if (kernel == "CE_1D_LAST") CE_1D_LAST(prediction, target, output);
+		else if (kernel == "CE_2D_LAST") CE_2D_LAST(prediction, target, output);
+		else if (kernel == "CE_3D_LAST") CE_3D_LAST(prediction, target, output);
+		else throw std::runtime_error("CE: unsupported kernel (GENERIC kernels are disabled)");
+	}
+
+	void GraphRuntime::backwardCe(int predictionId, int targetId, int outputId,
+		const std::string &kernel)
+	{
+		Tensor &prediction = impl_->tensor(predictionId);
+		Tensor &target = impl_->tensor(targetId);
+		Tensor &output = impl_->tensor(outputId);
+		if (kernel == "CE_1D_LAST") BACKWARD_CE_1D_LAST(prediction, target, output);
+		else if (kernel == "CE_2D_LAST") BACKWARD_CE_2D_LAST(prediction, target, output);
+		else if (kernel == "CE_3D_LAST") BACKWARD_CE_3D_LAST(prediction, target, output);
+		else throw std::runtime_error("CE backward: unsupported kernel (GENERIC kernels are disabled)");
+	}
+
+	void GraphRuntime::opCeLogits(int logitsId, int targetId, int outputId,
+		const std::string &kernel)
+	{
+		Tensor &logits = impl_->tensor(logitsId);
+		Tensor &target = impl_->tensor(targetId);
+		Tensor &output = impl_->tensor(outputId);
+		if (kernel == "CE_LOGITS_1D_LAST") CE_LOGITS_1D_LAST(logits, target, output);
+		else if (kernel == "CE_LOGITS_2D_LAST") CE_LOGITS_2D_LAST(logits, target, output);
+		else if (kernel == "CE_LOGITS_3D_LAST") CE_LOGITS_3D_LAST(logits, target, output);
+		else throw std::runtime_error("softmax_ce_logits: unsupported kernel (GENERIC kernels are disabled)");
+	}
+
+	void GraphRuntime::backwardCeLogits(int logitsId, int targetId, int outputId,
+		const std::string &kernel)
+	{
+		Tensor &logits = impl_->tensor(logitsId);
+		Tensor &target = impl_->tensor(targetId);
+		Tensor &output = impl_->tensor(outputId);
+		if (kernel == "CE_LOGITS_1D_LAST") BACKWARD_CE_LOGITS_1D_LAST(logits, target, output);
+		else if (kernel == "CE_LOGITS_2D_LAST") BACKWARD_CE_LOGITS_2D_LAST(logits, target, output);
+		else if (kernel == "CE_LOGITS_3D_LAST") BACKWARD_CE_LOGITS_3D_LAST(logits, target, output);
+		else throw std::runtime_error("softmax_ce_logits backward: unsupported kernel (GENERIC kernels are disabled)");
 	}
 
 	void GraphRuntime::backwardAdd(int aId, int bId, int outId, const std::string &kernel)

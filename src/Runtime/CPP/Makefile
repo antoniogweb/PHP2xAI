@@ -29,6 +29,20 @@ CPP_SOURCES := \
 	Core/Kernels/NAIVE/mean_pooling.cpp \
 	Core/Kernels/NAIVE/padding_mask.cpp \
 	Core/Kernels/NAIVE/dropout.cpp \
+	Core/Kernels/NAIVE/multiply.cpp \
+	Core/Kernels/NAIVE/scale.cpp \
+	Core/Kernels/NAIVE/sig.cpp \
+	Core/Kernels/NAIVE/reshape.cpp \
+	Core/Kernels/NAIVE/transpose.cpp \
+	Core/Kernels/NAIVE/slice.cpp \
+	Core/Kernels/NAIVE/positional_encoding.cpp \
+	Core/Kernels/NAIVE/apply_padding_mask.cpp \
+	Core/Kernels/NAIVE/apply_causal_mask.cpp \
+	Core/Kernels/NAIVE/layer_norm.cpp \
+	Core/Kernels/NAIVE/rms_norm.cpp \
+	Core/Kernels/NAIVE/ce.cpp \
+	Core/Kernels/NAIVE/ce_logits.cpp \
+	Core/Kernels/NAIVE/rope.cpp \
 	Core/Kernels/EIGEN/matmul.cpp \
 	Dataset/TrainValidateDataset.cpp \
 	Dataset/stream_file_dataset.cpp \
