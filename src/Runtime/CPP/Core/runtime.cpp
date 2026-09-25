@@ -8,6 +8,8 @@
 #include <unordered_map>
 #include <utility>
 
+#include "Templates/naive.hpp"
+
 namespace PHP2xAI::Runtime::CPP
 {
 	namespace
@@ -287,10 +289,21 @@ namespace PHP2xAI::Runtime::CPP
 		}
 	};
 
+	struct RuntimeOp
+	{
+		std::string name;
+		std::vector<int> inputs;
+		int output;
+		std::string kernel;
+
+		RuntimeOp() : output(-1) {}
+	};
+
 	struct GraphRuntime::Impl
 	{
 		json graphDef;
 		std::vector<Tensor> tensors;
+		std::vector<RuntimeOp> ops;
 		std::unordered_map<int, std::size_t> tensorIndices;
 		std::vector<int> trainable;
 		int inputId;
@@ -410,6 +423,28 @@ namespace PHP2xAI::Runtime::CPP
 			}
 		}
 
+		void loadOps()
+		{
+			const json &definitions = graphDef.at("ops");
+			ops.reserve(definitions.size());
+
+			for (std::size_t i = 0; i < definitions.size(); ++i)
+			{
+				const json &definition = definitions[i];
+				RuntimeOp op;
+				op.name = definition.at("op").get<std::string>();
+				op.inputs = definition.at("inputs").get<std::vector<int> >();
+				if (definition.contains("output"))
+					op.output = definition.at("output").get<int>();
+				if (definition.contains("attributes")
+					&& definition.at("attributes").contains("kernel"))
+				{
+					op.kernel = definition.at("attributes").at("kernel").get<std::string>();
+				}
+				ops.push_back(op);
+			}
+		}
+
 		void loadValues(Tensor &tensorValue, const json &values)
 		{
 			if (!values.is_array() || values.size() != tensorValue.size)
@@ -474,18 +509,306 @@ namespace PHP2xAI::Runtime::CPP
 			file >> weights;
 		}
 		impl_->loadTensors(weights);
+		impl_->loadOps();
 	}
 
 	GraphRuntime::~GraphRuntime() {}
 
 	void GraphRuntime::forward()
 	{
-		// Graph operations will be added in a later step.
+		for (std::size_t i = 0; i < impl_->ops.size(); ++i)
+		{
+			const RuntimeOp &op = impl_->ops[i];
+			if (op.name == "add")
+			{
+				if (op.inputs.size() != 2 || op.output < 0)
+					throw std::runtime_error("add: expected two inputs and one output");
+				opAdd(op.inputs[0], op.inputs[1], op.output, op.kernel);
+			}
+			else
+			{
+				throw std::runtime_error("Op not supported: " + op.name);
+			}
+		}
 	}
 
 	void GraphRuntime::backward()
 	{
-		// Gradient propagation will be added alongside graph operations.
+		// Clear intermediate gradients but retain parameter gradients, matching
+		// the behavior expected by the optimizer and by the previous runtime.
+		for (std::size_t i = 0; i < impl_->tensors.size(); ++i)
+		{
+			Tensor &tensor = impl_->tensors[i];
+			if (tensor.kind != "param")
+				tensor.fillGradWithZeros();
+		}
+
+		// A graph created from a loss/output tensor starts with gradient one.
+		setLossGrad(1.0f);
+
+		for (std::size_t i = impl_->ops.size(); i > 0; --i)
+		{
+			const RuntimeOp &op = impl_->ops[i - 1];
+			if (op.name == "add")
+			{
+				if (op.inputs.size() != 2 || op.output < 0)
+					throw std::runtime_error("add backward: expected two inputs and one output");
+				backwardAdd(op.inputs[0], op.inputs[1], op.output, op.kernel);
+			}
+			else
+			{
+				throw std::runtime_error("Op backward not supported: " + op.name);
+			}
+		}
+	}
+
+	void GraphRuntime::opAdd(int aId, int bId, int outId, const std::string &kernel)
+	{
+		Tensor &A = impl_->tensor(aId);
+		Tensor &B = impl_->tensor(bId);
+		Tensor &C = impl_->tensor(outId);
+
+		if (kernel == "ADD_1D_LAST")
+			ADD_1D_LAST(A, B, C);
+		else if (kernel == "ADD_2D_LAST")
+			ADD_2D_LAST(A, B, C);
+		else if (kernel == "ADD_3D_LAST")
+			ADD_3D_LAST(A, B, C);
+		else
+			throw std::runtime_error("add: kernel not supported: " + kernel);
+	}
+
+	void GraphRuntime::backwardAdd(int aId, int bId, int outId, const std::string &kernel)
+	{
+		Tensor &A = impl_->tensor(aId);
+		Tensor &B = impl_->tensor(bId);
+		Tensor &C = impl_->tensor(outId);
+
+		if (!A.requiresGrad && !B.requiresGrad)
+			return;
+
+		if (kernel == "ADD_1D_LAST")
+			BACKWARD_ADD_1D_LAST(A, B, C);
+		else if (kernel == "ADD_2D_LAST")
+			BACKWARD_ADD_2D_LAST(A, B, C);
+		else if (kernel == "ADD_3D_LAST")
+			BACKWARD_ADD_3D_LAST(A, B, C);
+		else
+			throw std::runtime_error("add backward: kernel not supported: " + kernel);
+	}
+
+	void GraphRuntime::ADD_1D_LAST(Tensor &A, Tensor &B, Tensor &C)
+	{
+		if (A.shape != B.shape || A.shape != C.shape)
+			throw std::runtime_error("add: 1D kernel requires equal shapes");
+		if (A.size != B.size || A.size != C.size)
+			throw std::runtime_error("add: 1D kernel data size mismatch");
+		if (A.dtype != B.dtype || A.dtype != C.dtype)
+			throw std::runtime_error("add: input and output dtypes must match");
+
+		switch (A.dtype)
+		{
+			case DType::FLOAT32:
+				Templates::ADD_1D_LAST_TEMPLATE<Scalar>(
+					A.dataAs<Scalar>(), B.dataAs<Scalar>(), C.dataAs<Scalar>(), A.size);
+				break;
+			case DType::FLOAT64:
+				Templates::ADD_1D_LAST_TEMPLATE<double>(
+					A.dataAs<double>(), B.dataAs<double>(), C.dataAs<double>(), A.size);
+				break;
+			case DType::INT32:
+				Templates::ADD_1D_LAST_TEMPLATE<std::int32_t>(
+					A.dataAs<std::int32_t>(), B.dataAs<std::int32_t>(), C.dataAs<std::int32_t>(), A.size);
+				break;
+			case DType::INT64:
+				Templates::ADD_1D_LAST_TEMPLATE<std::int64_t>(
+					A.dataAs<std::int64_t>(), B.dataAs<std::int64_t>(), C.dataAs<std::int64_t>(), A.size);
+				break;
+		}
+	}
+
+	void GraphRuntime::ADD_2D_LAST(Tensor &A, Tensor &B, Tensor &C)
+	{
+		if (A.shape.size() != 2 || B.shape.size() != 1 || C.shape != A.shape)
+			throw std::runtime_error("add: 2D kernel expects [batch, features] plus [features]");
+
+		const int batchSize = A.shape[0];
+		const int featureCount = A.shape[1];
+		if (B.shape[0] != featureCount
+			|| A.size != static_cast<std::size_t>(batchSize * featureCount)
+			|| C.size != A.size)
+			throw std::runtime_error("add: 2D kernel dimension mismatch");
+		if (A.dtype != B.dtype || A.dtype != C.dtype)
+			throw std::runtime_error("add: input and output dtypes must match");
+
+		switch (A.dtype)
+		{
+			case DType::FLOAT32:
+				Templates::ADD_2D_LAST_TEMPLATE<Scalar>(
+					A.dataAs<Scalar>(), B.dataAs<Scalar>(), C.dataAs<Scalar>(), batchSize, featureCount);
+				break;
+			case DType::FLOAT64:
+				Templates::ADD_2D_LAST_TEMPLATE<double>(
+					A.dataAs<double>(), B.dataAs<double>(), C.dataAs<double>(), batchSize, featureCount);
+				break;
+			case DType::INT32:
+				Templates::ADD_2D_LAST_TEMPLATE<std::int32_t>(
+					A.dataAs<std::int32_t>(), B.dataAs<std::int32_t>(), C.dataAs<std::int32_t>(), batchSize, featureCount);
+				break;
+			case DType::INT64:
+				Templates::ADD_2D_LAST_TEMPLATE<std::int64_t>(
+					A.dataAs<std::int64_t>(), B.dataAs<std::int64_t>(), C.dataAs<std::int64_t>(), batchSize, featureCount);
+				break;
+		}
+	}
+
+	void GraphRuntime::ADD_3D_LAST(Tensor &A, Tensor &B, Tensor &C)
+	{
+		if (A.shape.size() != 3 || B.shape.size() != 1 || C.shape != A.shape)
+			throw std::runtime_error("add: 3D kernel expects [batch, time, features] plus [features]");
+
+		const int batchSize = A.shape[0];
+		const int timeSize = A.shape[1];
+		const int featureCount = A.shape[2];
+		const std::size_t expectedSize = static_cast<std::size_t>(batchSize)
+			* static_cast<std::size_t>(timeSize)
+			* static_cast<std::size_t>(featureCount);
+		if (B.shape[0] != featureCount || A.size != expectedSize || C.size != A.size)
+			throw std::runtime_error("add: 3D kernel dimension mismatch");
+		if (A.dtype != B.dtype || A.dtype != C.dtype)
+			throw std::runtime_error("add: input and output dtypes must match");
+
+		switch (A.dtype)
+		{
+			case DType::FLOAT32:
+				Templates::ADD_3D_LAST_TEMPLATE<Scalar>(
+					A.dataAs<Scalar>(), B.dataAs<Scalar>(), C.dataAs<Scalar>(),
+					batchSize, timeSize, featureCount);
+				break;
+			case DType::FLOAT64:
+				Templates::ADD_3D_LAST_TEMPLATE<double>(
+					A.dataAs<double>(), B.dataAs<double>(), C.dataAs<double>(),
+					batchSize, timeSize, featureCount);
+				break;
+			case DType::INT32:
+				Templates::ADD_3D_LAST_TEMPLATE<std::int32_t>(
+					A.dataAs<std::int32_t>(), B.dataAs<std::int32_t>(), C.dataAs<std::int32_t>(),
+					batchSize, timeSize, featureCount);
+				break;
+			case DType::INT64:
+				Templates::ADD_3D_LAST_TEMPLATE<std::int64_t>(
+					A.dataAs<std::int64_t>(), B.dataAs<std::int64_t>(), C.dataAs<std::int64_t>(),
+					batchSize, timeSize, featureCount);
+				break;
+		}
+	}
+
+	void GraphRuntime::BACKWARD_ADD_1D_LAST(Tensor &A, Tensor &B, Tensor &C)
+	{
+		if (A.shape != B.shape || A.shape != C.shape
+			|| A.size != B.size || A.size != C.size)
+			throw std::runtime_error("add backward: 1D kernel dimensions do not match");
+		if (A.dtype != B.dtype || A.dtype != C.dtype)
+			throw std::runtime_error("add backward: input and output dtypes must match");
+
+		switch (A.dtype)
+		{
+			case DType::FLOAT32:
+				Templates::BACKWARD_ADD_1D_LAST_TEMPLATE<Scalar>(
+					A.gradAs<Scalar>(), B.gradAs<Scalar>(), C.gradAs<Scalar>(), A.size,
+					A.requiresGrad, B.requiresGrad);
+				break;
+			case DType::FLOAT64:
+				Templates::BACKWARD_ADD_1D_LAST_TEMPLATE<double>(
+					A.gradAs<double>(), B.gradAs<double>(), C.gradAs<double>(), A.size,
+					A.requiresGrad, B.requiresGrad);
+				break;
+			case DType::INT32:
+				Templates::BACKWARD_ADD_1D_LAST_TEMPLATE<std::int32_t>(
+					A.gradAs<std::int32_t>(), B.gradAs<std::int32_t>(), C.gradAs<std::int32_t>(), A.size,
+					A.requiresGrad, B.requiresGrad);
+				break;
+			case DType::INT64:
+				Templates::BACKWARD_ADD_1D_LAST_TEMPLATE<std::int64_t>(
+					A.gradAs<std::int64_t>(), B.gradAs<std::int64_t>(), C.gradAs<std::int64_t>(), A.size,
+					A.requiresGrad, B.requiresGrad);
+				break;
+		}
+	}
+
+	void GraphRuntime::BACKWARD_ADD_2D_LAST(Tensor &A, Tensor &B, Tensor &C)
+	{
+		if (A.shape.size() != 2 || B.shape.size() != 1 || C.shape != A.shape)
+			throw std::runtime_error("add backward: 2D kernel shape mismatch");
+
+		const int batchSize = A.shape[0];
+		const int featureCount = A.shape[1];
+		if (B.shape[0] != featureCount || C.size != A.size)
+			throw std::runtime_error("add backward: 2D kernel dimension mismatch");
+		if (A.dtype != B.dtype || A.dtype != C.dtype)
+			throw std::runtime_error("add backward: input and output dtypes must match");
+
+		switch (A.dtype)
+		{
+			case DType::FLOAT32:
+				Templates::BACKWARD_ADD_2D_LAST_TEMPLATE<Scalar>(
+					A.gradAs<Scalar>(), B.gradAs<Scalar>(), C.gradAs<Scalar>(),
+					batchSize, featureCount, A.requiresGrad, B.requiresGrad);
+				break;
+			case DType::FLOAT64:
+				Templates::BACKWARD_ADD_2D_LAST_TEMPLATE<double>(
+					A.gradAs<double>(), B.gradAs<double>(), C.gradAs<double>(),
+					batchSize, featureCount, A.requiresGrad, B.requiresGrad);
+				break;
+			case DType::INT32:
+				Templates::BACKWARD_ADD_2D_LAST_TEMPLATE<std::int32_t>(
+					A.gradAs<std::int32_t>(), B.gradAs<std::int32_t>(), C.gradAs<std::int32_t>(),
+					batchSize, featureCount, A.requiresGrad, B.requiresGrad);
+				break;
+			case DType::INT64:
+				Templates::BACKWARD_ADD_2D_LAST_TEMPLATE<std::int64_t>(
+					A.gradAs<std::int64_t>(), B.gradAs<std::int64_t>(), C.gradAs<std::int64_t>(),
+					batchSize, featureCount, A.requiresGrad, B.requiresGrad);
+				break;
+		}
+	}
+
+	void GraphRuntime::BACKWARD_ADD_3D_LAST(Tensor &A, Tensor &B, Tensor &C)
+	{
+		if (A.shape.size() != 3 || B.shape.size() != 1 || C.shape != A.shape)
+			throw std::runtime_error("add backward: 3D kernel shape mismatch");
+
+		const int batchSize = A.shape[0];
+		const int timeSize = A.shape[1];
+		const int featureCount = A.shape[2];
+		if (B.shape[0] != featureCount || C.size != A.size)
+			throw std::runtime_error("add backward: 3D kernel dimension mismatch");
+		if (A.dtype != B.dtype || A.dtype != C.dtype)
+			throw std::runtime_error("add backward: input and output dtypes must match");
+
+		switch (A.dtype)
+		{
+			case DType::FLOAT32:
+				Templates::BACKWARD_ADD_3D_LAST_TEMPLATE<Scalar>(
+					A.gradAs<Scalar>(), B.gradAs<Scalar>(), C.gradAs<Scalar>(),
+					batchSize, timeSize, featureCount, A.requiresGrad, B.requiresGrad);
+				break;
+			case DType::FLOAT64:
+				Templates::BACKWARD_ADD_3D_LAST_TEMPLATE<double>(
+					A.gradAs<double>(), B.gradAs<double>(), C.gradAs<double>(),
+					batchSize, timeSize, featureCount, A.requiresGrad, B.requiresGrad);
+				break;
+			case DType::INT32:
+				Templates::BACKWARD_ADD_3D_LAST_TEMPLATE<std::int32_t>(
+					A.gradAs<std::int32_t>(), B.gradAs<std::int32_t>(), C.gradAs<std::int32_t>(),
+					batchSize, timeSize, featureCount, A.requiresGrad, B.requiresGrad);
+				break;
+			case DType::INT64:
+				Templates::BACKWARD_ADD_3D_LAST_TEMPLATE<std::int64_t>(
+					A.gradAs<std::int64_t>(), B.gradAs<std::int64_t>(), C.gradAs<std::int64_t>(),
+					batchSize, timeSize, featureCount, A.requiresGrad, B.requiresGrad);
+				break;
+		}
 	}
 
 	std::size_t GraphRuntime::inputSize() const

@@ -14,6 +14,9 @@ namespace PHP2xAI::Runtime::CPP
 {
 	using nlohmann::json;
 
+	// Tensor is implemented in runtime.cpp; kernels only need references to it.
+	struct Tensor;
+
 	// The numeric values match Tensor.php and the HDF5 dataset format.
 	enum class DType : int
 	{
@@ -77,5 +80,15 @@ namespace PHP2xAI::Runtime::CPP
 	private:
 		struct Impl;
 		std::unique_ptr<Impl> impl_;
+
+		void opAdd(int aId, int bId, int outId, const std::string &kernel);
+		void backwardAdd(int aId, int bId, int outId, const std::string &kernel);
+
+		void ADD_1D_LAST(Tensor &A, Tensor &B, Tensor &C);
+		void ADD_2D_LAST(Tensor &A, Tensor &B, Tensor &C);
+		void ADD_3D_LAST(Tensor &A, Tensor &B, Tensor &C);
+		void BACKWARD_ADD_1D_LAST(Tensor &A, Tensor &B, Tensor &C);
+		void BACKWARD_ADD_2D_LAST(Tensor &A, Tensor &B, Tensor &C);
+		void BACKWARD_ADD_3D_LAST(Tensor &A, Tensor &B, Tensor &C);
 	};
 }
