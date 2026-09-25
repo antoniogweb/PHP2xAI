@@ -4,8 +4,12 @@
 
 #include "Core/Core.hpp"
 
-// Command-line entry point for the single C++ runtime.
-// The graph and its optional training configuration come from configPath.
+#ifndef PHP2XAI_USE_EIGEN
+#define PHP2XAI_USE_EIGEN 0
+#endif
+
+// Command-line entry point. The build flag chooses the runtime provider;
+// the graph file itself stays independent of the provider.
 int main(int argc, char **argv)
 {
 	if (argc < 2)
@@ -18,7 +22,8 @@ int main(int argc, char **argv)
 	try
 	{
 		const std::string configPath = argv[1];
-		PHP2xAI::Runtime::CPP::Core model(configPath);
+		const std::string provider = PHP2XAI_USE_EIGEN ? "EIGEN" : "NAIVE";
+		PHP2xAI::Runtime::CPP::Core model(provider, configPath);
 		model.train();
 	}
 	catch (const std::exception &error)

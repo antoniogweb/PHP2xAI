@@ -13,9 +13,12 @@
 
 namespace PHP2xAI::Runtime::CPP
 {
-	Core::Core(const std::string &configPath, const std::string &weightsPath)
-		: graphPath_(configPath), weightsPath_(weightsPath)
+	Core::Core(const std::string &provider, const std::string &configPath, const std::string &weightsPath)
+		: graphPath_(configPath), weightsPath_(weightsPath), provider_(provider)
 	{
+		if (provider_ != "NAIVE" && provider_ != "EIGEN")
+			throw std::runtime_error("Unsupported provider: " + provider_);
+
 		auto configDef = loadJson(graphPath_);
 		loadGraphRuntime(configDef);
 
@@ -53,7 +56,10 @@ namespace PHP2xAI::Runtime::CPP
 	void Core::loadGraphRuntime(const json &configDef)
 	{
 		const auto &graphDef = configDef.at("graph");
-		graphRuntime_.reset(new GraphRuntime(graphDef, weightsPath_));
+		if (provider_ == "EIGEN")
+			graphRuntime_.reset(new GraphRuntimeEigen(graphDef, weightsPath_));
+		else
+			graphRuntime_.reset(new GraphRuntime(graphDef, weightsPath_));
 	}
 	
 	void Core::loadOptimizer(const json &configDef)

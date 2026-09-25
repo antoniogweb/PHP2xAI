@@ -152,4 +152,13 @@ namespace PHP2xAI::Runtime::CPP
 		virtual void BACKWORD_SOFTMAX_4D_LAST(Tensor &input, Tensor &output);
 		virtual void BACKWORD_SOFTMAX_GENERIC_AXIS(Tensor &input, Tensor &output);
 	};
+
+	// Eigen runtime starts with the same behavior as GraphRuntime. Kernel
+	// methods are virtual on the base class so Eigen implementations can be
+	// added one at a time without changing Core or the graph format.
+	class GraphRuntimeEigen : public GraphRuntime
+	{
+	public:
+		using GraphRuntime::GraphRuntime;
+	};
 }

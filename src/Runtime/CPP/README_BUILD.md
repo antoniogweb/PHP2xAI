@@ -88,11 +88,21 @@ $platform = Utility::getPlatform(); // Returns "linux-x86_64" or "linux-arm64"
 ./Bin/linux-x86_64/php2xai_runtime_eigen config.json
 ```
 
+## Provider Selection
+
+The native training executables are built separately. `Model::setProvider("EIGEN")`
+selects `php2xai_runtime_eigen`; the default `NAIVE` provider selects
+`php2xai_runtime`. Prediction through `CoreFFI` and `GraphRuntimeCpp` passes the
+provider to the shared library at runtime. The provider is not stored in the graph.
+
+`GraphRuntimeEigen` currently inherits all behavior from `GraphRuntime`. Its
+virtual kernel entry points are ready for Eigen overrides to be added incrementally.
+
 ## Build Options
 
 The Makefile uses these compiler flags:
 
-- **C++ Standard**: C++17
+- **C++ Standard**: C++20
 - **Optimization**: `-O3 -march=native -flto`
 - **Debug symbols disabled**: `-DNDEBUG`
 - **Shared flags**: `-fPIC -shared` for .so files
@@ -101,7 +111,7 @@ The Makefile uses these compiler flags:
 
 - g++ (C++17 compatible)
 - make
-- Eigen 3 (bundled in ThirdParty/)
+- Conan packages configured in `build/conan` (nlohmann_json and HDF5)
 
 ## Cleaning
 

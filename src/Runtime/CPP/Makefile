@@ -39,16 +39,20 @@ FFI_SOURCES := $(CPP_SOURCES) Core/ffi.cpp $(CPP_HDF5_SOURCES) Dataset/ffi.cpp
 FFI_SOURCES_HDF5 := Dataset/PHP2XAIHDF5.cpp Dataset/ffi.cpp
 
 BIN_NATIVE := php2xai_runtime
+BIN_EIGEN := php2xai_runtime_eigen
 SO := php2xai_runtime.so
 SO_HDF5 := php2xai_hdf5.so
 
-all: $(BINDIR)/$(BIN_NATIVE) $(BINDIR)/$(SO) $(BINDIR)/$(SO_HDF5)
+all: $(BINDIR)/$(BIN_NATIVE) $(BINDIR)/$(BIN_EIGEN) $(BINDIR)/$(SO) $(BINDIR)/$(SO_HDF5)
 
 $(BINDIR):
 	mkdir -p $(BINDIR)
 
 $(BINDIR)/$(BIN_NATIVE): $(NATIVE_SOURCES) main.cpp | $(BINDIR)
-	$(CXX) $(CXXFLAGS) $(INCLUDES) $^ -o $@ $(LIBS_HDF5)
+	$(CXX) $(CXXFLAGS) -DPHP2XAI_USE_EIGEN=0 $(INCLUDES) $^ -o $@ $(LIBS_HDF5)
+
+$(BINDIR)/$(BIN_EIGEN): $(NATIVE_SOURCES) main.cpp | $(BINDIR)
+	$(CXX) $(CXXFLAGS) -DPHP2XAI_USE_EIGEN=1 $(INCLUDES) $^ -o $@ $(LIBS_HDF5)
 
 # Shared library exposing the single graph runtime through FFI.
 $(BINDIR)/$(SO): $(FFI_SOURCES) | $(BINDIR)
