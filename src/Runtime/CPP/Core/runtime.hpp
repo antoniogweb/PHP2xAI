@@ -83,6 +83,8 @@ namespace PHP2xAI::Runtime::CPP
 
 		void opAdd(int aId, int bId, int outId, const std::string &kernel);
 		void backwardAdd(int aId, int bId, int outId, const std::string &kernel);
+		void opMatmul(int aId, int bId, int outId, const std::string &kernel);
+		void backwardMatmul(int aId, int bId, int outId, const std::string &kernel);
 
 		void ADD_1D_LAST(Tensor &A, Tensor &B, Tensor &C);
 		void ADD_2D_LAST(Tensor &A, Tensor &B, Tensor &C);
@@ -90,5 +92,16 @@ namespace PHP2xAI::Runtime::CPP
 		void BACKWARD_ADD_1D_LAST(Tensor &A, Tensor &B, Tensor &C);
 		void BACKWARD_ADD_2D_LAST(Tensor &A, Tensor &B, Tensor &C);
 		void BACKWARD_ADD_3D_LAST(Tensor &A, Tensor &B, Tensor &C);
+
+		void MATMUL_2D_2D(Tensor &A, Tensor &B, Tensor &C);
+		void MATMUL_1B_2D_2D(Tensor &A, Tensor &B, Tensor &C);
+		void MATMUL_2B_2D_2D(Tensor &A, Tensor &B, Tensor &C);
+		void MATMUL_1B_2D_2D_LINEAR(Tensor &A, Tensor &B, Tensor &C);
+		void MATMUL_GENERIC_B_2D_2D_BROADCAST(Tensor &A, Tensor &B, Tensor &C);
+		void BACKWARD_MATMUL_2D_2D(Tensor &A, Tensor &B, Tensor &C);
+		void BACKWARD_MATMUL_1B_2D_2D(Tensor &A, Tensor &B, Tensor &C);
+		void BACKWARD_MATMUL_2B_2D_2D(Tensor &A, Tensor &B, Tensor &C);
+		void BACKWARD_MATMUL_1B_2D_2D_LINEAR(Tensor &A, Tensor &B, Tensor &C);
+		void BACKWARD_MATMUL_GENERIC_B_2D_2D_BROADCAST(Tensor &A, Tensor &B, Tensor &C);
 	};
 }
