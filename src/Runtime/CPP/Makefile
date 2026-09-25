@@ -43,6 +43,8 @@ CPP_HDF5_SOURCES := Dataset/PHP2XAIHDF5.cpp Dataset/HDF5Dataset.cpp
 NATIVE_SOURCES := $(CPP_SOURCES) $(CPP_HDF5_SOURCES)
 FFI_SOURCES := $(CPP_SOURCES) Core/ffi.cpp $(CPP_HDF5_SOURCES) Dataset/ffi.cpp
 FFI_SOURCES_HDF5 := Dataset/PHP2XAIHDF5.cpp Dataset/ffi.cpp
+CPP_HEADERS := $(shell find Core Dataset Optimizers Utility -type f \( -name '*.hpp' -o -name '*.h' \))
+DATASET_HEADERS := $(shell find Dataset -type f \( -name '*.hpp' -o -name '*.h' \))
 
 BIN_NATIVE := php2xai_runtime
 BIN_EIGEN := php2xai_runtime_eigen
@@ -54,21 +56,21 @@ all: $(BINDIR)/$(BIN_NATIVE) $(BINDIR)/$(BIN_EIGEN) $(BINDIR)/$(SO) $(BINDIR)/$(
 $(BINDIR):
 	mkdir -p $(BINDIR)
 
-$(BINDIR)/$(BIN_NATIVE): $(NATIVE_SOURCES) main.cpp | $(BINDIR)
-	$(CXX) $(CXXFLAGS) -DPHP2XAI_USE_EIGEN=0 $(INCLUDES) $^ -o $@ $(LIBS_HDF5)
+$(BINDIR)/$(BIN_NATIVE): $(NATIVE_SOURCES) main.cpp $(CPP_HEADERS) | $(BINDIR)
+	$(CXX) $(CXXFLAGS) -DPHP2XAI_USE_EIGEN=0 $(INCLUDES) $(NATIVE_SOURCES) main.cpp -o $@ $(LIBS_HDF5)
 
-$(BINDIR)/$(BIN_EIGEN): $(NATIVE_SOURCES) main.cpp | $(BINDIR)
-	$(CXX) $(CXXFLAGS) -DPHP2XAI_USE_EIGEN=1 $(INCLUDES) $^ -o $@ $(LIBS_HDF5)
+$(BINDIR)/$(BIN_EIGEN): $(NATIVE_SOURCES) main.cpp $(CPP_HEADERS) | $(BINDIR)
+	$(CXX) $(CXXFLAGS) -DPHP2XAI_USE_EIGEN=1 $(INCLUDES) $(NATIVE_SOURCES) main.cpp -o $@ $(LIBS_HDF5)
 
 # Shared library exposing the single graph runtime through FFI.
-$(BINDIR)/$(SO): $(FFI_SOURCES) | $(BINDIR)
+$(BINDIR)/$(SO): $(FFI_SOURCES) $(CPP_HEADERS) | $(BINDIR)
 	$(CXX) $(SHFLAGS) $(INCLUDES) \
-		$^ -o $@ $(LIBS_HDF5)
+		$(FFI_SOURCES) -o $@ $(LIBS_HDF5)
 
 # PHP2XAIHDF5 shared library to be used by means of FFI
-$(BINDIR)/$(SO_HDF5): $(FFI_SOURCES_HDF5) | $(BINDIR)
+$(BINDIR)/$(SO_HDF5): $(FFI_SOURCES_HDF5) $(DATASET_HEADERS) | $(BINDIR)
 	$(CXX) $(SHFLAGS) $(INCLUDES) \
-		$^ -o $@ $(LIBS_HDF5)
+		$(FFI_SOURCES_HDF5) -o $@ $(LIBS_HDF5)
 
 clean:
 	rm -rf Bin/
