@@ -263,5 +263,8 @@ namespace PHP2xAI::Runtime::CPP
 		void BACKWARD_MATMUL_1B_2D_2D(Tensor &A, Tensor &B, Tensor &C) override;
 		void BACKWARD_MATMUL_2B_2D_2D(Tensor &A, Tensor &B, Tensor &C) override;
 		void BACKWARD_MATMUL_1B_2D_2D_LINEAR(Tensor &A, Tensor &B, Tensor &C) override;
+		void GELU(Tensor &X, Tensor &Y) override;
+		void BACKWARD_GELU(Tensor &X, Tensor &Y) override;
+		void SOFTMAX_4D_LAST(Tensor &X, Tensor &Y) override;
 	};
 }

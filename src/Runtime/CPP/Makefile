@@ -44,6 +44,8 @@ CPP_SOURCES := \
 	Core/Kernels/NAIVE/ce_logits.cpp \
 	Core/Kernels/NAIVE/rope.cpp \
 	Core/Kernels/EIGEN/matmul.cpp \
+	Core/Kernels/EIGEN/gelu.cpp \
+	Core/Kernels/EIGEN/softmax.cpp \
 	Dataset/TrainValidateDataset.cpp \
 	Dataset/stream_file_dataset.cpp \
 	Optimizers/Optimizer.cpp \
