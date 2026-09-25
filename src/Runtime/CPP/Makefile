@@ -19,6 +19,8 @@ CPP_SOURCES := \
 	Core/Kernels/NAIVE/add.cpp \
 	Core/Kernels/NAIVE/matmul.cpp \
 	Core/Kernels/NAIVE/relu.cpp \
+	Core/Kernels/NAIVE/gelu.cpp \
+	Core/Kernels/NAIVE/silu.cpp \
 	Dataset/TrainValidateDataset.cpp \
 	Dataset/stream_file_dataset.cpp \
 	Optimizers/Optimizer.cpp \

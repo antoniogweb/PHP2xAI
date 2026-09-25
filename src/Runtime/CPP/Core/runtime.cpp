@@ -550,6 +550,18 @@ namespace PHP2xAI::Runtime::CPP
 					throw std::runtime_error("ReLU: expected one input and one output");
 				opRelu(op.inputs[0], op.output);
 			}
+			else if (op.name == "gelu")
+			{
+				if (op.inputs.size() != 1 || op.output < 0)
+					throw std::runtime_error("gelu: expected one input and one output");
+				opGelu(op.inputs[0], op.output);
+			}
+			else if (op.name == "silu")
+			{
+				if (op.inputs.size() != 1 || op.output < 0)
+					throw std::runtime_error("silu: expected one input and one output");
+				opSilu(op.inputs[0], op.output);
+			}
 			else
 			{
 				throw std::runtime_error("Op not supported: " + op.name);
@@ -591,6 +603,18 @@ namespace PHP2xAI::Runtime::CPP
 				if (op.inputs.size() != 1 || op.output < 0)
 					throw std::runtime_error("ReLU backward: expected one input and one output");
 				backwardRelu(op.inputs[0], op.output);
+			}
+			else if (op.name == "gelu")
+			{
+				if (op.inputs.size() != 1 || op.output < 0)
+					throw std::runtime_error("gelu backward: expected one input and one output");
+				backwardGelu(op.inputs[0], op.output);
+			}
+			else if (op.name == "silu")
+			{
+				if (op.inputs.size() != 1 || op.output < 0)
+					throw std::runtime_error("silu backward: expected one input and one output");
+				backwardSilu(op.inputs[0], op.output);
 			}
 			else
 			{
@@ -695,6 +719,38 @@ namespace PHP2xAI::Runtime::CPP
 		if (!X.requiresGrad)
 			return;
 		BACKWARD_RELU(X, Y);
+	}
+
+	void GraphRuntime::opGelu(int inputId, int outputId)
+	{
+		Tensor &X = impl_->tensor(inputId);
+		Tensor &Y = impl_->tensor(outputId);
+		GELU(X, Y);
+	}
+
+	void GraphRuntime::backwardGelu(int inputId, int outputId)
+	{
+		Tensor &X = impl_->tensor(inputId);
+		Tensor &Y = impl_->tensor(outputId);
+		if (!X.requiresGrad)
+			return;
+		BACKWARD_GELU(X, Y);
+	}
+
+	void GraphRuntime::opSilu(int inputId, int outputId)
+	{
+		Tensor &X = impl_->tensor(inputId);
+		Tensor &Y = impl_->tensor(outputId);
+		SILU(X, Y);
+	}
+
+	void GraphRuntime::backwardSilu(int inputId, int outputId)
+	{
+		Tensor &X = impl_->tensor(inputId);
+		Tensor &Y = impl_->tensor(outputId);
+		if (!X.requiresGrad)
+			return;
+		BACKWARD_SILU(X, Y);
 	}
 
 	std::size_t GraphRuntime::inputSize() const
