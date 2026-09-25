@@ -50,6 +50,8 @@ Some optimizations are implemented in `GraphRuntime` itself. They are therefore 
 | `apply_padding_mask` forward and backward | OpenMP over contiguous score rows. Forward writes negative infinity for masked keys; backward propagates only unmasked gradients. |
 | `apply_causal_mask` forward and backward | OpenMP over outer `[Lq, Lkv]` matrices. The operation derives `Lq` and `Lkv` from the last two runtime dimensions. For `Lq == 1`, forward is a direct copy because a single decode query has no future key. |
 | `SLICE_LAST` and `BACKWARD_SLICE_LAST` | OpenMP copies or accumulates contiguous last-axis slices. |
+| `TRANSPOSE_4D_AXIS_1_2` and backward | OpenMP tiles over heads and time, copying each contiguous feature vector as a block for `[B,H,T,D]` to `[B,T,H,D]`. |
+| `TRANSPOSE_4D_LAST_TWO` and backward | OpenMP 32×32 tiles transpose each `[T,D]` matrix in `[B,H,T,D]`; backward uses the same mapping to accumulate gradients. |
 
 These paths are memory-bandwidth sensitive. They benefit from contiguous tensors and parallel rows, but they are not substitutes for a dense GEMM backend.
 
