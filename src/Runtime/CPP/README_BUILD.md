@@ -111,7 +111,7 @@ The Makefile uses these compiler flags:
 
 - g++ (C++17 compatible)
 - make
-- Conan packages configured in `build/conan` (nlohmann_json and HDF5)
+- Conan packages configured in `build/conan` (nlohmann_json, HDF5, and Eigen)
 
 ## Cleaning
 

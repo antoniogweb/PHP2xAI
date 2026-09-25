@@ -7,3 +7,4 @@ class PHP2xAI(ConanFile):
     def requirements(self):
         self.requires("nlohmann_json/3.12.0")
         self.requires("hdf5/1.14.6")
+        self.requires("eigen/3.4.0")

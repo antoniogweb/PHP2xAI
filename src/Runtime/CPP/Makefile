@@ -6,7 +6,7 @@ OMPFLAGS := -fopenmp
 CXXFLAGS := -std=c++20 -O3 -DNDEBUG -march=native -flto -pipe $(OMPFLAGS)
 SHFLAGS := -std=c++20 -O3 -fPIC -shared $(OMPFLAGS)
 CONAN_DIR := $(CURDIR)/build/conan
-INCLUDES := -I./ $(shell PKG_CONFIG_PATH=$(CONAN_DIR) pkg-config --cflags nlohmann_json hdf5)
+INCLUDES := -I./ $(shell PKG_CONFIG_PATH=$(CONAN_DIR) pkg-config --cflags nlohmann_json hdf5 eigen3)
 LIBS_HDF5 := $(shell PKG_CONFIG_PATH=$(CONAN_DIR) pkg-config --libs hdf5)
 
 ARCH ?= $(shell uname -m)
@@ -24,6 +24,7 @@ CPP_SOURCES := \
 	Core/Kernels/NAIVE/ce_label_input.cpp \
 	Core/Kernels/NAIVE/mean.cpp \
 	Core/Kernels/NAIVE/softmax.cpp \
+	Core/Kernels/EIGEN/matmul.cpp \
 	Dataset/TrainValidateDataset.cpp \
 	Dataset/stream_file_dataset.cpp \
 	Optimizers/Optimizer.cpp \

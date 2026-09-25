@@ -112,12 +112,12 @@ namespace PHP2xAI::Runtime::CPP
 		virtual void MATMUL_1B_2D_2D(Tensor &A, Tensor &B, Tensor &C);
 		virtual void MATMUL_2B_2D_2D(Tensor &A, Tensor &B, Tensor &C);
 		virtual void MATMUL_1B_2D_2D_LINEAR(Tensor &A, Tensor &B, Tensor &C);
-		virtual void MATMUL_GENERIC_B_2D_2D_BROADCAST(Tensor &A, Tensor &B, Tensor &C);
+		void MATMUL_GENERIC_B_2D_2D_BROADCAST(Tensor &A, Tensor &B, Tensor &C);
 		virtual void BACKWARD_MATMUL_2D_2D(Tensor &A, Tensor &B, Tensor &C);
 		virtual void BACKWARD_MATMUL_1B_2D_2D(Tensor &A, Tensor &B, Tensor &C);
 		virtual void BACKWARD_MATMUL_2B_2D_2D(Tensor &A, Tensor &B, Tensor &C);
 		virtual void BACKWARD_MATMUL_1B_2D_2D_LINEAR(Tensor &A, Tensor &B, Tensor &C);
-		virtual void BACKWARD_MATMUL_GENERIC_B_2D_2D_BROADCAST(Tensor &A, Tensor &B, Tensor &C);
+		void BACKWARD_MATMUL_GENERIC_B_2D_2D_BROADCAST(Tensor &A, Tensor &B, Tensor &C);
 
 		virtual void RELU(Tensor &X, Tensor &Y);
 		virtual void BACKWARD_RELU(Tensor &X, Tensor &Y);
@@ -160,5 +160,15 @@ namespace PHP2xAI::Runtime::CPP
 	{
 	public:
 		using GraphRuntime::GraphRuntime;
+
+	protected:
+		void MATMUL_2D_2D(Tensor &A, Tensor &B, Tensor &C) override;
+		void MATMUL_1B_2D_2D(Tensor &A, Tensor &B, Tensor &C) override;
+		void MATMUL_2B_2D_2D(Tensor &A, Tensor &B, Tensor &C) override;
+		void MATMUL_1B_2D_2D_LINEAR(Tensor &A, Tensor &B, Tensor &C) override;
+		void BACKWARD_MATMUL_2D_2D(Tensor &A, Tensor &B, Tensor &C) override;
+		void BACKWARD_MATMUL_1B_2D_2D(Tensor &A, Tensor &B, Tensor &C) override;
+		void BACKWARD_MATMUL_2B_2D_2D(Tensor &A, Tensor &B, Tensor &C) override;
+		void BACKWARD_MATMUL_1B_2D_2D_LINEAR(Tensor &A, Tensor &B, Tensor &C) override;
 	};
 }
