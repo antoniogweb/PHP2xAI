@@ -93,6 +93,10 @@ namespace PHP2xAI::Runtime::CPP
 		void backwardSilu(int inputId, int outputId);
 		void opCeLogitsLabelInt(int logitsId, int targetId, int outputId, const std::string &kernel);
 		void backwardCeLogitsLabelInt(int logitsId, int targetId, int outputId, const std::string &kernel);
+		void opMean(int inputId, int outputId, const std::string &kernel);
+		void backwardMean(int inputId, int outputId, const std::string &kernel);
+		void opSoftmax(int inputId, int outputId, const std::string &kernel);
+		void backwardSoftmax(int inputId, int outputId, const std::string &kernel);
 
 	protected:
 		// Backend-specific kernel entry points. GraphRuntime provides NAIVE;
@@ -129,5 +133,23 @@ namespace PHP2xAI::Runtime::CPP
 		virtual void BACKWORD_CE_LOGITS_LABEL_INT_2D_LAST(Tensor &logits, Tensor &target, Tensor &output);
 		virtual void BACKWORD_CE_LOGITS_LABEL_INT_3D_LAST(Tensor &logits, Tensor &target, Tensor &output);
 		virtual void BACKWORD_CE_LOGITS_LABEL_INT_GENERIC_AXIS(Tensor &logits, Tensor &target, Tensor &output);
+		virtual void MEAN_1D_FIRST(Tensor &input, Tensor &output);
+		virtual void MEAN_2D_FIRST(Tensor &input, Tensor &output);
+		virtual void MEAN_3D_FIRST(Tensor &input, Tensor &output);
+		virtual void MEAN_GENERIC_AXIS(Tensor &input, Tensor &output);
+		virtual void BACKWARD_MEAN_1D_FIRST(Tensor &input, Tensor &output);
+		virtual void BACKWARD_MEAN_2D_FIRST(Tensor &input, Tensor &output);
+		virtual void BACKWARD_MEAN_3D_FIRST(Tensor &input, Tensor &output);
+		virtual void BACKWARD_MEAN_GENERIC_AXIS(Tensor &input, Tensor &output);
+		virtual void SOFTMAX_1D_LAST(Tensor &input, Tensor &output);
+		virtual void SOFTMAX_2D_LAST(Tensor &input, Tensor &output);
+		virtual void SOFTMAX_3D_LAST(Tensor &input, Tensor &output);
+		virtual void SOFTMAX_4D_LAST(Tensor &input, Tensor &output);
+		virtual void SOFTMAX_GENERIC_AXIS(Tensor &input, Tensor &output);
+		virtual void BACKWORD_SOFTMAX_1D_LAST(Tensor &input, Tensor &output);
+		virtual void BACKWORD_SOFTMAX_2D_LAST(Tensor &input, Tensor &output);
+		virtual void BACKWORD_SOFTMAX_3D_LAST(Tensor &input, Tensor &output);
+		virtual void BACKWORD_SOFTMAX_4D_LAST(Tensor &input, Tensor &output);
+		virtual void BACKWORD_SOFTMAX_GENERIC_AXIS(Tensor &input, Tensor &output);
 	};
 }

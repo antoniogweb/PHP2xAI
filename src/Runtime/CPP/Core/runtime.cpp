@@ -568,6 +568,18 @@ namespace PHP2xAI::Runtime::CPP
 					throw std::runtime_error("CE logits label int: expected two inputs and one output");
 				opCeLogitsLabelInt(op.inputs[0], op.inputs[1], op.output, op.kernel);
 			}
+			else if (op.name == "mean")
+			{
+				if (op.inputs.size() != 1 || op.output < 0)
+					throw std::runtime_error("mean: expected one input and one output");
+				opMean(op.inputs[0], op.output, op.kernel);
+			}
+			else if (op.name == "softmax")
+			{
+				if (op.inputs.size() != 1 || op.output < 0)
+					throw std::runtime_error("softmax: expected one input and one output");
+				opSoftmax(op.inputs[0], op.output, op.kernel);
+			}
 			else
 			{
 				throw std::runtime_error("Op not supported: " + op.name);
@@ -627,6 +639,18 @@ namespace PHP2xAI::Runtime::CPP
 				if (op.inputs.size() != 2 || op.output < 0)
 					throw std::runtime_error("CE logits label int backward: expected two inputs and one output");
 				backwardCeLogitsLabelInt(op.inputs[0], op.inputs[1], op.output, op.kernel);
+			}
+			else if (op.name == "mean")
+			{
+				if (op.inputs.size() != 1 || op.output < 0)
+					throw std::runtime_error("mean backward: expected one input and one output");
+				backwardMean(op.inputs[0], op.output, op.kernel);
+			}
+			else if (op.name == "softmax")
+			{
+				if (op.inputs.size() != 1 || op.output < 0)
+					throw std::runtime_error("softmax backward: expected one input and one output");
+				backwardSoftmax(op.inputs[0], op.output, op.kernel);
 			}
 			else
 			{
@@ -814,6 +838,88 @@ namespace PHP2xAI::Runtime::CPP
 			BACKWORD_CE_LOGITS_LABEL_INT_GENERIC_AXIS(logits, target, output);
 		else
 			throw std::runtime_error("CE logits label int backward: kernel not supported: " + kernelName);
+	}
+
+	void GraphRuntime::opMean(int inputId, int outputId, const std::string &kernel)
+	{
+		Tensor &input = impl_->tensor(inputId);
+		Tensor &output = impl_->tensor(outputId);
+		const std::string kernelName = kernel.empty() ? "MEAN_GENERIC_AXIS" : kernel;
+
+		if (kernelName == "MEAN_1D_FIRST")
+			MEAN_1D_FIRST(input, output);
+		else if (kernelName == "MEAN_2D_FIRST")
+			MEAN_2D_FIRST(input, output);
+		else if (kernelName == "MEAN_3D_FIRST")
+			MEAN_3D_FIRST(input, output);
+		else if (kernelName == "MEAN_GENERIC_AXIS")
+			MEAN_GENERIC_AXIS(input, output);
+		else
+			throw std::runtime_error("mean: kernel not supported: " + kernelName);
+	}
+
+	void GraphRuntime::backwardMean(int inputId, int outputId, const std::string &kernel)
+	{
+		Tensor &input = impl_->tensor(inputId);
+		if (!input.requiresGrad)
+			return;
+		Tensor &output = impl_->tensor(outputId);
+		const std::string kernelName = kernel.empty() ? "MEAN_GENERIC_AXIS" : kernel;
+
+		if (kernelName == "MEAN_1D_FIRST")
+			BACKWARD_MEAN_1D_FIRST(input, output);
+		else if (kernelName == "MEAN_2D_FIRST")
+			BACKWARD_MEAN_2D_FIRST(input, output);
+		else if (kernelName == "MEAN_3D_FIRST")
+			BACKWARD_MEAN_3D_FIRST(input, output);
+		else if (kernelName == "MEAN_GENERIC_AXIS")
+			BACKWARD_MEAN_GENERIC_AXIS(input, output);
+		else
+			throw std::runtime_error("mean backward: kernel not supported: " + kernelName);
+	}
+
+	void GraphRuntime::opSoftmax(int inputId, int outputId, const std::string &kernel)
+	{
+		Tensor &input = impl_->tensor(inputId);
+		Tensor &output = impl_->tensor(outputId);
+		if (input.size == 0)
+			return;
+		const std::string kernelName = kernel.empty() ? "SOFTMAX_GENERIC_AXIS" : kernel;
+
+		if (kernelName == "SOFTMAX_1D_LAST")
+			SOFTMAX_1D_LAST(input, output);
+		else if (kernelName == "SOFTMAX_2D_LAST")
+			SOFTMAX_2D_LAST(input, output);
+		else if (kernelName == "SOFTMAX_3D_LAST")
+			SOFTMAX_3D_LAST(input, output);
+		else if (kernelName == "SOFTMAX_4D_LAST")
+			SOFTMAX_4D_LAST(input, output);
+		else if (kernelName == "SOFTMAX_GENERIC_AXIS")
+			SOFTMAX_GENERIC_AXIS(input, output);
+		else
+			throw std::runtime_error("softmax: kernel not supported: " + kernelName);
+	}
+
+	void GraphRuntime::backwardSoftmax(int inputId, int outputId, const std::string &kernel)
+	{
+		Tensor &input = impl_->tensor(inputId);
+		if (!input.requiresGrad || input.size == 0)
+			return;
+		Tensor &output = impl_->tensor(outputId);
+		const std::string kernelName = kernel.empty() ? "SOFTMAX_GENERIC_AXIS" : kernel;
+
+		if (kernelName == "SOFTMAX_1D_LAST")
+			BACKWORD_SOFTMAX_1D_LAST(input, output);
+		else if (kernelName == "SOFTMAX_2D_LAST")
+			BACKWORD_SOFTMAX_2D_LAST(input, output);
+		else if (kernelName == "SOFTMAX_3D_LAST")
+			BACKWORD_SOFTMAX_3D_LAST(input, output);
+		else if (kernelName == "SOFTMAX_4D_LAST")
+			BACKWORD_SOFTMAX_4D_LAST(input, output);
+		else if (kernelName == "SOFTMAX_GENERIC_AXIS")
+			BACKWORD_SOFTMAX_GENERIC_AXIS(input, output);
+		else
+			throw std::runtime_error("softmax backward: kernel not supported: " + kernelName);
 	}
 
 	std::size_t GraphRuntime::inputSize() const
