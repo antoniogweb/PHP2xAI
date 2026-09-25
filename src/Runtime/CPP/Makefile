@@ -25,7 +25,9 @@ CPP_SOURCES := \
 	Core/Kernels/NAIVE/mean.cpp \
 	Core/Kernels/NAIVE/softmax.cpp \
 	Core/Kernels/NAIVE/embeddings.cpp \
+	Core/Kernels/NAIVE/embeddings_mean_pooling.cpp \
 	Core/Kernels/NAIVE/mean_pooling.cpp \
+	Core/Kernels/NAIVE/padding_mask.cpp \
 	Core/Kernels/NAIVE/dropout.cpp \
 	Core/Kernels/EIGEN/matmul.cpp \
 	Dataset/TrainValidateDataset.cpp \

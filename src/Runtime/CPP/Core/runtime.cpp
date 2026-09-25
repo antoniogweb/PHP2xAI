@@ -309,8 +309,9 @@ namespace PHP2xAI::Runtime::CPP
 		int output;
 		std::string kernel;
 		Scalar dropoutPerc;
+		int padId;
 
-		RuntimeOp() : output(-1), dropoutPerc(50.0f) {}
+		RuntimeOp() : output(-1), dropoutPerc(50.0f), padId(0) {}
 	};
 
 	struct GraphRuntime::Impl
@@ -462,6 +463,7 @@ namespace PHP2xAI::Runtime::CPP
 				{
 					const json &attributes = definition.at("attributes");
 					op.dropoutPerc = attributes.value("dropoutPerc", 50.0f);
+					op.padId = attributes.value("padId", 0);
 				}
 				ops.push_back(op);
 			}
@@ -559,6 +561,18 @@ namespace PHP2xAI::Runtime::CPP
 					throw std::runtime_error("embeddings: expected two inputs and one output");
 				opEmbeddings(op.inputs[0], op.inputs[1], op.output);
 			}
+			else if (op.name == "embeddings_mean_pooling")
+			{
+				if (op.inputs.size() != 2 || op.output < 0)
+					throw std::runtime_error("embeddings_mean_pooling: expected two inputs and one output");
+				opEmbeddingsMeanPooling(op.inputs[0], op.inputs[1], op.output, op.padId);
+			}
+			else if (op.name == "padding_mask")
+			{
+				if (op.inputs.size() != 1 || op.output < 0)
+					throw std::runtime_error("padding_mask: expected one input and one output");
+				opPaddingMask(op.inputs[0], op.output, op.padId);
+			}
 			else if (op.name == "mean_pooling")
 			{
 				if (op.inputs.size() != 2 || op.output < 0)
@@ -648,6 +662,16 @@ namespace PHP2xAI::Runtime::CPP
 				if (op.inputs.size() != 2 || op.output < 0)
 					throw std::runtime_error("embeddings backward: expected two inputs and one output");
 				backwardEmbeddings(op.inputs[0], op.inputs[1], op.output);
+			}
+			else if (op.name == "embeddings_mean_pooling")
+			{
+				if (op.inputs.size() != 2 || op.output < 0)
+					throw std::runtime_error("embeddings_mean_pooling backward: expected two inputs and one output");
+				backwardEmbeddingsMeanPooling(op.inputs[0], op.inputs[1], op.output, op.padId);
+			}
+			else if (op.name == "padding_mask")
+			{
+				// A discrete mask has no derivative with respect to token IDs.
 			}
 			else if (op.name == "mean_pooling")
 			{
@@ -850,6 +874,31 @@ namespace PHP2xAI::Runtime::CPP
 		if (!table.requiresGrad)
 			return;
 		BACKWARD_EMBEDDINGS(ids, table, output);
+	}
+
+	void GraphRuntime::opEmbeddingsMeanPooling(int idsId, int tableId, int outputId, int padId)
+	{
+		Tensor &ids = impl_->tensor(idsId);
+		Tensor &table = impl_->tensor(tableId);
+		Tensor &output = impl_->tensor(outputId);
+		EMBEDDINGS_MEAN_POOLING(ids, table, output, padId);
+	}
+
+	void GraphRuntime::backwardEmbeddingsMeanPooling(int idsId, int tableId, int outputId, int padId)
+	{
+		Tensor &ids = impl_->tensor(idsId);
+		Tensor &table = impl_->tensor(tableId);
+		Tensor &output = impl_->tensor(outputId);
+		if (!table.requiresGrad)
+			return;
+		BACKWARD_EMBEDDINGS_MEAN_POOLING(ids, table, output, padId);
+	}
+
+	void GraphRuntime::opPaddingMask(int inputId, int outputId, int padId)
+	{
+		Tensor &ids = impl_->tensor(inputId);
+		Tensor &output = impl_->tensor(outputId);
+		PADDING_MASK(ids, output, padId);
 	}
 
 	void GraphRuntime::opMeanPooling(int inputId, int maskId, int outputId)
