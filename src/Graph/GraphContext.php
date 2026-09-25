@@ -9,19 +9,19 @@ use PHP2xAI\Tensor\Tensor;
 
 $graph = [
     'tensors' => [
-        ['id' => 0, 'kind' => 'input',        'name' => 'x',      'shape' => [784],     'trainable' => true, 'requiresGrad' => false],
-        ['id' => 1, 'kind' => 'target',       'name' => 'target', 'shape' => [10],      'trainable' => true, 'requiresGrad' => false],
+        ['id' => 0, 'kind' => 'input',        'name' => 'x',      'shape' => [784],     'dtype' => 1, 'trainable' => true, 'requiresGrad' => false],
+        ['id' => 1, 'kind' => 'target',       'name' => 'target', 'shape' => [10],      'dtype' => 1, 'trainable' => true, 'requiresGrad' => false],
 
-        ['id' => 2, 'kind' => 'param',        'name' => 'W',      'shape' => [10, 784], 'trainable' => true, 'requiresGrad' => true],
-        ['id' => 3, 'kind' => 'param',        'name' => 'b',      'shape' => [10],      'trainable' => true, 'requiresGrad' => true],
+        ['id' => 2, 'kind' => 'param',        'name' => 'W',      'shape' => [10, 784], 'dtype' => 1, 'trainable' => true, 'requiresGrad' => true],
+        ['id' => 3, 'kind' => 'param',        'name' => 'b',      'shape' => [10],      'dtype' => 1, 'trainable' => true, 'requiresGrad' => true],
 
-        ['id' => 4, 'kind' => 'intermediate', 'name' => 'logits', 'shape' => [10],      'trainable' => true, 'requiresGrad' => true],
-        ['id' => 5, 'kind' => 'intermediate', 'name' => 'loss',   'shape' => [],        'trainable' => true, 'requiresGrad' => true],
+        ['id' => 4, 'kind' => 'intermediate', 'name' => 'logits', 'shape' => [10],      'dtype' => 1, 'trainable' => true, 'requiresGrad' => true],
+        ['id' => 5, 'kind' => 'intermediate', 'name' => 'loss',   'shape' => [],        'dtype' => 1, 'trainable' => true, 'requiresGrad' => true],
     ],
     'ops' => [
-        ['id' => 0, 'op' => 'matmul',            'inputs' => [2, 0], 'output' => 4], // logits = W*x
-        ['id' => 1, 'op' => 'add',               'inputs' => [4, 3], 'output' => 4], // logits += b
-        ['id' => 2, 'op' => 'softmax_ce_logits', 'inputs' => [4, 1], 'output' => 5], // loss
+        ['id' => 0, 'op' => 'matmul',            'inputs' => [2, 0], 'output' => 4, 'attributes' => ['dtype' => 1]], // logits = W*x
+        ['id' => 1, 'op' => 'add',               'inputs' => [4, 3], 'output' => 4, 'attributes' => ['dtype' => 1]], // logits += b
+        ['id' => 2, 'op' => 'softmax_ce_logits', 'inputs' => [4, 1], 'output' => 5, 'attributes' => ['dtype' => 1]], // loss
     ],
     'loss'      => 5,
     'trainable' => [2, 3],

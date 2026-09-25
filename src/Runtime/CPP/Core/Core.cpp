@@ -13,12 +13,9 @@
 
 namespace PHP2xAI::Runtime::CPP
 {
-	Core::Core(const std::string &provider, const std::string &configPath, const std::string &weightsPath)
-		: provider_(provider), graphPath_(configPath), weightsPath_(weightsPath)
+	Core::Core(const std::string &configPath, const std::string &weightsPath)
+		: graphPath_(configPath), weightsPath_(weightsPath)
 	{
-		if (provider_ != "EIGEN" && provider_ != "NAIVE")
-			throw std::runtime_error("Unsupported provider: " + provider_);
-
 		auto configDef = loadJson(graphPath_);
 		loadGraphRuntime(configDef);
 
@@ -56,10 +53,7 @@ namespace PHP2xAI::Runtime::CPP
 	void Core::loadGraphRuntime(const json &configDef)
 	{
 		const auto &graphDef = configDef.at("graph");
-		if (provider_ == "EIGEN")
-			graphRuntime_ = std::make_unique<GraphRuntimeEigen>(graphDef, weightsPath_);
-		else
-			graphRuntime_ = std::make_unique<GraphRuntime>(graphDef, weightsPath_);
+		graphRuntime_.reset(new GraphRuntime(graphDef, weightsPath_));
 	}
 	
 	void Core::loadOptimizer(const json &configDef)
@@ -141,13 +135,7 @@ namespace PHP2xAI::Runtime::CPP
 		if (!graphRuntime_)
 			throw std::runtime_error("Core not initialized");
 		
-		const auto &tensor = graphRuntime_->tensors[graphRuntime_->inputId];
-		
-		return std::accumulate(
-			tensor.shape.begin(),
-			tensor.shape.end(),
-			static_cast<std::size_t>(1),
-			std::multiplies<std::size_t>());
+		return graphRuntime_->inputSize();
 	}
 	
 	std::size_t Core::outputSize() const
@@ -155,13 +143,7 @@ namespace PHP2xAI::Runtime::CPP
 		if (!graphRuntime_)
 			throw std::runtime_error("Core not initialized");
 		
-		const auto &tensor = graphRuntime_->tensors[graphRuntime_->outputId];
-		
-		return std::accumulate(
-			tensor.shape.begin(),
-			tensor.shape.end(),
-			static_cast<std::size_t>(1),
-			std::multiplies<std::size_t>());
+		return graphRuntime_->outputSize();
 	}
 
 	std::vector<Scalar> Core::predict(const std::vector<Scalar> &x)

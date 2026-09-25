@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cmath>
+#include <stdexcept>
 
 #include "Adam.hpp"
 #include "../Core/runtime.hpp"
@@ -19,14 +20,17 @@ namespace PHP2xAI::Runtime::CPP::Optimizers
 		const auto beta1PowT = std::pow(beta1_, static_cast<Scalar>(stepNumber_));
 		const auto beta2PowT = std::pow(beta2_, static_cast<Scalar>(stepNumber_));
 
-		for (int tid : graph.trainable)
+		const std::vector<int> &trainable = graph.getTrainableTensorIds();
+		for (std::size_t parameter = 0; parameter < trainable.size(); ++parameter)
 		{
-			auto& t = graph.tensors[static_cast<std::size_t>(tid)];
+			const int tid = trainable[parameter];
+			if (!graph.tensorHasFloatingPointDType(tid))
+				throw std::runtime_error("Adam can only update floating point tensors");
 
 			auto& mVec = mp_[tid];
 			auto& vVec = vp_[tid];
 
-			const auto size = t.data.size();
+			const std::size_t size = graph.getTensorSize(tid);
 			if (mVec.size() < size)
 				mVec.resize(size, static_cast<Scalar>(0));
 			if (vVec.size() < size)
@@ -34,7 +38,7 @@ namespace PHP2xAI::Runtime::CPP::Optimizers
 
 			for (std::size_t i = 0; i < size; ++i)
 			{
-				Scalar g = t.grad[i];
+				Scalar g = graph.getTensorGradValue(tid, i);
 
 				if (gradClip_)
 				{
@@ -57,7 +61,8 @@ namespace PHP2xAI::Runtime::CPP::Optimizers
 				const auto mtHat = mt / (1 - beta1PowT);
 				const auto vtHat = vt / (1 - beta2PowT);
 
-				t.data[i] -= learningRate_ * (mtHat / (std::sqrt(vtHat) + eps_));
+				const Scalar value = graph.getTensorDataValue(tid, i);
+				graph.setTensorDataValue(tid, i, value - learningRate_ * (mtHat / (std::sqrt(vtHat) + eps_)));
 			}
 		}
 

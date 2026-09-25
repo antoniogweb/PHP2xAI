@@ -7,7 +7,6 @@
 
 using PHP2xAI::Runtime::CPP::Core;
 using PHP2xAI::Runtime::CPP::GraphRuntime;
-using PHP2xAI::Runtime::CPP::GraphRuntimeEigen;
 using PHP2xAI::Runtime::CPP::Scalar;
 using PHP2xAI::Runtime::CPP::json;
 
@@ -23,15 +22,15 @@ struct PHP2xAI_Runtime
 };
 
 extern "C" {
-	PHP2xAI_Core* php2xai_core_create(const char* provider, const char* model_path, const char* weights_path)
+	PHP2xAI_Core* php2xai_core_create(const char* model_path, const char* weights_path)
 	{
-		if (!provider || !model_path)
+		if (!model_path)
 			return nullptr;
 
 		try
 		{
 			auto *handle = new PHP2xAI_Core();
-			handle->core = new Core(provider, model_path, weights_path ? weights_path : "");
+			handle->core = new Core(model_path, weights_path ? weights_path : "");
 			return handle;
 		}
 		catch (...)
@@ -132,23 +131,15 @@ extern "C" {
 		return 0;
 	}
 
-	PHP2xAI_Runtime* php2xai_runtime_create(const char* provider, const char* graph_json)
+	PHP2xAI_Runtime* php2xai_runtime_create(const char* graph_json)
 	{
-		if (!provider || !graph_json)
+		if (!graph_json)
 			return nullptr;
 		try
 		{
 			auto *handle = new PHP2xAI_Runtime();
 			json graphDef = json::parse(std::string(graph_json));
-			if (std::string(provider) == "EIGEN")
-				handle->runtime = new GraphRuntimeEigen(graphDef, "");
-			else if (std::string(provider) == "NAIVE")
-				handle->runtime = new GraphRuntime(graphDef, "");
-			else
-			{
-				delete handle;
-				return nullptr;
-			}
+			handle->runtime = new GraphRuntime(graphDef, "");
 			return handle;
 		}
 		catch (...)
@@ -202,8 +193,7 @@ extern "C" {
 			return nullptr;
 		try
 		{
-			const auto &tensor = runtime->runtime->getTensor(id);
-			runtime->shapeBuffer = tensor.shape;
+			runtime->shapeBuffer = runtime->runtime->getTensorShape(id);
 			if (runtime->shapeBuffer.empty())
 				return nullptr;
 			return runtime->shapeBuffer.data();
@@ -222,12 +212,11 @@ extern "C" {
 			return 2;
 		try
 		{
-			const auto &tensor = runtime->runtime->getTensor(id);
-			const auto size = tensor.data.size();
+			const std::size_t size = runtime->runtime->getTensorSize(id);
 			if (static_cast<std::size_t>(n) != size)
 				return 3;
 			for (int i = 0; i < n; ++i)
-				out[i] = tensor.data[static_cast<std::size_t>(i)];
+				out[i] = runtime->runtime->getTensorDataValue(id, static_cast<std::size_t>(i));
 		}
 		catch (...)
 		{
@@ -244,12 +233,11 @@ extern "C" {
 			return 2;
 		try
 		{
-			const auto &tensor = runtime->runtime->getTensor(id);
-			const auto size = tensor.grad.size();
+			const std::size_t size = runtime->runtime->getTensorSize(id);
 			if (static_cast<std::size_t>(n) != size)
 				return 3;
 			for (int i = 0; i < n; ++i)
-				out[i] = tensor.grad[static_cast<std::size_t>(i)];
+				out[i] = runtime->runtime->getTensorGradValue(id, static_cast<std::size_t>(i));
 		}
 		catch (...)
 		{

@@ -18,7 +18,7 @@ namespace PHP2xAI::Runtime::CPP
 	class Core
 	{
 	public:
-		explicit Core(const std::string &provider, const std::string &configPath, const std::string &weightsPath = "");
+		explicit Core(const std::string &configPath, const std::string &weightsPath = "");
 
 		void train();
 		Scalar validationLoss();
@@ -28,7 +28,6 @@ namespace PHP2xAI::Runtime::CPP
 		std::size_t outputSize() const;
 
 	private:
-		std::string provider_;
 		std::string graphPath_;
 		std::string weightsPath_;
 		std::unique_ptr<Optimizers::Optimizer> optimizer_;

@@ -12,7 +12,7 @@ class CoreFFI
 	private int $inputSize;
 	private int $outputSize;
 
-	public function __construct(string $provider, string $modelPath, string $weightsPath, string $soPath)
+	public function __construct(string $modelPath, string $weightsPath, string $soPath)
 	{
 		if (!extension_loaded('ffi'))
 			throw new RuntimeException("FFI extension is not enabled");
@@ -21,7 +21,7 @@ class CoreFFI
 			throw new RuntimeException("FFI library not found: ".$soPath);
 		
 		$this->ffi = FFI::cdef($this->getCdef(), $soPath);
-		$this->handle = $this->ffi->php2xai_core_create($provider, $modelPath, $weightsPath);
+		$this->handle = $this->ffi->php2xai_core_create($modelPath, $weightsPath);
 		
 		if ($this->handle === null)
 			throw new RuntimeException("Unable to initialize CPP runtime");
@@ -107,7 +107,7 @@ class CoreFFI
 		return <<<CDEF
 			typedef unsigned long size_t;
 			typedef struct PHP2xAI_Core PHP2xAI_Core;
-			PHP2xAI_Core* php2xai_core_create(const char* provider, const char* model_path, const char* weights_path);
+			PHP2xAI_Core* php2xai_core_create(const char* model_path, const char* weights_path);
 			void php2xai_core_destroy(PHP2xAI_Core* core);
 			size_t php2xai_core_input_size(PHP2xAI_Core* core);
 			size_t php2xai_core_output_size(PHP2xAI_Core* core);
