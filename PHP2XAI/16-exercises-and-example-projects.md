@@ -26,14 +26,14 @@ Examples cover tensor creation, `matmul`, broadcasting with `add`, `mean`, `soft
 Run a PHP exercise from its directory so that its relative Composer autoloader path resolves correctly:
 
 ```bash
-CD src/PHP
+cd src/PHP
 php layer_norm.php
 ```
 
 The matching C++ runtime exercise is launched through its PHP entry point:
 
 ```bash
-CD src/CPP
+cd src/CPP
 php layer_norm.php
 ```
 

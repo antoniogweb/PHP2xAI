@@ -25,6 +25,24 @@ The training configuration contains `dataset_type`, which selects the native dat
 
 The `training` flag defaults to `false`, which means evaluation mode. `Core::train()` sets it to `true`; validation sets it back to `false`.
 
-Both runtimes implement the same forward and backward behavior for `transpose()`, contiguous `reshape()`, sinusoidal `positionalEncoding()`, `gelu()` with the tanh approximation, `scale()`, `layerNorm()`, and `applyPaddingMask()`. LayerNorm has an optimized contiguous last-axis kernel and a stride-aware generic-axis kernel; both implementations use `epsilon = 1e-5` and accumulate gradients for the input, `gamma`, and `beta`. `applyPaddingMask()` uses a contiguous generic-last-axis path for `[B, ..., L]` scores and a `[B,L]` binary mask, writing negative infinity into masked score positions.
+## Typed C++ tensor storage
+
+The C++ `Tensor` type is defined privately in `Core/runtime.cpp`. It records its dtype, shape, row-major strides, element count, data pointer, and gradient pointer. The pointers refer to buffers owned by RAII storage; allocating a tensor creates elements of the declared C++ type, and destruction releases the buffers. `dataAs<T>()` and `gradAs<T>()` provide typed access inside kernels. Gradients use the tensor's storage dtype as well.
+
+The supported C++ dtypes are `FLOAT32`, `FLOAT64`, `INT32`, and `INT64`. Dtype-aware NAIVE kernel entry points dispatch on the relevant tensor dtype and call a C++ template implementation from the operation's header. Kernel arithmetic and accumulations use `Scalar` (`float`) where specified by the template, then store results using the tensor dtype. Operations that combine indices and values dispatch each input independently; for example, embeddings read an integer ID tensor and a floating-point table.
+
+`setInput()` and `setTarget()` receive `std::vector<Scalar>` and convert values into the graph tensor's dtype. C++ getters similarly convert values back to `Scalar`. PHP's current C++ FFI data interface also uses `float` arrays. Thus dtypes are honored inside graph storage and kernels, but arbitrary typed buffers are not yet passed directly across FFI. Eigen half and bfloat16 are not graph dtypes at this time.
+
+## Forward and backward flow
+
+`GraphRuntime::forward()` walks graph operations in order. An operation method resolves tensor IDs to tensor references and dispatches on its recorded kernel name, for example `ADD_2D_LAST` or `ADD_GENERIC_LAST`. Kernel entry points take tensor references rather than IDs. The backward pass walks operations in reverse and calls their corresponding backward methods; backward is a phase of graph execution, not a graph operation. NAIVE kernel entry points call matching templates such as `ADD_2D_LAST_TEMPLATE<T>`.
+
+Generic NAIVE implementations now cover arbitrary valid axes/layouts for the generic kernels used by add, broadcast matmul, transpose, slice, mean, softmax, layer norm, RMS norm, RoPE, cross entropy, logits cross entropy, and integer-label logits cross entropy. The runtime still validates ranks, axes, shapes, and dtype compatibility at kernel boundaries. `GENERIC` means a general shape path; it does not mean every Eigen provider has a specialized implementation.
+
+## Operation coverage and graph features
+
+The native dispatcher handles the current graph operation set, including KV cache. KV cache is a stateful, two-input/two-output graph operation: `PREFILL` initializes per-layer key/value state, `DECODE` appends the current token and exposes the cached sequence, and `resetKvCache()` clears all layers or one selected layer. RoPE offset advances with cached decode steps. Ordinary `TRAIN` and stateless `INFER` preserve the key/value tensors without persistent cache behavior. Persistent cache modes are for autoregressive inference.
+
+The runtime and kernel arithmetic are dtype-aware, but the C++ optimizer is not yet templated: optimizer parameters and moments use `Scalar` (`float`) and it reads and writes tensor elements through scalar accessors. Full precision-preserving optimizer updates for `FLOAT64`, and future Eigen half or bfloat types, still require a typed optimizer path.
 
 For the status and migration plan of SIMD/Eigen-accelerated C++ kernels, see [SIMD and Eigen migration](15-simd-and-eigen.md).

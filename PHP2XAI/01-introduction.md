@@ -10,7 +10,8 @@ The design makes it possible to:
 - quickly experiment with new architectures;
 - export a portable graph and training configuration as JSON;
 - train entirely in C++ without calling PHP for individual batches or optimizer steps;
-- use SIMD/Eigen acceleration today and leave room for a future CUDA backend;
+- use the typed C++ runtime with NAIVE and Eigen CPU kernels;
+- keep device-specific execution as a future extension (CUDA is not implemented yet);
 - invoke native inference from PHP through FFI;
 - retain the PHP runtime as a readable implementation and development reference.
 
@@ -25,7 +26,7 @@ model.json / config.json
         |
         +--> C++ training executable
         |      GraphRuntime + TXT/HDF5 Dataset + Optimizer + validation
-        |      scalar kernels, Eigen/SIMD kernels, future CUDA backend
+        |      typed NAIVE kernels or Eigen CPU overrides
         |
         +--> PHP application + FFI
                C++ shared library executes inference from model.json + weights.json
@@ -50,11 +51,13 @@ Inference can remain part of a PHP web or application process without moving num
 
 The PHP runtime can still be selected for debugging, portability, and reference comparisons. It is not the intended high-throughput training path.
 
-## SIMD, Eigen, and future CUDA
+## Typed runtime and providers
 
-The native runtime keeps its graph and operation contract independent from the acceleration backend. Scalar kernels provide the general reference and stride-aware fallbacks. Common contiguous high-volume paths are being migrated progressively to Eigen, which can use SIMD instructions selected by the compiler and CPU architecture. The same separation is intended to permit a future CUDA backend without changing PHP model code or the serialized graph format.
+The native C++ runtime stores each tensor in a buffer allocated for its declared dtype. NAIVE kernels dispatch on that dtype and use typed pointers; Eigen overrides selected CPU kernels while inheriting the NAIVE implementation for other paths. The graph selects operation kernels by shape and attributes, while the runtime provider selects the implementation of virtual kernel entry points. CUDA is a future possibility, not a currently available provider.
 
-See [SIMD and Eigen migration](15-simd-and-eigen.md) for the current migration state.
+The public PHP and FFI boundaries still exchange values as PHP numbers and C++ `Scalar` (`float`). On entry, C++ writes those values into the storage type declared by each graph tensor; reads back to PHP/FFI convert values to `Scalar`. Inside the C++ runtime, tensors and kernels support `FLOAT32`, `FLOAT64`, `INT32`, and `INT64`. The FFI boundary has not yet become a zero-conversion, arbitrary-dtype interface.
+
+See [SIMD and Eigen](15-simd-and-eigen.md) for provider selection and the current optimized paths.
 
 ## Main components
 

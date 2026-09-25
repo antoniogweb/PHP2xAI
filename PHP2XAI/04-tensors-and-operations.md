@@ -8,6 +8,8 @@ $b = Tensor::random([4, 8]);
 $w = Tensor::init([8, 16], 0.05);
 ```
 
+Tensor definitions also carry a dtype. The currently supported graph values are `FLOAT32`, `FLOAT64`, `INT32`, and `INT64`; `FLOAT32` is the default. Creation methods such as `createFromData()`, `random()`, `init()`, and `zeros()` accept a dtype so the graph can allocate each tensor with the intended storage type. Integer dtypes are useful for token IDs and labels; differentiable parameters and arithmetic tensors should use floating-point dtypes.
+
 Shapes are expressed as arrays. Data is stored in row-major order.
 
 ## Main operations
@@ -81,6 +83,10 @@ is stored as:
 ```
 
 This is important when using `StreamFileDataset::pack()`. The dataset returns a flat vector, but the input placeholder tells the runtime whether that vector represents `[B, D]`, `[B, T, D]`, or another shape. The number of values must always match the product of the dimensions in the declared shape.
+
+In the C++ runtime, each tensor's data and gradient buffers are allocated for that tensor's dtype and owned by RAII storage. Kernel code obtains typed pointers from the tensor and dispatches on its dtype. A graph tensor's dtype is therefore part of the execution contract, not only metadata. Most arithmetic operations require compatible input and output dtypes; operations with indices, such as embeddings and integer-label cross entropy, intentionally combine integer index tensors with floating-point data tensors.
+
+The current C++ dtype set is `FLOAT32`, `FLOAT64`, `INT32`, and `INT64`. Eigen half and bfloat types are not yet exposed as graph dtypes. PHP dataset and FFI interfaces still exchange numeric values through `Scalar`/PHP numbers, so values are converted as they enter and leave the typed C++ tensor storage.
 
 ## Graph construction and deferred execution
 

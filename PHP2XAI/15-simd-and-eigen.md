@@ -1,6 +1,6 @@
 # 15. SIMD and Eigen migration
 
-This chapter describes the current C++ acceleration paths. `EIGEN` is a CPU provider: it uses Eigen row-major maps for supported dense operations and lets Eigen and the compiler use the SIMD instruction set available on the build machine. It is not a GPU provider.
+This chapter describes the current C++ execution providers. `EIGEN` is a CPU provider: it uses Eigen row-major maps for supported dense operations and lets Eigen and the compiler use the SIMD instruction set available on the build machine. It is not a GPU provider. The C++ build requires C++20 because dtype dispatch uses a templated lambda.
 
 The PHP graph format and Tensor API are shared by the PHP runtime, the native C++ runtime, and the Eigen C++ runtime. Selecting Eigen changes only the C++ kernel implementation when an Eigen override exists.
 
@@ -9,11 +9,11 @@ The PHP graph format and Tensor API are shared by the PHP runtime, the native C+
 The C++ runtime has two providers:
 
 ```text
-NAIVE  GraphRuntime: general C++ kernels and stride-aware fallbacks
+NAIVE  GraphRuntime: typed C++ kernels and general-shape paths
 EIGEN  GraphRuntimeEigen: Eigen overrides plus every general C++ kernel
 ```
 
-The standalone binaries are built with `PHP2XAI_USE_EIGEN=0` or `1`. The shared FFI library selects the provider at runtime. In PHP, select it with the model provider configuration before C++ training or inference.
+The standalone binaries are built with `PHP2XAI_USE_EIGEN=0` or `1`; the compile-time flag chooses the provider for that binary. The shared FFI library selects `NAIVE` or `EIGEN` at runtime. In PHP, `GraphRuntimeCpp` selects `NAIVE` and `GraphRuntimeEigen` selects `EIGEN`; the C++ `Core` receives the provider when constructed. The provider is not written in the graph, so the same graph and weights can be used by either provider.
 
 The standard build uses:
 
@@ -25,7 +25,7 @@ The standard build uses:
 
 ## Eigen provider overrides
 
-`GraphRuntimeEigen` currently overrides the following kernels. All listed matmul paths have Eigen forward and backward implementations.
+`GraphRuntimeEigen` currently overrides the following kernels. All listed matmul paths have Eigen forward and backward implementations; other kernel entry points are inherited from `GraphRuntime` and use NAIVE unless overridden.
 
 | Graph kernel | Tensor layout | Implementation |
 |---|---|---|
@@ -33,7 +33,7 @@ The standard build uses:
 | `MATMUL_1B_2D_2D` | `[B, T, K] x [B, K, N]` | One GEMM per batch item; batch items run with OpenMP. |
 | `MATMUL_2B_2D_2D` | `[B, H, T, K] x [B, H, K, N]` | One GEMM per `[B, H]` matrix; matrices run with OpenMP. |
 | `MATMUL_1B_2D_2D_LINEAR` | `[B, T, K] x [K, N]` | Flattens the first two axes to one `[B*T, K]` GEMM. |
-| `gelu` | Any contiguous tensor | Eigen array expression for the tanh GELU approximation. The backward materializes only the tanh term and fuses the remaining expression. |
+| `GELU` | Any contiguous tensor | Eigen array expression for the tanh GELU approximation. The backward materializes only the tanh term and fuses the remaining expression. |
 | `SOFTMAX_4D_LAST` | `[B, H, T, D]`, last axis | Dedicated row-wise stable softmax. Each worker performs max, exponential sum, and normalization for independent rows without auxiliary max or sum tensors. |
 
 The matmul implementations use row-major `Eigen::Map` and `noalias()` assignments or accumulations. This avoids temporary result matrices for the normal dense paths.
@@ -53,11 +53,11 @@ Some optimizations are implemented in `GraphRuntime` itself. They are therefore 
 
 These paths are memory-bandwidth sensitive. They benefit from contiguous tensors and parallel rows, but they are not substitutes for a dense GEMM backend.
 
-## Kernel selection and fallbacks
+## Typed kernel dispatch and fallbacks
 
-The Tensor API selects a graph kernel from known ranks and axis patterns. The runtime still keeps general kernels for unsupported layouts, generic axes, broadcasting, and operations not overridden by `GraphRuntimeEigen`.
+The Tensor API selects a graph kernel from known ranks and axis patterns. The C++ NAIVE kernel entry point dispatches from `Tensor.dtype` to the corresponding C++ template specialization. The current dtype set is `FLOAT32`, `FLOAT64`, `INT32`, and `INT64`; mixed index/data kernels select each input type independently. The Eigen provider overrides selected virtual entry points and uses the same dtype dispatch where those kernels support the type.
 
-Examples of operations that currently do not have a dedicated Eigen override include generic add and broadcast, generic transpose, generic reductions, layer normalization, generic softmax shapes, embeddings, and generic slice axes. Some of them have efficient common C++ loops, but they do not become Eigen expressions simply by selecting the Eigen provider.
+NAIVE generic implementations cover add and broadcast, generic matmul, transpose, slice, reductions, softmax, layer and RMS normalization, RoPE, and the three cross-entropy families. They handle generic axes/layouts for the named operation paths. These implementations remain available when the Eigen provider is selected, but do not become Eigen expressions simply because Eigen is enabled. Embeddings, masks, pooling, dropout, and most elementwise operations also use NAIVE kernels unless listed in the Eigen override table.
 
 Correctness takes priority over forcing every operation through Eigen. The optimized paths require the layouts they were written for; the general runtime remains the semantic reference for other valid graph shapes.
 
@@ -75,7 +75,9 @@ Lkv         : scores[-1]
 
 This lets the runtime use the actual dimensions in prefill and decode, rather than relying on static graph attributes.
 
-KV cache graph nodes are represented as a future multi-output operation, but their runtime cache storage and `PREFILL` or `DECODE` execution behavior are not implemented yet. They are not an available acceleration path at this stage.
+KV cache is implemented in the C++ runtime as a stateful multi-output operation. In `PREFILL`, it initializes the per-layer key/value cache; in `DECODE`, it appends a step and returns the accumulated cache. `resetKvCache()` resets all layers or a selected layer. `TRAIN` and ordinary stateless `INFER` simply pass the supplied key and value through. KV cache storage follows the tensor dtype. It is currently a NAIVE runtime feature and does not have an Eigen-specific override.
+
+The optimizer is still based on `Scalar` (`float`): Adam's moments and its elementwise parameter update use scalar vectors/accessors. Typed kernel execution therefore does not yet imply typed optimizer arithmetic or end-to-end `FLOAT64` precision during training. Eigen half and bfloat16 support would also require adding those dtypes to graph serialization, storage, kernels, and optimizer dispatch.
 
 ## Profiling and expectations
 

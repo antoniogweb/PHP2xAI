@@ -7,6 +7,14 @@ $model->setRuntime('CPP');
 $model->loadModel('./model.json', './weights.json');
 ```
 
+To use the Eigen C++ provider, set the provider on the model before inference:
+
+```php
+$model->setProvider('EIGEN');
+```
+
+`NAIVE` is the default. Both providers load the same graph and weights; the provider name is passed to the native runtime and is not serialized in the graph. The Eigen provider overrides selected CPU kernels and inherits NAIVE implementations for the rest.
+
 Then:
 
 ```php

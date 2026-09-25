@@ -18,9 +18,10 @@ require __DIR__ . '/vendor/autoload.php';
 
 The PHP runtime requires PHP and Composer. The C++ runtime additionally requires:
 
-- a C++17-compatible compiler;
+- a C++20-compatible compiler for the native runtime;
 - a compiled PHP2xAI runtime library;
 - numerical dependencies such as Eigen, when enabled by the build;
+- Conan dependencies used by the native build, including nlohmann-json and HDF5 where those features are enabled;
 - access to `proc_open` when C++ training is started from the PHP model.
 
 ## Quick check
