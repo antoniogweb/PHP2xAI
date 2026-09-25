@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <fstream>
 #include <limits>
+#include <optional>
 #include <stdexcept>
 #include <unordered_map>
 #include <utility>
@@ -558,6 +559,15 @@ namespace PHP2xAI::Runtime::CPP
 		for (std::size_t i = 0; i < impl_->ops.size(); ++i)
 		{
 			const RuntimeOp &op = impl_->ops[i];
+			std::optional<ProfileTimer> timer;
+			if (impl_->profilingEnabled && impl_->profiler.get() != 0)
+			{
+				std::string profileName = op.name + ".forward";
+				if (!op.kernel.empty())
+					profileName += "." + op.kernel;
+				timer.emplace(*impl_->profiler, std::move(profileName));
+			}
+
 			if (op.name == "add")
 			{
 				if (op.inputs.size() != 2 || op.output < 0)
@@ -688,6 +698,15 @@ namespace PHP2xAI::Runtime::CPP
 		for (std::size_t i = impl_->ops.size(); i > 0; --i)
 		{
 			const RuntimeOp &op = impl_->ops[i - 1];
+			std::optional<ProfileTimer> timer;
+			if (impl_->profilingEnabled && impl_->profiler.get() != 0)
+			{
+				std::string profileName = op.name + ".backward";
+				if (!op.kernel.empty())
+					profileName += "." + op.kernel;
+				timer.emplace(*impl_->profiler, std::move(profileName));
+			}
+
 			if (op.name == "add")
 			{
 				if (op.inputs.size() != 2 || op.output < 0)
