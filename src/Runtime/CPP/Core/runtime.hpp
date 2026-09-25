@@ -38,12 +38,12 @@ namespace PHP2xAI::Runtime::CPP
 	{
 	public:
 		explicit GraphRuntime(const json &graphDef, const std::string &weightsPath = "");
-		~GraphRuntime();
+		virtual ~GraphRuntime();
 
 		GraphRuntime(const GraphRuntime &) = delete;
 		GraphRuntime &operator=(const GraphRuntime &) = delete;
 
-		// Execution entry points. Operations are intentionally not implemented yet.
+		// Execute the operations registered in the graph.
 		void forward();
 		void backward();
 
@@ -86,22 +86,25 @@ namespace PHP2xAI::Runtime::CPP
 		void opMatmul(int aId, int bId, int outId, const std::string &kernel);
 		void backwardMatmul(int aId, int bId, int outId, const std::string &kernel);
 
-		void ADD_1D_LAST(Tensor &A, Tensor &B, Tensor &C);
-		void ADD_2D_LAST(Tensor &A, Tensor &B, Tensor &C);
-		void ADD_3D_LAST(Tensor &A, Tensor &B, Tensor &C);
-		void BACKWARD_ADD_1D_LAST(Tensor &A, Tensor &B, Tensor &C);
-		void BACKWARD_ADD_2D_LAST(Tensor &A, Tensor &B, Tensor &C);
-		void BACKWARD_ADD_3D_LAST(Tensor &A, Tensor &B, Tensor &C);
+	protected:
+		// Backend-specific kernel entry points. GraphRuntime provides NAIVE;
+		// Eigen and CUDA runtimes can override these methods later.
+		virtual void ADD_1D_LAST(Tensor &A, Tensor &B, Tensor &C);
+		virtual void ADD_2D_LAST(Tensor &A, Tensor &B, Tensor &C);
+		virtual void ADD_3D_LAST(Tensor &A, Tensor &B, Tensor &C);
+		virtual void BACKWARD_ADD_1D_LAST(Tensor &A, Tensor &B, Tensor &C);
+		virtual void BACKWARD_ADD_2D_LAST(Tensor &A, Tensor &B, Tensor &C);
+		virtual void BACKWARD_ADD_3D_LAST(Tensor &A, Tensor &B, Tensor &C);
 
-		void MATMUL_2D_2D(Tensor &A, Tensor &B, Tensor &C);
-		void MATMUL_1B_2D_2D(Tensor &A, Tensor &B, Tensor &C);
-		void MATMUL_2B_2D_2D(Tensor &A, Tensor &B, Tensor &C);
-		void MATMUL_1B_2D_2D_LINEAR(Tensor &A, Tensor &B, Tensor &C);
-		void MATMUL_GENERIC_B_2D_2D_BROADCAST(Tensor &A, Tensor &B, Tensor &C);
-		void BACKWARD_MATMUL_2D_2D(Tensor &A, Tensor &B, Tensor &C);
-		void BACKWARD_MATMUL_1B_2D_2D(Tensor &A, Tensor &B, Tensor &C);
-		void BACKWARD_MATMUL_2B_2D_2D(Tensor &A, Tensor &B, Tensor &C);
-		void BACKWARD_MATMUL_1B_2D_2D_LINEAR(Tensor &A, Tensor &B, Tensor &C);
-		void BACKWARD_MATMUL_GENERIC_B_2D_2D_BROADCAST(Tensor &A, Tensor &B, Tensor &C);
+		virtual void MATMUL_2D_2D(Tensor &A, Tensor &B, Tensor &C);
+		virtual void MATMUL_1B_2D_2D(Tensor &A, Tensor &B, Tensor &C);
+		virtual void MATMUL_2B_2D_2D(Tensor &A, Tensor &B, Tensor &C);
+		virtual void MATMUL_1B_2D_2D_LINEAR(Tensor &A, Tensor &B, Tensor &C);
+		virtual void MATMUL_GENERIC_B_2D_2D_BROADCAST(Tensor &A, Tensor &B, Tensor &C);
+		virtual void BACKWARD_MATMUL_2D_2D(Tensor &A, Tensor &B, Tensor &C);
+		virtual void BACKWARD_MATMUL_1B_2D_2D(Tensor &A, Tensor &B, Tensor &C);
+		virtual void BACKWARD_MATMUL_2B_2D_2D(Tensor &A, Tensor &B, Tensor &C);
+		virtual void BACKWARD_MATMUL_1B_2D_2D_LINEAR(Tensor &A, Tensor &B, Tensor &C);
+		virtual void BACKWARD_MATMUL_GENERIC_B_2D_2D_BROADCAST(Tensor &A, Tensor &B, Tensor &C);
 	};
 }

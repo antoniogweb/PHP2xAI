@@ -16,6 +16,8 @@ BINDIR := Bin/$(PLATFORM)
 CPP_SOURCES := \
 	Core/Core.cpp \
 	Core/runtime.cpp \
+	Core/Kernels/NAIVE/add.cpp \
+	Core/Kernels/NAIVE/matmul.cpp \
 	Dataset/TrainValidateDataset.cpp \
 	Dataset/stream_file_dataset.cpp \
 	Optimizers/Optimizer.cpp \

@@ -8,7 +8,7 @@
 #include <unordered_map>
 #include <utility>
 
-#include "Templates/naive.hpp"
+#include "Kernels/TensorAccess.hpp"
 
 namespace PHP2xAI::Runtime::CPP
 {
@@ -36,29 +36,6 @@ namespace PHP2xAI::Runtime::CPP
 				case static_cast<int>(DType::INT32): return DType::INT32;
 				case static_cast<int>(DType::INT64): return DType::INT64;
 				default: throw std::invalid_argument("Unsupported tensor dtype: " + std::to_string(value));
-			}
-		}
-
-		// Select the C++ storage type associated with a tensor's runtime dtype.
-		template <typename Func>
-		void dispatchDType(DType dtype, Func &&func)
-		{
-			switch (dtype)
-			{
-				case DType::FLOAT32:
-					func.template operator()<float>();
-					break;
-				case DType::FLOAT64:
-					func.template operator()<double>();
-					break;
-				case DType::INT32:
-					func.template operator()<std::int32_t>();
-					break;
-				case DType::INT64:
-					func.template operator()<std::int64_t>();
-					break;
-				default:
-					throw std::invalid_argument("Unsupported dtype");
 			}
 		}
 
@@ -311,6 +288,19 @@ namespace PHP2xAI::Runtime::CPP
 				throw std::out_of_range("Tensor element index out of range");
 		}
 	};
+
+	// Give kernel implementation files a small non-owning view of Tensor while
+	// keeping the owning Tensor definition private to this translation unit.
+	TensorAccess accessTensor(Tensor &tensor)
+	{
+		return TensorAccess{
+			tensor.dtype,
+			tensor.shape,
+			tensor.requiresGrad,
+			tensor.data,
+			tensor.grad,
+			tensor.size};
+	}
 
 	struct RuntimeOp
 	{
@@ -677,314 +667,6 @@ namespace PHP2xAI::Runtime::CPP
 			BACKWARD_MATMUL_GENERIC_B_2D_2D_BROADCAST(A, B, C);
 		else
 			throw std::runtime_error("matmul backward: kernel not supported: " + kernelName);
-	}
-
-	void GraphRuntime::MATMUL_2D_2D(Tensor &A, Tensor &B, Tensor &C)
-	{
-		if (A.shape.size() != 2 || B.shape.size() != 2 || C.shape.size() != 2)
-			throw std::runtime_error("matmul: dimension mismatch");
-		const int batchSize = A.shape[0];
-		const int inputSize = A.shape[1];
-		const int inputSizeB = B.shape[0];
-		const int outputSize = B.shape[1];
-		if (inputSize != inputSizeB || C.shape[0] != batchSize || C.shape[1] != outputSize
-			|| A.size != static_cast<std::size_t>(batchSize) * inputSize
-			|| B.size != static_cast<std::size_t>(inputSize) * outputSize
-			|| C.size != static_cast<std::size_t>(batchSize) * outputSize)
-			throw std::runtime_error("matmul: dimension mismatch");
-		if (A.dtype != B.dtype || A.dtype != C.dtype)
-			throw std::runtime_error("matmul: input and output dtypes must match");
-
-		dispatchDType(A.dtype, [&]<typename T>()
-		{
-			Templates::MATMUL_2D_2D_TEMPLATE<T>(A.dataAs<T>(), B.dataAs<T>(), C.dataAs<T>(),
-				batchSize, inputSize, outputSize);
-		});
-	}
-
-	void GraphRuntime::MATMUL_1B_2D_2D(Tensor &A, Tensor &B, Tensor &C)
-	{
-		if (A.shape.size() != 3 || B.shape.size() != 3 || C.shape.size() != 3)
-			throw std::runtime_error("matmul: dimension mismatch");
-		const int batchSize = A.shape[0];
-		const int timeSize = A.shape[1];
-		const int inputSize = A.shape[2];
-		const int batchSizeB = B.shape[0];
-		const int inputSizeB = B.shape[1];
-		const int outputSize = B.shape[2];
-		if (batchSize != batchSizeB || inputSize != inputSizeB
-			|| C.shape[0] != batchSize || C.shape[1] != timeSize || C.shape[2] != outputSize
-			|| A.size != static_cast<std::size_t>(batchSize) * timeSize * inputSize
-			|| B.size != static_cast<std::size_t>(batchSize) * inputSize * outputSize
-			|| C.size != static_cast<std::size_t>(batchSize) * timeSize * outputSize)
-			throw std::runtime_error("matmul: dimension mismatch");
-		if (A.dtype != B.dtype || A.dtype != C.dtype)
-			throw std::runtime_error("matmul: input and output dtypes must match");
-
-		dispatchDType(A.dtype, [&]<typename T>()
-		{
-			Templates::MATMUL_1B_2D_2D_TEMPLATE<T>(A.dataAs<T>(), B.dataAs<T>(), C.dataAs<T>(),
-				batchSize, timeSize, inputSize, outputSize);
-		});
-	}
-
-	void GraphRuntime::MATMUL_2B_2D_2D(Tensor &A, Tensor &B, Tensor &C)
-	{
-		if (A.shape.size() != 4 || B.shape.size() != 4 || C.shape.size() != 4)
-			throw std::runtime_error("matmul: dimension mismatch");
-		const int batchSize = A.shape[0];
-		const int headCount = A.shape[1];
-		const int timeSize = A.shape[2];
-		const int inputSize = A.shape[3];
-		const int batchSizeB = B.shape[0];
-		const int headCountB = B.shape[1];
-		const int inputSizeB = B.shape[2];
-		const int outputSize = B.shape[3];
-		if (batchSize != batchSizeB || headCount != headCountB || inputSize != inputSizeB
-			|| C.shape[0] != batchSize || C.shape[1] != headCount
-			|| C.shape[2] != timeSize || C.shape[3] != outputSize
-			|| A.size != static_cast<std::size_t>(batchSize) * headCount * timeSize * inputSize
-			|| B.size != static_cast<std::size_t>(batchSize) * headCount * inputSize * outputSize
-			|| C.size != static_cast<std::size_t>(batchSize) * headCount * timeSize * outputSize)
-			throw std::runtime_error("matmul: dimension mismatch");
-		if (A.dtype != B.dtype || A.dtype != C.dtype)
-			throw std::runtime_error("matmul: input and output dtypes must match");
-
-		dispatchDType(A.dtype, [&]<typename T>()
-		{
-			Templates::MATMUL_2B_2D_2D_TEMPLATE<T>(A.dataAs<T>(), B.dataAs<T>(), C.dataAs<T>(),
-				batchSize, headCount, timeSize, inputSize, outputSize);
-		});
-	}
-
-	void GraphRuntime::MATMUL_1B_2D_2D_LINEAR(Tensor &A, Tensor &B, Tensor &C)
-	{
-		if (A.shape.size() != 3 || B.shape.size() != 2 || C.shape.size() != 3)
-			throw std::runtime_error("matmul: dimension mismatch");
-		const int batchSize = A.shape[0];
-		const int timeSize = A.shape[1];
-		const int inputSize = A.shape[2];
-		const int inputSizeB = B.shape[0];
-		const int outputSize = B.shape[1];
-		if (inputSize != inputSizeB || C.shape[0] != batchSize
-			|| C.shape[1] != timeSize || C.shape[2] != outputSize
-			|| A.size != static_cast<std::size_t>(batchSize) * timeSize * inputSize
-			|| B.size != static_cast<std::size_t>(inputSize) * outputSize
-			|| C.size != static_cast<std::size_t>(batchSize) * timeSize * outputSize)
-			throw std::runtime_error("matmul: dimension mismatch");
-		if (A.dtype != B.dtype || A.dtype != C.dtype)
-			throw std::runtime_error("matmul: input and output dtypes must match");
-
-		dispatchDType(A.dtype, [&]<typename T>()
-		{
-			Templates::MATMUL_1B_2D_2D_LINEAR_TEMPLATE<T>(A.dataAs<T>(), B.dataAs<T>(), C.dataAs<T>(),
-				batchSize, timeSize, inputSize, outputSize);
-		});
-	}
-
-	void GraphRuntime::MATMUL_GENERIC_B_2D_2D_BROADCAST(Tensor &, Tensor &, Tensor &)
-	{
-		throw std::runtime_error("matmul: generic broadcast kernel is not implemented for the NAIVE backend");
-	}
-
-	void GraphRuntime::BACKWARD_MATMUL_2D_2D(Tensor &A, Tensor &B, Tensor &C)
-	{
-		if (A.shape.size() != 2 || B.shape.size() != 2 || C.shape.size() != 2
-			|| A.shape[1] != B.shape[0] || C.shape[0] != A.shape[0] || C.shape[1] != B.shape[1])
-			throw std::runtime_error("matmul backward: dimension mismatch");
-		if (A.dtype != B.dtype || A.dtype != C.dtype)
-			throw std::runtime_error("matmul backward: input and output dtypes must match");
-		const int batchSize = A.shape[0];
-		const int inputSize = A.shape[1];
-		const int outputSize = B.shape[1];
-		dispatchDType(A.dtype, [&]<typename T>()
-		{
-			Templates::BACKWARD_MATMUL_2D_2D_TEMPLATE<T>(A.dataAs<T>(), B.dataAs<T>(),
-				A.gradAs<T>(), B.gradAs<T>(), C.gradAs<T>(), batchSize, inputSize, outputSize);
-		});
-	}
-
-	void GraphRuntime::BACKWARD_MATMUL_1B_2D_2D(Tensor &A, Tensor &B, Tensor &C)
-	{
-		if (A.shape.size() != 3 || B.shape.size() != 3 || C.shape.size() != 3
-			|| A.shape[0] != B.shape[0] || A.shape[2] != B.shape[1]
-			|| C.shape[0] != A.shape[0] || C.shape[1] != A.shape[1] || C.shape[2] != B.shape[2])
-			throw std::runtime_error("matmul backward: dimension mismatch");
-		if (A.dtype != B.dtype || A.dtype != C.dtype)
-			throw std::runtime_error("matmul backward: input and output dtypes must match");
-		const int batchSize = A.shape[0];
-		const int timeSize = A.shape[1];
-		const int inputSize = A.shape[2];
-		const int outputSize = B.shape[2];
-		dispatchDType(A.dtype, [&]<typename T>()
-		{
-			Templates::BACKWARD_MATMUL_1B_2D_2D_TEMPLATE<T>(A.dataAs<T>(), B.dataAs<T>(),
-				A.gradAs<T>(), B.gradAs<T>(), C.gradAs<T>(), batchSize, timeSize, inputSize, outputSize);
-		});
-	}
-
-	void GraphRuntime::BACKWARD_MATMUL_2B_2D_2D(Tensor &A, Tensor &B, Tensor &C)
-	{
-		if (A.shape.size() != 4 || B.shape.size() != 4 || C.shape.size() != 4
-			|| A.shape[0] != B.shape[0] || A.shape[1] != B.shape[1] || A.shape[3] != B.shape[2]
-			|| C.shape[0] != A.shape[0] || C.shape[1] != A.shape[1]
-			|| C.shape[2] != A.shape[2] || C.shape[3] != B.shape[3])
-			throw std::runtime_error("matmul backward: dimension mismatch");
-		if (A.dtype != B.dtype || A.dtype != C.dtype)
-			throw std::runtime_error("matmul backward: input and output dtypes must match");
-		const int batchSize = A.shape[0];
-		const int headCount = A.shape[1];
-		const int timeSize = A.shape[2];
-		const int inputSize = A.shape[3];
-		const int outputSize = B.shape[3];
-		dispatchDType(A.dtype, [&]<typename T>()
-		{
-			Templates::BACKWARD_MATMUL_2B_2D_2D_TEMPLATE<T>(A.dataAs<T>(), B.dataAs<T>(),
-				A.gradAs<T>(), B.gradAs<T>(), C.gradAs<T>(), batchSize, headCount,
-				timeSize, inputSize, outputSize);
-		});
-	}
-
-	void GraphRuntime::BACKWARD_MATMUL_1B_2D_2D_LINEAR(Tensor &A, Tensor &B, Tensor &C)
-	{
-		if (A.shape.size() != 3 || B.shape.size() != 2 || C.shape.size() != 3
-			|| A.shape[2] != B.shape[0] || C.shape[0] != A.shape[0]
-			|| C.shape[1] != A.shape[1] || C.shape[2] != B.shape[1])
-			throw std::runtime_error("matmul backward: dimension mismatch");
-		if (A.dtype != B.dtype || A.dtype != C.dtype)
-			throw std::runtime_error("matmul backward: input and output dtypes must match");
-		const int batchSize = A.shape[0];
-		const int timeSize = A.shape[1];
-		const int inputSize = A.shape[2];
-		const int outputSize = B.shape[1];
-		dispatchDType(A.dtype, [&]<typename T>()
-		{
-			Templates::BACKWARD_MATMUL_1B_2D_2D_LINEAR_TEMPLATE<T>(A.dataAs<T>(), B.dataAs<T>(),
-				A.gradAs<T>(), B.gradAs<T>(), C.gradAs<T>(), batchSize, timeSize, inputSize, outputSize);
-		});
-	}
-
-	void GraphRuntime::BACKWARD_MATMUL_GENERIC_B_2D_2D_BROADCAST(Tensor &, Tensor &, Tensor &)
-	{
-		throw std::runtime_error("matmul backward: generic broadcast kernel is not implemented for the NAIVE backend");
-	}
-
-	void GraphRuntime::ADD_1D_LAST(Tensor &A, Tensor &B, Tensor &C)
-	{
-		if (A.shape != B.shape || A.shape != C.shape)
-			throw std::runtime_error("add: 1D kernel requires equal shapes");
-		if (A.size != B.size || A.size != C.size)
-			throw std::runtime_error("add: 1D kernel data size mismatch");
-		if (A.dtype != B.dtype || A.dtype != C.dtype)
-			throw std::runtime_error("add: input and output dtypes must match");
-
-		dispatchDType(A.dtype, [&]<typename T>()
-		{
-			Templates::ADD_1D_LAST_TEMPLATE<T>(
-				A.dataAs<T>(), B.dataAs<T>(), C.dataAs<T>(), A.size);
-		});
-	}
-
-	void GraphRuntime::ADD_2D_LAST(Tensor &A, Tensor &B, Tensor &C)
-	{
-		if (A.shape.size() != 2 || B.shape.size() != 1 || C.shape != A.shape)
-			throw std::runtime_error("add: 2D kernel expects [batch, features] plus [features]");
-
-		const int batchSize = A.shape[0];
-		const int featureCount = A.shape[1];
-		if (B.shape[0] != featureCount
-			|| A.size != static_cast<std::size_t>(batchSize * featureCount)
-			|| C.size != A.size)
-			throw std::runtime_error("add: 2D kernel dimension mismatch");
-		if (A.dtype != B.dtype || A.dtype != C.dtype)
-			throw std::runtime_error("add: input and output dtypes must match");
-
-		dispatchDType(A.dtype, [&]<typename T>()
-		{
-			Templates::ADD_2D_LAST_TEMPLATE<T>(
-				A.dataAs<T>(), B.dataAs<T>(), C.dataAs<T>(), batchSize, featureCount);
-		});
-	}
-
-	void GraphRuntime::ADD_3D_LAST(Tensor &A, Tensor &B, Tensor &C)
-	{
-		if (A.shape.size() != 3 || B.shape.size() != 1 || C.shape != A.shape)
-			throw std::runtime_error("add: 3D kernel expects [batch, time, features] plus [features]");
-
-		const int batchSize = A.shape[0];
-		const int timeSize = A.shape[1];
-		const int featureCount = A.shape[2];
-		const std::size_t expectedSize = static_cast<std::size_t>(batchSize)
-			* static_cast<std::size_t>(timeSize)
-			* static_cast<std::size_t>(featureCount);
-		if (B.shape[0] != featureCount || A.size != expectedSize || C.size != A.size)
-			throw std::runtime_error("add: 3D kernel dimension mismatch");
-		if (A.dtype != B.dtype || A.dtype != C.dtype)
-			throw std::runtime_error("add: input and output dtypes must match");
-
-		dispatchDType(A.dtype, [&]<typename T>()
-		{
-			Templates::ADD_3D_LAST_TEMPLATE<T>(
-				A.dataAs<T>(), B.dataAs<T>(), C.dataAs<T>(),
-				batchSize, timeSize, featureCount);
-		});
-	}
-
-	void GraphRuntime::BACKWARD_ADD_1D_LAST(Tensor &A, Tensor &B, Tensor &C)
-	{
-		if (A.shape != B.shape || A.shape != C.shape
-			|| A.size != B.size || A.size != C.size)
-			throw std::runtime_error("add backward: 1D kernel dimensions do not match");
-		if (A.dtype != B.dtype || A.dtype != C.dtype)
-			throw std::runtime_error("add backward: input and output dtypes must match");
-
-		dispatchDType(A.dtype, [&]<typename T>()
-		{
-			Templates::BACKWARD_ADD_1D_LAST_TEMPLATE<T>(
-				A.gradAs<T>(), B.gradAs<T>(), C.gradAs<T>(), A.size,
-				A.requiresGrad, B.requiresGrad);
-		});
-	}
-
-	void GraphRuntime::BACKWARD_ADD_2D_LAST(Tensor &A, Tensor &B, Tensor &C)
-	{
-		if (A.shape.size() != 2 || B.shape.size() != 1 || C.shape != A.shape)
-			throw std::runtime_error("add backward: 2D kernel shape mismatch");
-
-		const int batchSize = A.shape[0];
-		const int featureCount = A.shape[1];
-		if (B.shape[0] != featureCount || C.size != A.size)
-			throw std::runtime_error("add backward: 2D kernel dimension mismatch");
-		if (A.dtype != B.dtype || A.dtype != C.dtype)
-			throw std::runtime_error("add backward: input and output dtypes must match");
-
-		dispatchDType(A.dtype, [&]<typename T>()
-		{
-			Templates::BACKWARD_ADD_2D_LAST_TEMPLATE<T>(
-				A.gradAs<T>(), B.gradAs<T>(), C.gradAs<T>(),
-				batchSize, featureCount, A.requiresGrad, B.requiresGrad);
-		});
-	}
-
-	void GraphRuntime::BACKWARD_ADD_3D_LAST(Tensor &A, Tensor &B, Tensor &C)
-	{
-		if (A.shape.size() != 3 || B.shape.size() != 1 || C.shape != A.shape)
-			throw std::runtime_error("add backward: 3D kernel shape mismatch");
-
-		const int batchSize = A.shape[0];
-		const int timeSize = A.shape[1];
-		const int featureCount = A.shape[2];
-		if (B.shape[0] != featureCount || C.size != A.size)
-			throw std::runtime_error("add backward: 3D kernel dimension mismatch");
-		if (A.dtype != B.dtype || A.dtype != C.dtype)
-			throw std::runtime_error("add backward: input and output dtypes must match");
-
-		dispatchDType(A.dtype, [&]<typename T>()
-		{
-			Templates::BACKWARD_ADD_3D_LAST_TEMPLATE<T>(
-				A.gradAs<T>(), B.gradAs<T>(), C.gradAs<T>(),
-				batchSize, timeSize, featureCount, A.requiresGrad, B.requiresGrad);
-		});
 	}
 
 	std::size_t GraphRuntime::inputSize() const
