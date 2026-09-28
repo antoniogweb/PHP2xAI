@@ -7,8 +7,8 @@
 
 namespace PHP2xAI::Runtime::CPP
 {
-	// A non-owning view lets backend kernel files use tensor storage without
-	// moving the private Tensor definition out of runtime.cpp.
+	// A non-owning view keeps backend kernels independent from Tensor's owning
+	// storage implementation.
 	struct TensorAccess
 	{
 		DType dtype;

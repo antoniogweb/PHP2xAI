@@ -10,6 +10,7 @@
 #include <utility>
 
 #include "Kernels/TensorAccess.hpp"
+#include "Tensor/Tensor.hpp"
 
 namespace PHP2xAI::Runtime::CPP
 {
@@ -41,13 +42,6 @@ namespace PHP2xAI::Runtime::CPP
 		}
 
 		template <typename T>
-		void fillZeros(T *values, std::size_t count)
-		{
-			for (std::size_t i = 0; i < count; ++i)
-				values[i] = static_cast<T>(0);
-		}
-
-		template <typename T>
 		void copyValues(const T *source, T *destination, std::size_t count)
 		{
 			for (std::size_t i = 0; i < count; ++i)
@@ -65,248 +59,6 @@ namespace PHP2xAI::Runtime::CPP
 			}
 		}
 	}
-
-	// Owns one typed allocation. Keeping its deleter beside the pointer means the
-	// matching delete[] is used when the Tensor is destroyed or resized.
-	struct TensorBuffer
-	{
-		void *pointer;
-		void (*deleter)(void *);
-
-		TensorBuffer() : pointer(0), deleter(0) {}
-
-		~TensorBuffer()
-		{
-			clear();
-		}
-
-		TensorBuffer(const TensorBuffer &) = delete;
-		TensorBuffer &operator=(const TensorBuffer &) = delete;
-
-		TensorBuffer(TensorBuffer &&other) : pointer(other.pointer), deleter(other.deleter)
-		{
-			other.pointer = 0;
-			other.deleter = 0;
-		}
-
-		TensorBuffer &operator=(TensorBuffer &&other)
-		{
-			if (this != &other)
-			{
-				clear();
-				pointer = other.pointer;
-				deleter = other.deleter;
-				other.pointer = 0;
-				other.deleter = 0;
-			}
-			return *this;
-		}
-
-		template <typename T>
-		void allocate(std::size_t count)
-		{
-			clear();
-			if (count == 0)
-				return;
-
-			pointer = new T[count];
-			deleter = &deleteArray<T>;
-		}
-
-		void *data()
-		{
-			return pointer;
-		}
-
-		const void *data() const
-		{
-			return pointer;
-		}
-
-	private:
-		template <typename T>
-		static void deleteArray(void *memory)
-		{
-			delete[] static_cast<T *>(memory);
-		}
-
-		void clear()
-		{
-			if (pointer != 0 && deleter != 0)
-				deleter(pointer);
-			pointer = 0;
-			deleter = 0;
-		}
-	};
-
-	// Tensor is intentionally defined only in this file. Its two memory buffers
-	// are RAII-owned and can hold any dtype supported by the graph format.
-	struct Tensor
-	{
-		int id;
-		DType dtype;
-		std::string kind;
-		std::string name;
-		std::vector<int> shape;
-		std::vector<int> strides;
-		bool requiresGrad;
-		void *data;
-		void *grad;
-		TensorBuffer dataOwner;
-		TensorBuffer gradOwner;
-		std::size_t size;
-
-		Tensor()
-			: id(-1), dtype(DType::FLOAT32), requiresGrad(false), data(0), grad(0), size(0)
-		{
-		}
-
-		void allocate(DType tensorDType, std::size_t elementSize)
-		{
-			dtype = tensorDType;
-			size = elementSize;
-
-			// Allocate real objects of the requested type, not just untyped bytes.
-			// dataAs<T>() can therefore safely expose a pointer to typed elements.
-				switch (dtype)
-			{
-				case DType::FLOAT32:
-					dataOwner.allocate<float>(size);
-					gradOwner.allocate<float>(size);
-					break;
-				case DType::FLOAT64:
-					dataOwner.allocate<double>(size);
-					gradOwner.allocate<double>(size);
-					break;
-				case DType::INT32:
-					dataOwner.allocate<std::int32_t>(size);
-					gradOwner.allocate<std::int32_t>(size);
-					break;
-				case DType::INT64:
-					dataOwner.allocate<std::int64_t>(size);
-					gradOwner.allocate<std::int64_t>(size);
-					break;
-			}
-
-			// These public-to-the-runtime pointers are non-owning views. The two
-			// TensorBuffer members above remain responsible for releasing memory.
-			data = dataOwner.data();
-			grad = gradOwner.data();
-			fillStorageWithZeros(data);
-			fillStorageWithZeros(grad);
-		}
-
-		template <typename T>
-		T *dataAs()
-		{
-			return static_cast<T *>(data);
-		}
-
-		template <typename T>
-		const T *dataAs() const
-		{
-			return static_cast<const T *>(data);
-		}
-
-		template <typename T>
-		T *gradAs()
-		{
-			return static_cast<T *>(grad);
-		}
-
-		template <typename T>
-		const T *gradAs() const
-		{
-			return static_cast<const T *>(grad);
-		}
-
-		Scalar readData(std::size_t index) const
-		{
-			checkIndex(index);
-			switch (dtype)
-			{
-				case DType::FLOAT32: return static_cast<Scalar>(dataAs<float>()[index]);
-				case DType::FLOAT64: return static_cast<Scalar>(dataAs<double>()[index]);
-				case DType::INT32: return static_cast<Scalar>(dataAs<std::int32_t>()[index]);
-				case DType::INT64: return static_cast<Scalar>(dataAs<std::int64_t>()[index]);
-			}
-			throw std::runtime_error("Invalid tensor dtype");
-		}
-
-		Scalar readGrad(std::size_t index) const
-		{
-			checkIndex(index);
-			switch (dtype)
-			{
-				case DType::FLOAT32: return static_cast<Scalar>(gradAs<float>()[index]);
-				case DType::FLOAT64: return static_cast<Scalar>(gradAs<double>()[index]);
-				case DType::INT32: return static_cast<Scalar>(gradAs<std::int32_t>()[index]);
-				case DType::INT64: return static_cast<Scalar>(gradAs<std::int64_t>()[index]);
-			}
-			throw std::runtime_error("Invalid tensor dtype");
-		}
-
-		void writeData(std::size_t index, Scalar value)
-		{
-			checkIndex(index);
-			switch (dtype)
-			{
-				case DType::FLOAT32: dataAs<float>()[index] = static_cast<float>(value); break;
-				case DType::FLOAT64: dataAs<double>()[index] = static_cast<double>(value); break;
-				case DType::INT32: dataAs<std::int32_t>()[index] = static_cast<std::int32_t>(value); break;
-				case DType::INT64: dataAs<std::int64_t>()[index] = static_cast<std::int64_t>(value); break;
-			}
-		}
-
-		void writeGrad(std::size_t index, Scalar value)
-		{
-			checkIndex(index);
-			switch (dtype)
-			{
-				case DType::FLOAT32: gradAs<float>()[index] = static_cast<float>(value); break;
-				case DType::FLOAT64: gradAs<double>()[index] = static_cast<double>(value); break;
-				case DType::INT32: gradAs<std::int32_t>()[index] = static_cast<std::int32_t>(value); break;
-				case DType::INT64: gradAs<std::int64_t>()[index] = static_cast<std::int64_t>(value); break;
-			}
-		}
-
-		void fillStorageWithZeros(void *buffer)
-		{
-			switch (dtype)
-			{
-				case DType::FLOAT32: fillZeros(static_cast<float *>(buffer), size); break;
-				case DType::FLOAT64: fillZeros(static_cast<double *>(buffer), size); break;
-				case DType::INT32: fillZeros(static_cast<std::int32_t *>(buffer), size); break;
-				case DType::INT64: fillZeros(static_cast<std::int64_t *>(buffer), size); break;
-			}
-		}
-
-		void fillGradWithZeros()
-		{
-			// Select the typed pointer once per tensor, then clear its elements.
-			switch (dtype)
-			{
-				case DType::FLOAT32:
-					fillZeros(gradAs<float>(), size);
-					break;
-				case DType::FLOAT64:
-					fillZeros(gradAs<double>(), size);
-					break;
-				case DType::INT32:
-					fillZeros(gradAs<std::int32_t>(), size);
-					break;
-				case DType::INT64:
-					fillZeros(gradAs<std::int64_t>(), size);
-					break;
-			}
-		}
-
-		void checkIndex(std::size_t index) const
-		{
-			if (index >= size)
-				throw std::out_of_range("Tensor element index out of range");
-		}
-	};
 
 	namespace
 	{
@@ -355,8 +107,8 @@ namespace PHP2xAI::Runtime::CPP
 		}
 	}
 
-	// Give kernel implementation files a small non-owning view of Tensor while
-	// keeping the owning Tensor definition private to this translation unit.
+	// Give kernel implementation files a small non-owning view of the tensor
+	// storage without exposing ownership details through that view.
 	TensorAccess accessTensor(Tensor &tensor)
 	{
 		return TensorAccess{

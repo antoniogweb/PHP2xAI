@@ -16,6 +16,8 @@ BINDIR := Bin/$(PLATFORM)
 CPP_SOURCES := \
 	Core/Core.cpp \
 	Core/runtime.cpp \
+	Core/Tensor/Tensor.cpp \
+	Core/Tensor/TensorBuffer.cpp \
 	Core/Kernels/NAIVE/add.cpp \
 	Core/Kernels/NAIVE/matmul.cpp \
 	Core/Kernels/NAIVE/relu.cpp \

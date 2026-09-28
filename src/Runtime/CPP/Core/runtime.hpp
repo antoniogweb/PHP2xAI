@@ -15,7 +15,7 @@ namespace PHP2xAI::Runtime::CPP
 {
 	using nlohmann::json;
 
-	// Tensor is implemented in runtime.cpp; kernels only need references to it.
+	// Tensor's definition lives in Core/Tensor/Tensor.hpp.
 	struct Tensor;
 
 	// The numeric values match Tensor.php and the HDF5 dataset format.
@@ -57,7 +57,7 @@ namespace PHP2xAI::Runtime::CPP
 		std::vector<Scalar> getLoss() const;
 		Scalar getError() const;
 
-		// Tensor inspection and optimizer access. Tensor's storage type stays private.
+		// Tensor inspection and optimizer access use Scalar at the public boundary.
 		std::vector<int> getTensorShape(int id) const;
 		std::size_t getTensorSize(int id) const;
 		int getTensorDType(int id) const;
