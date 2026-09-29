@@ -2,6 +2,8 @@
 
 #include <stdexcept>
 
+#include "../Kernels/DTypeDispatch.hpp"
+
 namespace PHP2xAI::Runtime::CPP
 {
 	namespace
@@ -58,62 +60,49 @@ namespace PHP2xAI::Runtime::CPP
 	Scalar Tensor::readData(std::size_t index) const
 	{
 		checkIndex(index);
-		switch (dtype)
+		Scalar value = 0.0f;
+		dispatchDType(dtype, [&]<typename T>()
 		{
-			case DType::FLOAT32: return static_cast<Scalar>(dataAs<float>()[index]);
-			case DType::FLOAT64: return static_cast<Scalar>(dataAs<double>()[index]);
-			case DType::INT32: return static_cast<Scalar>(dataAs<std::int32_t>()[index]);
-			case DType::INT64: return static_cast<Scalar>(dataAs<std::int64_t>()[index]);
-		}
-		throw std::runtime_error("Invalid tensor dtype");
+			value = static_cast<Scalar>(dataAs<T>()[index]);
+		});
+		return value;
 	}
 
 	Scalar Tensor::readGrad(std::size_t index) const
 	{
 		checkIndex(index);
-		switch (dtype)
+		Scalar value = 0.0f;
+		dispatchDType(dtype, [&]<typename T>()
 		{
-			case DType::FLOAT32: return static_cast<Scalar>(gradAs<float>()[index]);
-			case DType::FLOAT64: return static_cast<Scalar>(gradAs<double>()[index]);
-			case DType::INT32: return static_cast<Scalar>(gradAs<std::int32_t>()[index]);
-			case DType::INT64: return static_cast<Scalar>(gradAs<std::int64_t>()[index]);
-		}
-		throw std::runtime_error("Invalid tensor dtype");
+			value = static_cast<Scalar>(gradAs<T>()[index]);
+		});
+		return value;
 	}
 
 	void Tensor::writeData(std::size_t index, Scalar value)
 	{
 		checkIndex(index);
-		switch (dtype)
+		dispatchDType(dtype, [&]<typename T>()
 		{
-			case DType::FLOAT32: dataAs<float>()[index] = static_cast<float>(value); break;
-			case DType::FLOAT64: dataAs<double>()[index] = static_cast<double>(value); break;
-			case DType::INT32: dataAs<std::int32_t>()[index] = static_cast<std::int32_t>(value); break;
-			case DType::INT64: dataAs<std::int64_t>()[index] = static_cast<std::int64_t>(value); break;
-		}
+			dataAs<T>()[index] = static_cast<T>(value);
+		});
 	}
 
 	void Tensor::writeGrad(std::size_t index, Scalar value)
 	{
 		checkIndex(index);
-		switch (dtype)
+		dispatchDType(dtype, [&]<typename T>()
 		{
-			case DType::FLOAT32: gradAs<float>()[index] = static_cast<float>(value); break;
-			case DType::FLOAT64: gradAs<double>()[index] = static_cast<double>(value); break;
-			case DType::INT32: gradAs<std::int32_t>()[index] = static_cast<std::int32_t>(value); break;
-			case DType::INT64: gradAs<std::int64_t>()[index] = static_cast<std::int64_t>(value); break;
-		}
+			gradAs<T>()[index] = static_cast<T>(value);
+		});
 	}
 
 	void Tensor::fillStorageWithZeros(void *buffer)
 	{
-		switch (dtype)
+		dispatchDType(dtype, [&]<typename T>()
 		{
-			case DType::FLOAT32: fillZeros(static_cast<float *>(buffer), size); break;
-			case DType::FLOAT64: fillZeros(static_cast<double *>(buffer), size); break;
-			case DType::INT32: fillZeros(static_cast<std::int32_t *>(buffer), size); break;
-			case DType::INT64: fillZeros(static_cast<std::int64_t *>(buffer), size); break;
-		}
+			fillZeros(static_cast<T *>(buffer), size);
+		});
 	}
 
 	void Tensor::fillGradWithZeros()
