@@ -18,15 +18,6 @@ namespace PHP2xAI::Runtime::CPP
 	// Tensor's definition lives in Core/Tensor/Tensor.hpp.
 	struct Tensor;
 
-	// The numeric values match Tensor.php and the HDF5 dataset format.
-	enum class DType : int
-	{
-		FLOAT32 = 1,
-		FLOAT64 = 2,
-		INT32 = 3,
-		INT64 = 4
-	};
-
 	enum class ExecutionMode
 	{
 		TRAIN,
