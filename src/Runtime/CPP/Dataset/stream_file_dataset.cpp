@@ -11,6 +11,7 @@
 #include <iostream>
 
 #include "stream_file_dataset.hpp"
+#include "../Core/Kernels/DTypeDispatch.hpp"
 
 namespace PHP2xAI::Runtime::CPP
 {
@@ -34,17 +35,6 @@ namespace PHP2xAI::Runtime::CPP
 		resetOrder_();
 			resetEpoch_();
 		}
-
-	void StreamFileDataset::printVec(const char* label, const std::vector<float>& v)
-	{
-		std::cout << label << "=[";
-		for (std::size_t i = 0; i < v.size(); ++i)
-		{
-			std::cout << v[i];
-			if (i + 1 < v.size()) std::cout << ' ';
-		}
-		std::cout << "]";
-	}
 
 	std::size_t StreamFileDataset::numBatches() const { return batchOffsets_.size(); }
 	std::string StreamFileDataset::getType() const { return "TXT"; }
@@ -71,44 +61,55 @@ namespace PHP2xAI::Runtime::CPP
 		return true;
 	}
 
-	bool StreamFileDataset::nextSampleInBatch(std::vector<float>& x, std::vector<float>& y)
+	bool StreamFileDataset::nextSampleRaw(void* xVector, DType xDType, void* yVector, DType yDType)
 	{
-		x.clear();
-		y.clear();
-
-		while (true) {
-			if (curInBatch_ >= batchSize_)
+		bool found = false;
+		dispatchDType(xDType, [&]<typename X>()
+		{
+			dispatchDType(yDType, [&]<typename Y>()
 			{
-				++curBatchPos_;
-				return false;
-			}
+				auto& x = *static_cast<std::vector<X>*>(xVector);
+				auto& y = *static_cast<std::vector<Y>*>(yVector);
+				x.clear();
+				y.clear();
 
-			std::string line;
-			if (!std::getline(file_, line))
-			{
-				++curBatchPos_;
-				return false;
-			}
+				while (true)
+				{
+					if (curInBatch_ >= batchSize_)
+					{
+						++curBatchPos_;
+						return;
+					}
 
-			if (isBlank_(line))
-			{
-				continue;
-			}
+					std::string line;
+					if (!std::getline(file_, line))
+					{
+						++curBatchPos_;
+						return;
+					}
 
-			parseLineXY_(line, x, y);
-			++curInBatch_;
-			return true;
-		}
+					if (isBlank_(line))
+						continue;
+
+					parseLineXY_(line, x, y);
+					++curInBatch_;
+					found = true;
+					return;
+				}
+			});
+		});
+		return found;
 	}
 
-	void StreamFileDataset::pack(std::vector<float>& xPacked, std::vector<float>& yPacked)
+	void StreamFileDataset::packRaw(
+		void* xVector, void* yVector)
 	{
+		auto& xPacked = *static_cast<std::vector<Scalar>*>(xVector);
+		auto& yPacked = *static_cast<std::vector<Scalar>*>(yVector);
 		xPacked.clear();
 		yPacked.clear();
-
-		std::vector<float> x;
-		std::vector<float> y;
-
+		std::vector<Scalar> x;
+		std::vector<Scalar> y;
 		while (true)
 		{
 			if (curInBatch_ >= batchSize_)
@@ -125,15 +126,11 @@ namespace PHP2xAI::Runtime::CPP
 			}
 
 			if (isBlank_(line))
-			{
 				continue;
-			}
 
 			parseLineXY_(line, x, y);
-
 			xPacked.insert(xPacked.end(), x.begin(), x.end());
 			yPacked.insert(yPacked.end(), y.begin(), y.end());
-
 			++curInBatch_;
 		}
 	}
@@ -203,7 +200,8 @@ namespace PHP2xAI::Runtime::CPP
 		return true;
 	}
 
-	void StreamFileDataset::parseLineXY_(const std::string& line, std::vector<float>& x, std::vector<float>& y) const
+	template <typename X, typename Y>
+	void StreamFileDataset::parseLineXY_(const std::string& line, std::vector<X>& x, std::vector<Y>& y) const
 	{
 		const auto p = line.find(delimiter_);
 		if (p == std::string::npos) {
@@ -212,7 +210,6 @@ namespace PHP2xAI::Runtime::CPP
 
 		std::string_view left(line.data(), p);
 		std::string_view right(line.data() + p + 1, line.size() - (p + 1));
-
 		parseFloatVector_(left, x);
 		parseFloatVector_(right, y);
 
@@ -221,12 +218,14 @@ namespace PHP2xAI::Runtime::CPP
 		}
 	}
 
-	void StreamFileDataset::parseFloatVector_(std::string_view sv, std::vector<float>& out)
+	template <typename T>
+	void StreamFileDataset::parseFloatVector_(std::string_view sv, std::vector<T>& out)
 	{
 		out.clear();
 		std::string s(sv);
 		std::istringstream iss(s);
-		float v;
-		while (iss >> v) out.push_back(v);
+		std::string value;
+		while (iss >> value)
+			out.push_back(static_cast<T>(std::stold(value)));
 	}
 }

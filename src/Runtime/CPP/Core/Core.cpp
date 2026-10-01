@@ -10,9 +10,31 @@
 #include "../Dataset/HDF5Dataset.hpp"
 #include "../Utility/Utility.hpp"
 #include "../Utility/ProfileWriter.hpp"
+#include "Kernels/DTypeDispatch.hpp"
 
 namespace PHP2xAI::Runtime::CPP
 {
+	namespace
+	{
+		void packAndSetBatch(BatchDataset& dataset, GraphRuntime& graph)
+		{
+			const auto inputDType = static_cast<DType>(graph.getInputDType());
+			const auto targetDType = static_cast<DType>(graph.getTargetDType());
+
+			dispatchDType(inputDType, [&]<typename X>()
+			{
+				dispatchDType(targetDType, [&]<typename Y>()
+				{
+					std::vector<X> x;
+					std::vector<Y> y;
+					dataset.pack(x, y);
+					graph.setInput(x);
+					graph.setTarget(y);
+				});
+			});
+		}
+	}
+
 	Core::Core(const std::string &provider, const std::string &configPath, const std::string &weightsPath)
 		: graphPath_(configPath), weightsPath_(weightsPath), provider_(provider)
 	{
@@ -174,8 +196,6 @@ namespace PHP2xAI::Runtime::CPP
 		auto *graph = graphRuntime_.get();
 		graph->setMode(ExecutionMode::TRAIN);
 
-		std::vector<Scalar> x;
-		std::vector<Scalar> y;
 		auto betterValidationLoss = std::numeric_limits<Scalar>::max();
 		std::size_t profileBatchIndex = 0;
 		
@@ -193,10 +213,7 @@ namespace PHP2xAI::Runtime::CPP
 				graph->resetGrad();
 				graph->setLossGrad(1.0f);
 				
-				dataset.train.pack(x, y);
-				
-				graph->setInput(x);
-				graph->setTarget(y);
+				packAndSetBatch(dataset.train, *graph);
 				graph->forward();
 				
 				const auto error = graph->getError();
@@ -253,8 +270,6 @@ namespace PHP2xAI::Runtime::CPP
 		auto *graph = graphRuntime_.get();
 		graph->setMode(ExecutionMode::INFER);
 
-		std::vector<Scalar> x;
-		std::vector<Scalar> y;
 		Scalar loss = 0.0f;
 		std::size_t count = 0;
 
@@ -264,10 +279,7 @@ namespace PHP2xAI::Runtime::CPP
 		{
 			while (dataset.nextBatch())
 			{
-				dataset.pack(x, y);
-				
-				graph->setInput(x);
-				graph->setTarget(y);
+				packAndSetBatch(dataset, *graph);
 				graph->forward();
 				
 				loss += graph->getError();

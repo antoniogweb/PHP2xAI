@@ -1389,22 +1389,25 @@ namespace PHP2xAI::Runtime::CPP
 		return getTensorSize(impl_->outputId);
 	}
 
-	void GraphRuntime::setInput(const std::vector<Scalar> &values)
+	Tensor &GraphRuntime::inputTensor()
 	{
-		Tensor &input = impl_->tensor(impl_->inputId);
-		if (values.size() != input.size)
-			throw std::invalid_argument("Input data size does not match input tensor shape");
-		for (std::size_t i = 0; i < values.size(); ++i)
-			input.writeData(i, values[i]);
+		return impl_->tensor(impl_->inputId);
 	}
 
-	void GraphRuntime::setTarget(const std::vector<Scalar> &values)
+	Tensor &GraphRuntime::targetTensor()
 	{
-		Tensor &target = impl_->tensor(impl_->targetId);
-		if (values.size() != target.size)
-			throw std::invalid_argument("Target data size does not match target tensor shape");
-		for (std::size_t i = 0; i < values.size(); ++i)
-			target.writeData(i, values[i]);
+		return impl_->tensor(impl_->targetId);
+	}
+
+
+	int GraphRuntime::getInputDType() const
+	{
+		return getTensorDType(impl_->inputId);
+	}
+
+	int GraphRuntime::getTargetDType() const
+	{
+		return getTensorDType(impl_->targetId);
 	}
 
 	std::vector<Scalar> GraphRuntime::getOutput() const

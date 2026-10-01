@@ -6,17 +6,14 @@
 #include <vector>
 #include <cstdint>
 
+#include "../types.hpp"
+
 
 class PHP2XAIHDF5
 {
 public:
 
-    enum DType {
-        FLOAT32 = 1,
-        FLOAT64 = 2,
-        INT32   = 3,
-        INT64   = 4
-    };
+    using DType = PHP2xAI::Runtime::CPP::DType;
 
 
     struct FieldMetadata {

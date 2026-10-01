@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-#include "../runtime.hpp"
+#include "../../types.hpp"
 #include "TensorBuffer.hpp"
 
 namespace PHP2xAI::Runtime::CPP

@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <fstream>
+#include <iostream>
 #include <random>
 #include <string>
 #include <string_view>
@@ -30,13 +31,32 @@ namespace PHP2xAI::Runtime::CPP
 		bool nextBatch() override;
 
 		// Equivalente del foreach($batch as [$x,$y])
-		bool nextSampleInBatch(std::vector<float>& x, std::vector<float>& y);
+		template <typename X, typename Y>
+		bool nextSampleInBatch(std::vector<X>& x, std::vector<Y>& y)
+		{
+			return nextSampleRaw(&x, dtypeOf<X>(), &y, dtypeOf<Y>());
+		}
 
 		// Pack del batch corrente in row-major: ritorna xPacked e yPacked
-		void pack(std::vector<float>& xPacked, std::vector<float>& yPacked) override;
+		template <typename X, typename Y>
+		void pack(std::vector<X>& xPacked, std::vector<Y>& yPacked)
+		{
+			BatchDataset::pack(xPacked, yPacked);
+		}
 		
 		// Print the vector
-		static void printVec(const char* label, const std::vector<float>& v);
+		template <typename T>
+		static void printVec(const char* label, const std::vector<T>& v)
+		{
+			std::cout << label << "=[";
+			for (std::size_t i = 0; i < v.size(); ++i)
+			{
+				std::cout << v[i];
+				if (i + 1 < v.size())
+					std::cout << ' ';
+			}
+			std::cout << "]";
+		}
 
 	private:
 		std::string path_;
@@ -52,13 +72,18 @@ namespace PHP2xAI::Runtime::CPP
 		std::size_t curInBatch_ = 0;               // sample letti nel batch corrente
 		std::size_t numLines_ = 0;
 
+		void packRaw(void* xVector, void* yVector) override;
+		bool nextSampleRaw(void* xVector, DType xDType, void* yVector, DType yDType);
+
 		void resetOrder_();
 		void resetEpoch_();
 		void buildBatchOffsets_();
 		void seekToBatchStart_(std::size_t batchId);
 
 		static bool isBlank_(const std::string& s);
-		void parseLineXY_(const std::string& line, std::vector<float>& x, std::vector<float>& y) const;
-		static void parseFloatVector_(std::string_view sv, std::vector<float>& out);
+		template <typename X, typename Y>
+		void parseLineXY_(const std::string& line, std::vector<X>& x, std::vector<Y>& y) const;
+		template <typename T>
+		static void parseFloatVector_(std::string_view sv, std::vector<T>& out);
 	};
 }

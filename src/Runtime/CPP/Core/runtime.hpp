@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -10,13 +11,11 @@
 
 #include "../types.hpp"
 #include "../Utility/Profiler.hpp"
+#include "Tensor/Tensor.hpp"
 
 namespace PHP2xAI::Runtime::CPP
 {
 	using nlohmann::json;
-
-	// Tensor's definition lives in Core/Tensor/Tensor.hpp.
-	struct Tensor;
 
 	enum class ExecutionMode
 	{
@@ -42,8 +41,18 @@ namespace PHP2xAI::Runtime::CPP
 		// Graph input/output helpers used by Core and the FFI layer.
 		std::size_t inputSize() const;
 		std::size_t outputSize() const;
-		void setInput(const std::vector<Scalar> &values);
-		void setTarget(const std::vector<Scalar> &values);
+		template <typename T>
+		void setInput(const std::vector<T> &values)
+		{
+			setTensorValues(inputTensor(), values, true);
+		}
+		template <typename T>
+		void setTarget(const std::vector<T> &values)
+		{
+			setTensorValues(targetTensor(), values, false);
+		}
+		int getInputDType() const;
+		int getTargetDType() const;
 		std::vector<Scalar> getOutput() const;
 		std::vector<Scalar> getLoss() const;
 		Scalar getError() const;
@@ -73,6 +82,26 @@ namespace PHP2xAI::Runtime::CPP
 	private:
 		struct Impl;
 		std::unique_ptr<Impl> impl_;
+
+		Tensor &inputTensor();
+		Tensor &targetTensor();
+
+		template <typename T>
+		void setTensorValues(Tensor &tensor, const std::vector<T> &values, bool input)
+		{
+			if (values.size() != tensor.size)
+				throw std::invalid_argument(input
+					? "Input data size does not match input tensor shape"
+					: "Target data size does not match target tensor shape");
+			if (tensor.dtype != dtypeOf<T>())
+				throw std::invalid_argument(input
+					? "Input data dtype does not match input tensor dtype"
+					: "Target data dtype does not match target tensor dtype");
+
+			T *tensorValues = tensor.dataAs<T>();
+			for (std::size_t i = 0; i < values.size(); ++i)
+				tensorValues[i] = values[i];
+		}
 
 		void opAdd(int aId, int bId, int outId, const std::string &kernel);
 		void backwardAdd(int aId, int bId, int outId, const std::string &kernel);

@@ -83,16 +83,16 @@ hid_t PHP2XAIHDF5::getHDF5Type(
 {
     switch (dtype) {
 
-        case FLOAT32:
+        case DType::FLOAT32:
             return H5T_NATIVE_FLOAT;
 
-        case FLOAT64:
+        case DType::FLOAT64:
             return H5T_NATIVE_DOUBLE;
 
-        case INT32:
+        case DType::INT32:
             return H5T_NATIVE_INT32;
 
-        case INT64:
+        case DType::INT64:
             return H5T_NATIVE_INT64;
 
         default:
@@ -118,11 +118,11 @@ PHP2XAIHDF5::getDType(
     if (typeClass == H5T_FLOAT) {
 
         if (size == 4) {
-            return FLOAT32;
+            return DType::FLOAT32;
         }
 
         if (size == 8) {
-            return FLOAT64;
+            return DType::FLOAT64;
         }
     }
 
@@ -130,11 +130,11 @@ PHP2XAIHDF5::getDType(
     if (typeClass == H5T_INTEGER) {
 
         if (size == 4) {
-            return INT32;
+            return DType::INT32;
         }
 
         if (size == 8) {
-            return INT64;
+            return DType::INT64;
         }
     }
 
@@ -151,12 +151,12 @@ size_t PHP2XAIHDF5::getDTypeSize(
 {
     switch (dtype) {
 
-        case FLOAT32:
-        case INT32:
+        case DType::FLOAT32:
+        case DType::INT32:
             return 4;
 
-        case FLOAT64:
-        case INT64:
+        case DType::FLOAT64:
+        case DType::INT64:
             return 8;
 
         default:

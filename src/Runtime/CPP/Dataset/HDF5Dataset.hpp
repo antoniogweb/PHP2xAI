@@ -30,7 +30,6 @@ namespace PHP2xAI::Runtime::CPP
 		void shuffleEpoch() override;
 		void resetEpoch() override;
 		bool nextBatch() override;
-		void pack(std::vector<float>& xPacked, std::vector<float>& yPacked) override;
 
 	private:
 		std::unique_ptr<PHP2XAIHDF5> dataset_;
@@ -48,12 +47,15 @@ namespace PHP2xAI::Runtime::CPP
 		std::vector<std::int64_t> currentIndices_;
 		std::size_t batchPosition_ = 0;
 
+		void packRaw(void* xVector, void* yVector) override;
+
 		static std::size_t elementCount(const std::vector<std::int64_t>& shape);
-		void readFieldAsFloat(
+		template <typename T>
+		void readField(
 			const std::string& field,
-			PHP2XAIHDF5::DType dtype,
+			DType fieldDType,
 			std::size_t elementsPerSample,
 			const std::vector<std::int64_t>& indices,
-			std::vector<float>& output) const;
+			std::vector<T>& output) const;
 	};
 }

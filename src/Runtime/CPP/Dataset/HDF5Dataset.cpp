@@ -1,4 +1,5 @@
 #include "HDF5Dataset.hpp"
+#include "../Core/Kernels/DTypeDispatch.hpp"
 
 #include <algorithm>
 #include <limits>
@@ -86,13 +87,24 @@ namespace PHP2xAI::Runtime::CPP
 		return true;
 	}
 
-	void HDF5Dataset::pack(std::vector<float>& xPacked, std::vector<float>& yPacked)
+	void HDF5Dataset::packRaw(
+		void* xVector, void* yVector)
 	{
 		if (currentIndices_.empty())
 			throw std::runtime_error("Call nextBatch() before pack()");
 
-		readFieldAsFloat(xField_, xMetadata_.dtype, xElementsPerSample_, currentIndices_, xPacked);
-		readFieldAsFloat(yField_, yMetadata_.dtype, yElementsPerSample_, currentIndices_, yPacked);
+		dispatchDType(xMetadata_.dtype, [&]<typename X>()
+		{
+			auto& xPacked = *static_cast<std::vector<X>*>(xVector);
+			readField<X>(xField_, xMetadata_.dtype,
+				xElementsPerSample_, currentIndices_, xPacked);
+		});
+		dispatchDType(yMetadata_.dtype, [&]<typename Y>()
+		{
+			auto& yPacked = *static_cast<std::vector<Y>*>(yVector);
+			readField<Y>(yField_, yMetadata_.dtype,
+				yElementsPerSample_, currentIndices_, yPacked);
+		});
 
 		++batchPosition_;
 		currentIndices_.clear();
@@ -116,42 +128,22 @@ namespace PHP2xAI::Runtime::CPP
 		return count;
 	}
 
-	void HDF5Dataset::readFieldAsFloat(
+	template <typename T>
+	void HDF5Dataset::readField(
 		const std::string& field,
-		PHP2XAIHDF5::DType dtype,
+		DType fieldDType,
 		std::size_t elementsPerSample,
 		const std::vector<std::int64_t>& indices,
-		std::vector<float>& output) const
+		std::vector<T>& output) const
 	{
 		if (indices.size() > std::numeric_limits<std::size_t>::max() / elementsPerSample)
 			throw std::runtime_error("HDF5 output buffer is too large");
 		const std::size_t valueCount = indices.size() * elementsPerSample;
 
-		auto readAndConvert = [&](auto value) {
-			using Value = decltype(value);
-			std::vector<Value> values(valueCount);
-			dataset_->readIndices(field, indices, values.data());
-			output.resize(valueCount);
-			std::transform(values.begin(), values.end(), output.begin(),
-				[](Value item) { return static_cast<float>(item); });
-		};
+		if (fieldDType != dtypeOf<T>())
+			throw std::runtime_error("HDF5 field dtype does not match tensor dtype: " + field);
 
-		switch (dtype)
-		{
-			case PHP2XAIHDF5::FLOAT32:
-				readAndConvert(float{});
-				break;
-			case PHP2XAIHDF5::FLOAT64:
-				readAndConvert(double{});
-				break;
-			case PHP2XAIHDF5::INT32:
-				readAndConvert(std::int32_t{});
-				break;
-			case PHP2XAIHDF5::INT64:
-				readAndConvert(std::int64_t{});
-				break;
-			default:
-				throw std::runtime_error("Unsupported HDF5 dtype");
-		}
+		output.resize(valueCount);
+		dataset_->readIndices(field, indices, output.data());
 	}
 }
