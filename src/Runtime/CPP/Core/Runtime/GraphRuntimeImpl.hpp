@@ -1,6 +1,7 @@
 #include "../../types.hpp"
 #include "../runtime.hpp"
 #include "../Tensor/Tensor.hpp"
+#include "../Kernels/DTypeDispatch.hpp"
 
 namespace PHP2xAI::Runtime::CPP
 {
@@ -261,21 +262,10 @@ namespace PHP2xAI::Runtime::CPP
 			// avoids rounding FLOAT64 values through the current Scalar alias (float).
 			for (std::size_t i = 0; i < tensorValue.size; ++i)
 			{
-				switch (tensorValue.dtype)
+				dispatchDType(tensorValue.dtype, [&]<typename T>()
 				{
-					case DType::FLOAT32:
-						tensorValue.dataAs<float>()[i] = values[i].get<float>();
-						break;
-					case DType::FLOAT64:
-						tensorValue.dataAs<double>()[i] = values[i].get<double>();
-						break;
-					case DType::INT32:
-						tensorValue.dataAs<std::int32_t>()[i] = values[i].get<std::int32_t>();
-						break;
-					case DType::INT64:
-						tensorValue.dataAs<std::int64_t>()[i] = values[i].get<std::int64_t>();
-						break;
-				}
+					tensorValue.dataAs<T>()[i] = values[i].get<T>();
+				});
 			}
 		}
 
