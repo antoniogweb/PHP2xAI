@@ -11,6 +11,7 @@
 #include "../Utility/Utility.hpp"
 #include "../Utility/ProfileWriter.hpp"
 #include "Kernels/DTypeDispatch.hpp"
+#include "Tensor/Tensor.hpp"
 
 namespace PHP2xAI::Runtime::CPP
 {
@@ -181,7 +182,16 @@ namespace PHP2xAI::Runtime::CPP
 		
 		auto *graph = graphRuntime_.get();
 		graph->setMode(ExecutionMode::INFER);
-		graph->setInput(x);
+		
+		// We have now to insert values as Scalar since this method is called by means of PHP
+		int inputId = graph->getInputId();
+		
+		for (std::size_t i = 0; i < x.size(); ++i)
+		{
+			graph->setTensorDataValue(inputId, i, x[i]);
+		}
+		
+		// graph->setInput(x);
 		graph->forward();
 		
 		return graph->getOutput();

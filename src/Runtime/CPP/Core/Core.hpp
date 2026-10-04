@@ -10,6 +10,7 @@
 #include "../Optimizers/Optimizer.hpp"
 #include <nlohmann/json.hpp>
 #include "runtime.hpp"
+#include "Runtime/GraphRuntimeImpl.hpp"
 
 namespace PHP2xAI::Runtime::CPP
 {

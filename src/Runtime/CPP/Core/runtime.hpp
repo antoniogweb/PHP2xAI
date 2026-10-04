@@ -51,6 +51,7 @@ namespace PHP2xAI::Runtime::CPP
 		{
 			setTensorValues(targetTensor(), values, false);
 		}
+		int getInputId() const;
 		int getInputDType() const;
 		int getTargetDType() const;
 		std::vector<Scalar> getOutput() const;
