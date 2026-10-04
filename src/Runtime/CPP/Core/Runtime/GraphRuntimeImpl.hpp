@@ -274,21 +274,10 @@ namespace PHP2xAI::Runtime::CPP
 			json values = json::array();
 			for (std::size_t i = 0; i < tensorValue.size; ++i)
 			{
-				switch (tensorValue.dtype)
+				dispatchDType(tensorValue.dtype, [&]<typename T>()
 				{
-					case DType::FLOAT32:
-						values.push_back(gradients ? tensorValue.gradAs<float>()[i] : tensorValue.dataAs<float>()[i]);
-						break;
-					case DType::FLOAT64:
-						values.push_back(gradients ? tensorValue.gradAs<double>()[i] : tensorValue.dataAs<double>()[i]);
-						break;
-					case DType::INT32:
-						values.push_back(gradients ? tensorValue.gradAs<std::int32_t>()[i] : tensorValue.dataAs<std::int32_t>()[i]);
-						break;
-					case DType::INT64:
-						values.push_back(gradients ? tensorValue.gradAs<std::int64_t>()[i] : tensorValue.dataAs<std::int64_t>()[i]);
-						break;
-				}
+					values.push_back(gradients ? tensorValue.gradAs<T>()[i] : tensorValue.dataAs<T>()[i]);
+				});
 			}
 			return values;
 		}
